@@ -1,6 +1,6 @@
-# Binaries
-registry
-operator
+# Binaries in root directory
+/registry
+/operator
 
 # Go specific
 *.exe
