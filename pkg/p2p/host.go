@@ -8,13 +8,16 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
 )
 
 type Host struct {
-	host.Host
+	libp2pHost host.Host
 	pingService *ping.PingService
 }
 
@@ -61,9 +64,51 @@ func NewHost(ctx context.Context, cfg *Config) (*Host, error) {
 	}
 
 	return &Host{
-		Host:        h,
+		libp2pHost:  h,
 		pingService: ps,
 	}, nil
+}
+
+// Implement host.Host interface methods to delegate to libp2pHost
+
+func (h *Host) ID() peer.ID {
+	return h.libp2pHost.ID()
+}
+
+func (h *Host) Peerstore() peerstore.Peerstore {
+	return h.libp2pHost.Peerstore()
+}
+
+func (h *Host) Addrs() []multiaddr.Multiaddr {
+	return h.libp2pHost.Addrs()
+}
+
+func (h *Host) Network() network.Network {
+	return h.libp2pHost.Network()
+}
+
+func (h *Host) Connect(ctx context.Context, pi peer.AddrInfo) error {
+	return h.libp2pHost.Connect(ctx, pi)
+}
+
+func (h *Host) SetStreamHandler(pid protocol.ID, handler network.StreamHandler) {
+	h.libp2pHost.SetStreamHandler(pid, handler)
+}
+
+func (h *Host) SetStreamHandlerMatch(pid protocol.ID, match func(protocol.ID) bool, handler network.StreamHandler) {
+	h.libp2pHost.SetStreamHandlerMatch(pid, match, handler)
+}
+
+func (h *Host) RemoveStreamHandler(pid protocol.ID) {
+	h.libp2pHost.RemoveStreamHandler(pid)
+}
+
+func (h *Host) NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error) {
+	return h.libp2pHost.NewStream(ctx, p, pids...)
+}
+
+func (h *Host) Close() error {
+	return h.libp2pHost.Close()
 }
 
 // Connect to a peer with timeout
@@ -157,4 +202,9 @@ func (h *Host) SendMessage(ctx context.Context, to peer.ID, msg string) error {
 	}
 
 	return nil
+}
+
+// GetLibp2pHost returns the underlying libp2p host
+func (h *Host) GetLibp2pHost() host.Host {
+	return h.libp2pHost
 } 

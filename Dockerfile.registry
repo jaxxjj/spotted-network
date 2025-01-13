@@ -28,11 +28,18 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-w -s" \
     -o registry ./cmd/registry
 
+# Install grpcurl
+RUN go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+
 FROM alpine:latest
 
+# Install required tools
 RUN apk add --no-cache netcat-openbsd
+
 WORKDIR /app
 COPY --from=builder /app/registry .
+COPY --from=builder /go/bin/grpcurl /usr/local/bin/
+COPY proto/registry.proto /app/proto/
 
-EXPOSE 9000
+EXPOSE 9000 8000
 CMD ["./registry"] 

@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package registry;
+option go_package = "github.com/galxe/spotted-network/proto";
+
+service Registry {
+  // 获取注册中心ID
+  rpc GetRegistryID(GetRegistryIDRequest) returns (GetRegistryIDResponse) {}
+  
+  // 处理节点加入请求
+  rpc Join(JoinRequest) returns (JoinResponse) {}
+}
+
+message GetRegistryIDRequest {}
+
+message GetRegistryIDResponse {
+  string registry_id = 1;
+}
+
+message JoinRequest {
+  string address = 1;    // 操作节点的以太坊地址
+  string message = 2;    // 加入请求消息
+  string signature = 3;  // 签名
+}
+
+message JoinResponse {
+  bool success = 1;
+  string error = 2;     // 如果失败，返回错误信息
+} 

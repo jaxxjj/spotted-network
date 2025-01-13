@@ -1,29 +1,33 @@
 package operator
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
-	"github.com/galxe/spotted-network/pkg/p2p"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
+
+	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 )
 
 type Node struct {
-	host        *p2p.Host
-	registryID  peer.ID
-	registryAddr string
-	signer      signer.Signer
-
-	// Known operators map stores operator IDs and their addresses
+	host           host.Host
+	registryID     peer.ID
+	registryAddr   string
+	signer         signer.Signer
 	knownOperators map[peer.ID]*peer.AddrInfo
 	operatorsMu    sync.RWMutex
+	pingService    *ping.PingService
 }
 
 func NewNode(registryAddr string, s signer.Signer) (*Node, error) {
@@ -40,14 +44,15 @@ func NewNode(registryAddr string, s signer.Signer) (*Node, error) {
 	}
 
 	// Create a new host with default configuration
-	cfg := &p2p.Config{
-		ListenAddrs: []string{"/ip4/0.0.0.0/tcp/0"},
-	}
-	
-	host, err := p2p.NewHost(context.Background(), cfg)
+	host, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create host: %w", err)
 	}
+
+	// Create ping service
+	pingService := ping.NewPingService(host)
 
 	return &Node{
 		host:           host,
@@ -56,96 +61,104 @@ func NewNode(registryAddr string, s signer.Signer) (*Node, error) {
 		signer:         s,
 		knownOperators: make(map[peer.ID]*peer.AddrInfo),
 		operatorsMu:    sync.RWMutex{},
+		pingService:    pingService,
 	}, nil
 }
 
 func (n *Node) Start() error {
-	// Connect to registry
+	log.Printf("Operator node started with ID: %s", n.host.ID())
+
+	log.Printf("Connecting to registry...")
 	if err := n.connectToRegistry(); err != nil {
-		return fmt.Errorf("failed to connect to registry: %v", err)
+		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
+	log.Printf("Successfully connected to registry")
 
-	// Start message handler first to ensure we don't miss any operator announcements
-	go n.handleMessages()
-
-	// Start health check
+	// Start message handler and health check
+	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
 	go n.healthCheck()
+	log.Printf("Message handler and health check started")
 
-	// Announce ourselves to the registry by opening a stream
-	s, err := n.host.NewStream(context.Background(), n.registryID, "/spotted/1.0.0")
-	if err != nil {
-		return fmt.Errorf("failed to announce to registry: %v", err)
+	// Announce to registry
+	log.Printf("Announcing to registry...")
+	if err := n.announceToRegistry(); err != nil {
+		return fmt.Errorf("failed to announce to registry: %w", err)
 	}
-	s.Close()
+	log.Printf("Successfully announced to registry")
 
-	log.Printf("Operator node started with ID: %s\n", n.host.ID())
 	return nil
 }
 
-func (n *Node) handleMessages() {
-	n.host.SetStreamHandler("/spotted/1.0.0", func(s network.Stream) {
-		defer s.Close()
+func (n *Node) handleMessages(stream network.Stream) {
+	defer stream.Close()
+	
+	reader := bufio.NewReader(stream)
+	log.Printf("New stream opened from: %s", stream.Conn().RemotePeer())
 
-		// Read the message
-		buf := make([]byte, 1024)
-		readN, err := s.Read(buf)
+	for {
+		message, err := reader.ReadString('\n')
 		if err != nil {
-			log.Printf("Error reading from stream: %v\n", err)
+			if err != io.EOF {
+				log.Printf("Error reading from stream: %v", err)
+			}
 			return
 		}
 
-		msg := string(buf[:readN])
-		parts := strings.Split(msg, ":")
-		if len(parts) < 3 || parts[0] != "NEW_OPERATOR" {
-			log.Printf("Invalid message format: %s\n", msg)
-			return
+		message = strings.TrimSpace(message)
+		log.Printf("Received message: %s", message)
+
+		if !strings.HasPrefix(message, "ANNOUNCE ") {
+			log.Printf("Invalid message format, expected ANNOUNCE prefix: %s", message)
+			continue
 		}
 
-		// Parse operator ID
-		operatorID, err := peer.Decode(parts[1])
+		parts := strings.Split(strings.TrimPrefix(message, "ANNOUNCE "), " ")
+		if len(parts) != 2 {
+			log.Printf("Invalid message format: expected 2 parts, got %d", len(parts))
+			continue
+		}
+
+		operatorID, err := peer.Decode(parts[0])
 		if err != nil {
-			log.Printf("Invalid operator ID in message: %v\n", err)
-			return
+			log.Printf("Invalid operator ID %s: %v", parts[0], err)
+			continue
 		}
 
-		// Skip if this is our own ID
-		if operatorID == n.host.ID() {
-			return
-		}
-
-		// Parse addresses
-		addrStrs := strings.Split(parts[2], ",")
-		addrs := make([]multiaddr.Multiaddr, 0, len(addrStrs))
+		addrStrs := strings.Split(parts[1], ",")
+		var addrs []multiaddr.Multiaddr
 		for _, addrStr := range addrStrs {
 			addr, err := multiaddr.NewMultiaddr(addrStr)
 			if err != nil {
-				log.Printf("Invalid address format %s: %v\n", addrStr, err)
+				log.Printf("Invalid address format %s: %v", addrStr, err)
 				continue
 			}
 			addrs = append(addrs, addr)
 		}
 
-		// Add operator to known operators
-		n.operatorsMu.Lock()
-		n.knownOperators[operatorID] = &peer.AddrInfo{
-			ID: operatorID,
+		if len(addrs) == 0 {
+			log.Printf("No valid addresses found for operator %s", operatorID)
+			continue
+		}
+
+		log.Printf("New operator announced: %s with %d addresses", operatorID, len(addrs))
+
+		peerInfo := &peer.AddrInfo{
+			ID:    operatorID,
 			Addrs: addrs,
 		}
+
+		n.operatorsMu.Lock()
+		n.knownOperators[operatorID] = peerInfo
 		n.operatorsMu.Unlock()
 
-		log.Printf("Added new operator %s with addresses %v\n", operatorID, addrs)
-
-		// Try to connect to the new operator
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		if err := n.host.Connect(ctx, peer.AddrInfo{ID: operatorID, Addrs: addrs}); err != nil {
-			log.Printf("Failed to connect to operator %s: %v\n", operatorID, err)
-			return
+		if err := n.host.Connect(ctx, *peerInfo); err != nil {
+			log.Printf("Failed to connect to operator %s: %v", operatorID, err)
+		} else {
+			log.Printf("Successfully connected to operator %s", operatorID)
 		}
-
-		log.Printf("Successfully connected to operator %s\n", operatorID)
-	})
+		cancel()
+	}
 }
 
 func (n *Node) healthCheck() {
@@ -153,11 +166,12 @@ func (n *Node) healthCheck() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := n.host.PingPeer(ctx, n.registryID); err != nil {
-		log.Printf("Failed to ping registry: %v\n", err)
+	result := <-n.pingService.Ping(ctx, n.registryID)
+	if result.Error != nil {
+		log.Printf("Failed to ping registry: %v\n", result.Error)
 		return
 	}
-	log.Printf("Successfully pinged registry\n")
+	log.Printf("Successfully pinged registry (RTT: %v)\n", result.RTT)
 
 	// Ping all known operators
 	n.operatorsMu.RLock()
@@ -174,11 +188,12 @@ func (n *Node) healthCheck() {
 		}
 
 		// Ping the operator
-		if err := n.host.PingPeer(ctx, operatorID); err != nil {
-			log.Printf("Failed to ping operator %s: %v\n", operatorID, err)
+		result := <-n.pingService.Ping(ctx, operatorID)
+		if result.Error != nil {
+			log.Printf("Failed to ping operator %s: %v\n", operatorID, result.Error)
 			continue
 		}
-		log.Printf("Successfully pinged operator %s\n", operatorID)
+		log.Printf("Successfully pinged operator %s (RTT: %v)\n", operatorID, result.RTT)
 	}
 }
 
@@ -211,4 +226,26 @@ func (n *Node) connectToRegistry() error {
 
 func (n *Node) Stop() error {
 	return n.host.Close()
+}
+
+func (n *Node) announceToRegistry() error {
+	stream, err := n.host.NewStream(context.Background(), peer.ID(n.registryID), "/spotted/1.0.0")
+	if err != nil {
+		return fmt.Errorf("failed to open stream to registry: %w", err)
+	}
+	defer stream.Close()
+
+	// Construct announcement message
+	addrStrs := make([]string, 0, len(n.host.Addrs()))
+	for _, addr := range n.host.Addrs() {
+		addrStrs = append(addrStrs, addr.String())
+	}
+	msg := fmt.Sprintf("ANNOUNCE %s %s\n", n.host.ID(), strings.Join(addrStrs, ","))
+	
+	// Write message to stream
+	if _, err := stream.Write([]byte(msg)); err != nil {
+		return fmt.Errorf("failed to write announcement: %w", err)
+	}
+
+	return nil
 } 

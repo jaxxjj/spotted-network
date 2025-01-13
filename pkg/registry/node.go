@@ -1,8 +1,11 @@
 package registry
 
 import (
+	"bufio"
 	"context"
+	"io"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,15 +47,71 @@ func NewNode(ctx context.Context, cfg *p2p.Config) (*Node, error) {
 
 	// Set stream handler for operator connections
 	host.SetStreamHandler("/spotted/1.0.0", func(s network.Stream) {
-		defer s.Close()
-		
 		// Get operator ID from the stream
 		operatorID := s.Conn().RemotePeer()
+		log.Printf("New stream from operator: %s", operatorID)
 		
-		// Add the operator
-		node.AddOperator(operatorID)
-		
-		log.Printf("New operator connected: %s\n", operatorID)
+		// Read and process messages
+		reader := bufio.NewReader(s)
+		for {
+			message, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					log.Printf("Stream closed by operator: %s", operatorID)
+				} else {
+					log.Printf("Error reading from stream: %v", err)
+				}
+				s.Close()
+				return
+			}
+
+			message = strings.TrimSpace(message)
+			log.Printf("Received message from %s: %s", operatorID, message)
+
+			if !strings.HasPrefix(message, "ANNOUNCE ") {
+				log.Printf("Invalid message format from %s, expected ANNOUNCE prefix: %s", operatorID, message)
+				continue
+			}
+
+			parts := strings.Split(strings.TrimPrefix(message, "ANNOUNCE "), " ")
+			if len(parts) != 2 {
+				log.Printf("Invalid message format from %s: expected 2 parts, got %d", operatorID, len(parts))
+				continue
+			}
+
+			// Parse operator addresses
+			addrStrs := strings.Split(parts[1], ",")
+			var addrs []multiaddr.Multiaddr
+			for _, addrStr := range addrStrs {
+				addr, err := multiaddr.NewMultiaddr(addrStr)
+				if err != nil {
+					log.Printf("Invalid address format from %s: %v", operatorID, err)
+					continue
+				}
+				addrs = append(addrs, addr)
+			}
+
+			// Add the operator with its addresses
+			node.operatorsMu.Lock()
+			node.operators[operatorID] = &OperatorInfo{
+				ID:       operatorID,
+				Addrs:    addrs,
+				LastSeen: time.Now(),
+				Status:   "active",
+			}
+			node.operatorsMu.Unlock()
+
+			log.Printf("Operator %s registered with %d addresses", operatorID, len(addrs))
+
+			// Write acknowledgment back to the operator
+			if _, err := s.Write([]byte("OK\n")); err != nil {
+				log.Printf("Error sending acknowledgment to %s: %v", operatorID, err)
+			}
+
+			// After processing ANNOUNCE message, close the stream
+			s.Close()
+			return
+		}
 	})
 
 	// Start health check

@@ -71,7 +71,7 @@ func (s *LocalSigner) GetPublicKey() *ecdsa.PublicKey {
 }
 
 // VerifySignature verifies if the signature was signed by the given address
-func VerifySignature(message []byte, signature []byte, address common.Address) bool {
+func VerifySignature(address common.Address, message []byte, signature []byte) bool {
 	// Hash the message
 	hash := crypto.Keccak256Hash(message)
 

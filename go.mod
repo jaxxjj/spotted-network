@@ -8,6 +8,8 @@ require (
 	github.com/libp2p/go-libp2p v0.38.1
 	github.com/multiformats/go-multiaddr v0.14.0
 	github.com/stretchr/testify v1.10.0
+	google.golang.org/grpc v1.64.0
+	google.golang.org/protobuf v1.36.0
 )
 
 require (
@@ -173,9 +175,7 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	golang.org/x/tools v0.28.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20230711160842-782d3b101e98 // indirect
-	google.golang.org/grpc v1.58.3 // indirect
-	google.golang.org/protobuf v1.36.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240318140521-94a12d6c2237 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/blake3 v1.3.0 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
