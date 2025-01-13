@@ -18,12 +18,27 @@ run-registry:
 	@echo "Starting registry node..."
 	@./registry
 
-# Run operator node (requires registry address)
-run-operator:
-	@echo "Getting registry peer ID..."
-	$(eval REGISTRY_ID := $(shell ./registry 2>&1 | grep "Host ID:" | cut -d' ' -f6))
-	@echo "Starting operator node..."
-	@./operator -registry "/ip4/127.0.0.1/tcp/9000/p2p/$(REGISTRY_ID)"
+# Run registry nodes
+run-registry1:
+	@echo "Starting registry node 1..."
+	@./registry -port 9000
+
+run-registry2:
+	@echo "Starting registry node 2..."
+	@./registry -port 9001
+
+# Run operator nodes (requires registry address)
+run-operator1:
+	@echo "Starting operator node 1..."
+	@./operator -registry "/ip4/127.0.0.1/tcp/9000/p2p/12D3KooWAiHjQh86GPwa3yHakinreSYzFKop2kCW5853zk7kLFpx" -port 10000
+
+run-operator2:
+	@echo "Starting operator node 2..."
+	@./operator -registry "/ip4/127.0.0.1/tcp/9000/p2p/12D3KooWAiHjQh86GPwa3yHakinreSYzFKop2kCW5853zk7kLFpx" -port 10001
+
+run-operator3:
+	@echo "Starting operator node 3..."
+	@./operator -registry "/ip4/127.0.0.1/tcp/9000/p2p/12D3KooWAiHjQh86GPwa3yHakinreSYzFKop2kCW5853zk7kLFpx" -port 10002
 
 # Build and run all (in separate terminals)
 run-all: build

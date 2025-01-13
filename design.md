@@ -2139,6 +2139,367 @@ func (sv *StateValidator) ValidateState() error {
 
 TODO 暂时留接口不实现
 
+## go-p2plib 可能的应用示例
+
+1. 基础网络结构  
+
+```go
+// pkg/p2p/host.go
+
+type P2PHost struct {
+    host host.Host
+    pubsub *pubsub.PubSub
+    dht *dht.IpfsDHT
+    
+    // 配置
+    config *Config
+}
+
+type Config struct {
+    // 监听地址
+    ListenAddrs []string
+    // Bootstrap节点列表
+    BootstrapPeers []string
+    // 私钥路径
+    PrivateKeyPath string
+}
+
+// 创建新的P2P Host
+func NewP2PHost(cfg *Config) (*P2PHost, error) {
+    // 1. 创建libp2p host选项
+    opts := []libp2p.Option{
+        libp2p.ListenAddrStrings(cfg.ListenAddrs...),
+        libp2p.Identity(loadPrivateKey(cfg.PrivateKeyPath)),
+        libp2p.EnableRelay(),
+        libp2p.EnableAutoRelay(),
+        libp2p.NATPortMap(),
+    }
+    
+    // 2. 创建host
+    h, err := libp2p.New(opts...)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 3. 创建DHT
+    dht, err := dht.New(context.Background(), h)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 4. 创建pubsub
+    ps, err := pubsub.NewGossipSub(context.Background(), h)
+    if err != nil {
+        return nil, err
+    }
+    
+    return &P2PHost{
+        host:    h,
+        pubsub:  ps,
+        dht:     dht,
+        config:  cfg,
+    }, nil
+}
+```
+
+1. **Registry Node 网络实现** 
+
+```go
+// pkg/registry/node.go
+
+type RegistryNode struct {
+    p2p *p2p.P2PHost
+    db  *Database
+    
+    // 协议处理器
+    protocols *ProtocolHandlers
+}
+
+// 协议处理器
+type ProtocolHandlers struct {
+    // 节点发现协议
+    discovery *DiscoveryProtocol
+    // 注册协议
+    registration *RegistrationProtocol
+    // 状态同步协议
+    stateSync *StateSyncProtocol
+}
+
+// 设置协议处理器
+func (n *RegistryNode) setupProtocols() error {
+    // 1. 设置节点发现协议
+    n.p2p.host.SetStreamHandler("/discovery/1.0.0", func(s network.Stream) {
+        n.protocols.discovery.HandleDiscoveryRequest(s)
+    })
+    
+    // 2. 设置注册协议
+    n.p2p.host.SetStreamHandler("/registration/1.0.0", func(s network.Stream) {
+        n.protocols.registration.HandleRegistration(s)
+    })
+    
+    // 3. 设置状态同步协议
+    n.p2p.host.SetStreamHandler("/state-sync/1.0.0", func(s network.Stream) {
+        n.protocols.stateSync.HandleStateSync(s)
+    })
+    
+    return nil
+}
+
+// 启动Registry Node
+func (n *RegistryNode) Start(ctx context.Context) error {
+    // 1. 启动P2P服务
+    if err := n.p2p.Start(ctx); err != nil {
+        return err
+    }
+    
+    // 2. 设置协议处理器
+    if err := n.setupProtocols(); err != nil {
+        return err
+    }
+    
+    // 3. 启动状态广播
+    go n.startStateAdvertise(ctx)
+    
+    return nil
+}
+```
+
+1. **Operator Node 网络实现** 
+
+```go
+// pkg/operator/node.go
+
+type OperatorNode struct {
+    p2p *p2p.P2PHost
+    db  *LocalDatabase
+    
+    // 协议处理器
+    protocols *ProtocolHandlers
+    // Registry Node连接管理
+    registryConn *RegistryConnection
+}
+
+// Registry Node连接管理
+type RegistryConnection struct {
+    registryPeers []peer.ID
+    activeConns   map[peer.ID]network.Stream
+}
+
+// 连接Registry Node
+func (n *OperatorNode) connectToRegistry() error {
+    // 1. 发现Registry Node
+    peers, err := n.findRegistryNodes()
+    if err != nil {
+        return err
+    }
+    
+    // 2. 建立连接
+    for _, p := range peers {
+        if err := n.connectPeer(p); err != nil {
+            continue
+        }
+        // 3. 发送Join请求
+        if err := n.sendJoinRequest(p); err != nil {
+            continue
+        }
+    }
+    
+    return nil
+}
+
+// 设置协议处理器
+func (n *OperatorNode) setupProtocols() error {
+    // 1. 设置任务处理协议
+    n.p2p.host.SetStreamHandler("/task/1.0.0", func(s network.Stream) {
+        n.protocols.task.HandleTask(s)
+    })
+    
+    // 2. 设置响应处理协议
+    n.p2p.host.SetStreamHandler("/response/1.0.0", func(s network.Stream) {
+        n.protocols.response.HandleResponse(s)
+    })
+    
+    return nil
+}
+```
+
+4. p2p 协议实现 
+
+```go
+// pkg/p2p/protocols/discovery.go
+
+type DiscoveryProtocol struct {
+    host host.Host
+    dht  *dht.IpfsDHT
+}
+
+// 处理发现请求
+func (d *DiscoveryProtocol) HandleDiscoveryRequest(s network.Stream) {
+    // 1. 读取请求
+    req := &pb.DiscoveryRequest{}
+    if err := readProto(s, req); err != nil {
+        s.Reset()
+        return
+    }
+    
+    // 2. 查找节点
+    peers := d.findPeers(req.ServiceName)
+    
+    // 3. 返回响应
+    resp := &pb.DiscoveryResponse{
+        Peers: peersToProto(peers),
+    }
+    if err := writeProto(s, resp); err != nil {
+        s.Reset()
+        return
+    }
+}
+
+// pkg/p2p/protocols/registration.go
+
+type RegistrationProtocol struct {
+    host host.Host
+    db   *Database
+}
+
+// 处理注册请求
+func (r *RegistrationProtocol) HandleRegistration(s network.Stream) {
+    // 1. 读取请求
+    req := &pb.RegistrationRequest{}
+    if err := readProto(s, req); err != nil {
+        s.Reset()
+        return
+    }
+    
+    // 2. 验证请求
+    if err := r.validateRequest(req); err != nil {
+        sendError(s, err)
+        return
+    }
+    
+    // 3. 处理注册
+    if err := r.processRegistration(req); err != nil {
+        sendError(s, err)
+        return
+    }
+    
+    // 4. 返回响应
+    resp := &pb.RegistrationResponse{
+        Status: "success",
+    }
+    if err := writeProto(s, resp); err != nil {
+        s.Reset()
+        return
+    }
+}
+```
+
+1. pubsub 实现 
+
+```go
+// pkg/p2p/pubsub.go
+
+type PubSubManager struct {
+    ps *pubsub.PubSub
+    
+    // 订阅的topics
+    topics map[string]*pubsub.Topic
+    subs   map[string]*pubsub.Subscription
+}
+
+// 创建新的topic
+func (m *PubSubManager) JoinTopic(name string) (*pubsub.Topic, error) {
+    topic, err := m.ps.Join(name)
+    if err != nil {
+        return nil, err
+    }
+    
+    m.topics[name] = topic
+    return topic, nil
+}
+
+// 订阅topic
+func (m *PubSubManager) Subscribe(topicName string) (*pubsub.Subscription, error) {
+    topic, ok := m.topics[topicName]
+    if !ok {
+        var err error
+        topic, err = m.JoinTopic(topicName)
+        if err != nil {
+            return nil, err
+        }
+    }
+    
+    sub, err := topic.Subscribe()
+    if err != nil {
+        return nil, err
+    }
+    
+    m.subs[topicName] = sub
+    return sub, nil
+}
+
+// 发布消息
+func (m *PubSubManager) Publish(topicName string, data []byte) error {
+    topic, ok := m.topics[topicName]
+    if !ok {
+        return fmt.Errorf("topic not found: %s", topicName)
+    }
+    
+    return topic.Publish(context.Background(), data)
+}
+```
+
+1. 健康检查实现  
+
+```go
+// pkg/p2p/healthcheck.go
+
+type HealthCheck struct {
+    host host.Host
+    
+    // 节点状态
+    peerStatus map[peer.ID]*PeerStatus
+    // 检查间隔
+    checkInterval time.Duration
+}
+
+type PeerStatus struct {
+    LastSeen time.Time
+    Status   string
+    Latency  time.Duration
+}
+
+// 启动健康检查
+func (hc *HealthCheck) Start(ctx context.Context) {
+    ticker := time.NewTicker(hc.checkInterval)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            hc.checkPeers()
+        }
+    }
+}
+
+// 检查节点健康状态
+func (hc *HealthCheck) checkPeers() {
+    for _, p := range hc.host.Network().Peers() {
+        // 1. 发送ping
+        latency, err := hc.ping(p)
+        if err != nil {
+            hc.updatePeerStatus(p, "offline", 0)
+            continue
+        }
+        
+        // 2. 更新状态
+        hc.updatePeerStatus(p, "online", latency)
+    }
+}
+```
+
 # directory tree
 
 ```markdown
@@ -2340,22 +2701,57 @@ TODO 暂时留接口不实现
          - registry-node
 ```
 
+**第二阶段：合约集成与注册流程 (Contract Integration)**
+
+**目标**: 实现与智能合约的交互，完成完整的operator注册流程
+
+1. **合约集成**:
+- **合约集成**
+- 实现合约绑定代码
+- 设置合约事件监听
+- 实现合约调用接口
+1. **注册流程实现**:
+- Operator注册事件监听
+- 完整的JoinNetwork流程
+- 注销流程实现
+1. **状态管理**:
+- Registry Node完整状态管理
+- Operator Node本地状态管理
+- 状态同步机制
+
+**第三阶段：Epoch管理与P2P通信 (Epoch & Communication)**
+
+**目标**: 实现完整的epoch管理和P2P通信协议
+
+1. **Epoch管理**:
+- 区块监听机制
+- Epoch状态更新
+- Operator权重更新
+- 状态广播机制
+
+2. **P2P协议实现**:
+
+- 完整的pubsub系统
+- 协议消息定义
+- 消息处理流程
+1. **状态同步**:
+- Registry Node间状态同步
+- Operator Node状态订阅
+- 冲突解决机制
+
 **第四阶段：任务处理系统 (Task Processing)**
 
 **目标**: 实现完整的任务处理流程
 
 1. **任务系统**
-- **任务系统**:
 - 任务生成逻辑
 - 任务分发机制
 - 响应收集系统
 1. **签名系统**:
-- **签名系统**:
 - 签名生成
 - 签名验证
 - 签名聚合
 1. **结果处理**:
-- **结果处理**:
 - 结果聚合
 - 用户响应
 - 超时处理

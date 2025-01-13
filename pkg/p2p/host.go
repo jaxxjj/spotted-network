@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -121,4 +122,39 @@ func (h *Host) GetHostInfo() string {
 	addrs := h.Addrs()
 	id := h.ID()
 	return fmt.Sprintf("Host ID: %s\nAddresses: %v", id, addrs)
+}
+
+// SendOperatorInfo sends operator information to a peer
+func (h *Host) SendOperatorInfo(ctx context.Context, to peer.ID, operatorID peer.ID, addrs []multiaddr.Multiaddr) error {
+	// Ensure we're connected to the peer
+	if err := h.Connect(ctx, peer.AddrInfo{ID: to}); err != nil {
+		return fmt.Errorf("failed to connect to peer %s: %w", to, err)
+	}
+
+	// Format addresses into strings
+	addrStrs := make([]string, len(addrs))
+	for i, addr := range addrs {
+		addrStrs[i] = addr.String()
+	}
+
+	// Format message with operator ID and addresses
+	// Format: NEW_OPERATOR:<operatorID>:<addr1>,<addr2>,...
+	msg := fmt.Sprintf("NEW_OPERATOR:%s:%s", operatorID.String(), strings.Join(addrStrs, ","))
+	
+	return h.SendMessage(ctx, to, msg)
+}
+
+// SendMessage sends a message to a peer
+func (h *Host) SendMessage(ctx context.Context, to peer.ID, msg string) error {
+	s, err := h.NewStream(ctx, to, "/spotted/1.0.0")
+	if err != nil {
+		return fmt.Errorf("failed to create stream: %v", err)
+	}
+	defer s.Close()
+
+	if _, err := s.Write([]byte(msg)); err != nil {
+		return fmt.Errorf("failed to write message: %v", err)
+	}
+
+	return nil
 } 
