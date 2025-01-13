@@ -1,15 +1,16 @@
 package registry
 
 import (
-	"bufio"
 	"context"
-	"io"
+	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/p2p"
+	"github.com/galxe/spotted-network/pkg/repos/registry"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -24,6 +25,15 @@ type Node struct {
 	
 	// Health check interval
 	healthCheckInterval time.Duration
+
+	// Database connection
+	db *registry.Queries
+
+	// Event listener
+	eventListener *EventListener
+
+	// Chain clients manager
+	chainClients *ethereum.ChainClients
 }
 
 type OperatorInfo struct {
@@ -33,7 +43,7 @@ type OperatorInfo struct {
 	Status string
 }
 
-func NewNode(ctx context.Context, cfg *p2p.Config) (*Node, error) {
+func NewNode(ctx context.Context, cfg *p2p.Config, db *registry.Queries, chainClients *ethereum.ChainClients) (*Node, error) {
 	host, err := p2p.NewHost(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -43,82 +53,50 @@ func NewNode(ctx context.Context, cfg *p2p.Config) (*Node, error) {
 		host:               host,
 		operators:          make(map[peer.ID]*OperatorInfo),
 		healthCheckInterval: 5 * time.Second,
+		db:                db,
+		chainClients:      chainClients,
+	}
+
+	// Create and initialize event listener
+	node.eventListener = NewEventListener(chainClients, db)
+
+	// Start listening for chain events
+	if err := node.eventListener.StartListening(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start event listener: %w", err)
 	}
 
 	// Set stream handler for operator connections
-	host.SetStreamHandler("/spotted/1.0.0", func(s network.Stream) {
-		// Get operator ID from the stream
-		operatorID := s.Conn().RemotePeer()
-		log.Printf("New stream from operator: %s", operatorID)
-		
-		// Read and process messages
-		reader := bufio.NewReader(s)
-		for {
-			message, err := reader.ReadString('\n')
-			if err != nil {
-				if err == io.EOF {
-					log.Printf("Stream closed by operator: %s", operatorID)
-				} else {
-					log.Printf("Error reading from stream: %v", err)
-				}
-				s.Close()
-				return
-			}
-
-			message = strings.TrimSpace(message)
-			log.Printf("Received message from %s: %s", operatorID, message)
-
-			if !strings.HasPrefix(message, "ANNOUNCE ") {
-				log.Printf("Invalid message format from %s, expected ANNOUNCE prefix: %s", operatorID, message)
-				continue
-			}
-
-			parts := strings.Split(strings.TrimPrefix(message, "ANNOUNCE "), " ")
-			if len(parts) != 2 {
-				log.Printf("Invalid message format from %s: expected 2 parts, got %d", operatorID, len(parts))
-				continue
-			}
-
-			// Parse operator addresses
-			addrStrs := strings.Split(parts[1], ",")
-			var addrs []multiaddr.Multiaddr
-			for _, addrStr := range addrStrs {
-				addr, err := multiaddr.NewMultiaddr(addrStr)
-				if err != nil {
-					log.Printf("Invalid address format from %s: %v", operatorID, err)
-					continue
-				}
-				addrs = append(addrs, addr)
-			}
-
-			// Add the operator with its addresses
-			node.operatorsMu.Lock()
-			node.operators[operatorID] = &OperatorInfo{
-				ID:       operatorID,
-				Addrs:    addrs,
-				LastSeen: time.Now(),
-				Status:   "active",
-			}
-			node.operatorsMu.Unlock()
-
-			log.Printf("Operator %s registered with %d addresses", operatorID, len(addrs))
-
-			// Write acknowledgment back to the operator
-			if _, err := s.Write([]byte("OK\n")); err != nil {
-				log.Printf("Error sending acknowledgment to %s: %v", operatorID, err)
-			}
-
-			// After processing ANNOUNCE message, close the stream
-			s.Close()
-			return
-		}
-	})
+	node.SetupProtocols()
 
 	// Start health check
 	go node.startHealthCheck(ctx)
 
 	log.Printf("Registry Node started. %s\n", host.GetHostInfo())
 	return node, nil
+}
+
+// handleStream handles incoming p2p streams
+func (n *Node) handleStream(stream network.Stream) {
+	defer stream.Close()
+
+	// Read join request
+	req, err := p2p.ReadJoinRequest(stream)
+	if err != nil {
+		log.Printf("Failed to read join request: %v", err)
+		stream.Reset()
+		return
+	}
+
+	// Handle join request
+	err = n.HandleJoinRequest(context.Background(), req)
+	if err != nil {
+		log.Printf("Failed to handle join request: %v", err)
+		p2p.SendError(stream, err)
+		return
+	}
+
+	// Send success response
+	p2p.SendSuccess(stream)
 }
 
 func (n *Node) startHealthCheck(ctx context.Context) {
@@ -143,10 +121,10 @@ func (n *Node) checkOperators(ctx context.Context) {
 		// Ping the operator
 		if err := n.host.PingPeer(ctx, id); err != nil {
 			log.Printf("Operator %s is unreachable: %v\n", id, err)
-			info.Status = "unreachable"
+			info.Status = string(OperatorStatusInactive)
 		} else {
 			info.LastSeen = time.Now()
-			info.Status = "active"
+			info.Status = string(OperatorStatusActive)
 			log.Printf("Operator %s is healthy\n", id)
 		}
 	}
@@ -169,7 +147,7 @@ func (n *Node) AddOperator(id peer.ID) {
 		ID: id,
 		Addrs: peerInfo.Addrs,
 		LastSeen: time.Now(),
-		Status: "active",
+		Status: string(OperatorStatusActive),
 	}
 	log.Printf("New operator added: %s with addresses: %v\n", id, peerInfo.Addrs)
 
@@ -228,4 +206,69 @@ func (n *Node) GetConnectedOperators() []peer.ID {
 // GetHostID returns the node's libp2p host ID
 func (n *Node) GetHostID() string {
 	return n.host.ID().String()
+}
+
+// HandleJoinRequest handles the join request from an operator
+func (n *Node) HandleJoinRequest(ctx context.Context, req *p2p.JoinRequest) error {
+	// Get mainnet client
+	mainnetClient := n.chainClients.GetMainnetClient()
+
+	// Verify operator is registered on chain
+	operatorAddr := common.HexToAddress(req.OperatorAddress)
+	isRegistered, err := mainnetClient.IsOperatorRegistered(ctx, operatorAddr)
+	if err != nil {
+		return fmt.Errorf("failed to check operator registration: %w", err)
+	}
+
+	if !isRegistered {
+		return fmt.Errorf("operator not registered on chain")
+	}
+
+	// Get operator from database
+	op, err := n.db.GetOperatorByAddress(ctx, req.OperatorAddress)
+	if err != nil {
+		return fmt.Errorf("failed to get operator: %w", err)
+	}
+
+	// Verify signing key matches
+	if op.SigningKey != req.SigningKey {
+		return fmt.Errorf("signing key mismatch")
+	}
+
+	// TODO: Implement signature verification
+	// if !n.verifySignature(req.OperatorAddress, req.Message, req.Signature) {
+	// 	return fmt.Errorf("invalid signature")
+	// }
+
+	// Update status to waitingActive
+	_, err = n.db.UpdateOperatorStatus(ctx, registry.UpdateOperatorStatusParams{
+		Address: req.OperatorAddress,
+		Status:  string(OperatorStatusWaitingActive),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update operator status: %w", err)
+	}
+
+	log.Printf("Operator %s joined successfully", req.OperatorAddress)
+	return nil
+}
+
+// SetupProtocols sets up the protocol handlers for the registry node
+func (n *Node) SetupProtocols() {
+	// Handle join requests
+	n.host.SetStreamHandler("/spotted/1.0.0", n.handleStream)
+}
+
+// TODO: Implement these helper functions
+func ReadJoinRequest(stream network.Stream) (*JoinRequest, error) {
+	// TODO: Implement reading join request from stream
+	return nil, fmt.Errorf("not implemented")
+}
+
+func SendError(stream network.Stream, err error) {
+	// TODO: Implement sending error response
+}
+
+func SendSuccess(stream network.Stream) {
+	// TODO: Implement sending success response
 } 

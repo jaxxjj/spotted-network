@@ -1,0 +1,35 @@
+# Operator node configuration
+
+# Server configuration
+server:
+  # Address to listen on for gRPC connections
+  address: "0.0.0.0:9000"
+  # TLS configuration
+  tls:
+    enabled: false
+    cert_file: "config/certs/server.crt"
+    key_file: "config/certs/server.key"
+
+# Keystore configuration
+keystore:
+  # Path to the keystore file
+  path: "config/keystore/operator.json"
+  # Password to decrypt the keystore
+  password: ""  # Set this via environment variable OPERATOR_KEYSTORE_PASSWORD
+
+# Contract configurations
+contracts:
+  # StateManager contract address
+  state_manager: "0x0000000000000000000000000000000000000000"
+  # RPC endpoint for the chain
+  rpc: "https://ethereum-mainnet-rpc.example.com"
+  # Chain ID
+  chain_id: 1
+
+# Health check configuration
+health_check:
+  # Address to listen on for health checks
+  address: "0.0.0.0:8080"
+
+# Shutdown timeout in seconds
+shutdown_timeout: 5s 

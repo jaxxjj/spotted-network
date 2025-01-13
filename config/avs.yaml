@@ -1,0 +1,67 @@
+# Database configuration
+database:
+  driver: "postgres"
+  host: "localhost"
+  port: 5432
+  name: "spotted_oracle"
+  user: "postgres"
+  password: "postgres"
+  ssl_mode: "disable"
+
+# Server configuration
+server:
+  address: "localhost:50051"
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+
+# Chain configuration
+chain:
+  chain_id: 1
+  rpc: "http://localhost:8545"
+  start_block: 0
+
+# Task configuration
+task:
+  timeout_duration: "5m"
+  timeout_check_interval: "1m"
+  min_operators: 3
+  max_operators: 10
+
+# Response configuration
+response:
+  retry_interval: "1m"
+  retry_check_interval: "30s"
+  max_retries: 3
+  response_window: "5m"
+
+# Epoch configuration
+epoch:
+  duration: "24h"
+  minimum_weight: "1000000000000000000"
+  check_interval: "1m"
+  blocks_per_epoch: 7200
+
+# Redis configuration
+redis:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+
+# JWT configuration
+jwt:
+  secret: "your-secret-key"
+  expire_duration: 24h
+
+# Operator configuration
+operator:
+  max_consecutive_miss: 3
+
+# Health check configuration
+health_check:
+  address: "localhost:8080"
+
+# Shutdown timeout configuration
+shutdown_timeout: "30s" 
