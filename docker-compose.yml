@@ -1,4 +1,4 @@
-version: '3'
+version: '3.8'
 
 services:
   registry:
@@ -6,72 +6,52 @@ services:
       context: .
       dockerfile: Dockerfile.registry
     ports:
-      - "9000:9000"
+      - "9000:9000"  # P2P port
+      - "8000:8000"  # HTTP port
     networks:
-      p2p-net:
-        aliases:
-          - registry-node
-    environment:
-      - REGISTRY_HOST=registry-node
-    deploy:
-      resources:
-        limits:
-          memory: 200M
-        reservations:
-          memory: 100M
+      - p2p-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/p2p/id"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   operator1:
     build:
       context: .
       dockerfile: Dockerfile.operator
-    depends_on:
-      - registry
-    command: ["-registry", "/ip4/registry-node/tcp/9000"]
     networks:
       - p2p-net
-    deploy:
-      resources:
-        limits:
-          memory: 200M
-        reservations:
-          memory: 100M
+    depends_on:
+      registry:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/app/start-operator.sh"]
 
   operator2:
     build:
       context: .
       dockerfile: Dockerfile.operator
-    depends_on:
-      - registry
-    command: ["-registry", "/ip4/registry-node/tcp/9000"]
     networks:
       - p2p-net
-    deploy:
-      resources:
-        limits:
-          memory: 200M
-        reservations:
-          memory: 100M
+    depends_on:
+      registry:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/app/start-operator.sh"]
 
   operator3:
     build:
       context: .
       dockerfile: Dockerfile.operator
-    depends_on:
-      - registry
-    command: ["-registry", "/ip4/registry-node/tcp/9000"]
     networks:
       - p2p-net
-    deploy:
-      resources:
-        limits:
-          memory: 200M
-        reservations:
-          memory: 100M
+    depends_on:
+      registry:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/app/start-operator.sh"]
 
 networks:
   p2p-net:
     driver: bridge
     ipam:
-      driver: default
       config:
         - subnet: 172.20.0.0/16 

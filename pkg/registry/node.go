@@ -164,4 +164,9 @@ func (n *Node) GetConnectedOperators() []peer.ID {
 		operators = append(operators, id)
 	}
 	return operators
+}
+
+// GetHostID returns the node's libp2p host ID
+func (n *Node) GetHostID() string {
+	return n.host.ID().String()
 } 
