@@ -1,11 +1,38 @@
 FROM golang:1.23.3-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    git
+
+# Set Go environment variables
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GO111MODULE=on
+ENV GOSUMDB=off
+
 WORKDIR /app
+
+# Copy go.mod and go.sum first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the code
 COPY . .
 RUN go build -o operator ./cmd/operator
 
 FROM alpine:latest
 WORKDIR /app
+
+# Install required tools
+RUN apk add --no-cache \
+    wget \
+    curl \
+    jq
+
 COPY --from=builder /app/operator .
 COPY start-operator.sh .
+COPY pkg/common/crypto/signer/mock/dummy.key.json .
 RUN chmod +x start-operator.sh
-CMD ["./operator"] 
+
+ENTRYPOINT ["/bin/sh", "/app/start-operator.sh"] 

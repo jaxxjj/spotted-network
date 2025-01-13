@@ -2,16 +2,33 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/p2p"
 	"github.com/galxe/spotted-network/pkg/registry"
 )
+
+type JoinRequest struct {
+	Address   string `json:"address"`
+	Message   string `json:"message"`
+	Signature string `json:"signature"`
+}
+
+type JoinResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+	HostID  string `json:"host_id,omitempty"`
+}
 
 func main() {
 	// Create context that listens for the interrupt signal from the OS
@@ -35,6 +52,55 @@ func main() {
 			fmt.Fprintf(w, "%s", node.GetHostID())
 		}
 	})
+
+	// Add endpoint for join requests
+	http.HandleFunc("/join", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Read request body
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to read request body", http.StatusBadRequest)
+			return
+		}
+
+		// Parse request
+		var req JoinRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "Failed to parse request", http.StatusBadRequest)
+			return
+		}
+
+		// Decode signature
+		signature, err := hex.DecodeString(req.Signature)
+		if err != nil {
+			http.Error(w, "Invalid signature format", http.StatusBadRequest)
+			return
+		}
+
+		// Verify signature
+		address := common.HexToAddress(req.Address)
+		message := []byte(req.Message)
+		if !signer.VerifySignature(message, signature, address) {
+			response := JoinResponse{
+				Success: false,
+				Error:   "Invalid signature",
+			}
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+
+		// Return success with host ID
+		response := JoinResponse{
+			Success: true,
+			HostID:  node.GetHostID(),
+		}
+		json.NewEncoder(w).Encode(response)
+	})
+
 	go func() {
 		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
 			log.Printf("HTTP server error: %v\n", err)

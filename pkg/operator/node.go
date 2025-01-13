@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/p2p"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -18,13 +19,26 @@ type Node struct {
 	host        *p2p.Host
 	registryID  peer.ID
 	registryAddr string
+	signer      signer.Signer
 
 	// Known operators map stores operator IDs and their addresses
 	knownOperators map[peer.ID]*peer.AddrInfo
 	operatorsMu    sync.RWMutex
 }
 
-func NewNode(registryAddr string) (*Node, error) {
+func NewNode(registryAddr string, s signer.Signer) (*Node, error) {
+	// Parse the registry multiaddr
+	maddr, err := multiaddr.NewMultiaddr(registryAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse registry address: %w", err)
+	}
+
+	// Extract peer ID from multiaddr
+	addrInfo, err := peer.AddrInfoFromP2pAddr(maddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse registry peer info: %w", err)
+	}
+
 	// Create a new host with default configuration
 	cfg := &p2p.Config{
 		ListenAddrs: []string{"/ip4/0.0.0.0/tcp/0"},
@@ -37,8 +51,9 @@ func NewNode(registryAddr string) (*Node, error) {
 
 	return &Node{
 		host:           host,
+		registryID:     addrInfo.ID,
 		registryAddr:   registryAddr,
-		
+		signer:         s,
 		knownOperators: make(map[peer.ID]*peer.AddrInfo),
 		operatorsMu:    sync.RWMutex{},
 	}, nil

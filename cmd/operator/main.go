@@ -1,41 +1,81 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
+	"fmt"
 	"log"
-	"os"
-	"os/signal"
 
+	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/operator"
 )
 
 func main() {
-	// Parse command line flags
-	registryAddr := flag.String("registry", "", "Registry node multiaddr")
+	// Define flags
+	registryAddr := flag.String("registry", "", "Registry node address")
+	keystorePath := flag.String("keystore", "", "Path to keystore file")
+	password := flag.String("password", "", "Password for keystore")
+	message := flag.String("message", "", "Message to sign")
+	sign := flag.Bool("sign", false, "Sign a message")
+	getAddress := flag.Bool("address", false, "Get address from keystore")
+
 	flag.Parse()
 
+	if *sign {
+		if *keystorePath == "" || *password == "" || *message == "" {
+			log.Fatal("keystore, password and message are required for signing")
+		}
+
+		s, err := signer.NewLocalSigner(*keystorePath, *password)
+		if err != nil {
+			log.Fatalf("failed to create signer: %v", err)
+		}
+
+		sig, err := s.Sign([]byte(*message))
+		if err != nil {
+			log.Fatalf("failed to sign message: %v", err)
+		}
+
+		fmt.Print(hex.EncodeToString(sig))
+		return
+	}
+
+	if *getAddress {
+		if *keystorePath == "" || *password == "" {
+			log.Fatal("keystore and password are required for getting address")
+		}
+
+		s, err := signer.NewLocalSigner(*keystorePath, *password)
+		if err != nil {
+			log.Fatalf("failed to create signer: %v", err)
+		}
+
+		addr := s.GetAddress()
+		fmt.Print(addr.Hex())
+		return
+	}
+
 	if *registryAddr == "" {
-		log.Fatal("Registry address is required")
+		log.Fatal("registry address is required")
 	}
 
-	// Create and start operator node
-	node, err := operator.NewNode(*registryAddr)
+	if *keystorePath == "" || *password == "" {
+		log.Fatal("keystore and password are required")
+	}
+
+	s, err := signer.NewLocalSigner(*keystorePath, *password)
 	if err != nil {
-		log.Fatalf("Failed to create operator node: %v", err)
+		log.Fatalf("failed to create signer: %v", err)
 	}
 
-	// Start the node
-	if err := node.Start(); err != nil {
-		log.Fatalf("Failed to start operator node: %v", err)
+	n, err := operator.NewNode(*registryAddr, s)
+	if err != nil {
+		log.Fatalf("failed to create node: %v", err)
 	}
 
-	// Wait for interrupt signal
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	<-c
-
-	// Stop the node
-	if err := node.Stop(); err != nil {
-		log.Printf("Error stopping node: %v", err)
+	if err := n.Start(); err != nil {
+		log.Fatalf("failed to start node: %v", err)
 	}
+
+	select {}
 } 
