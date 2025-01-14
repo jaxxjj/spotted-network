@@ -3,6 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:14-alpine
+    platform: linux/arm64
     environment:
       POSTGRES_USER: spotted
       POSTGRES_PASSWORD: spotted
@@ -11,33 +12,44 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./pkg/repos/registry/operators/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     networks:
       - spotted-net
-
-  anvil:
-    image: ghcr.io/foundry-rs/foundry:latest
-    command: anvil --host 0.0.0.0
-    ports:
-      - "8545:8545"
-    networks:
-      - spotted-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spotted"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   registry:
     build:
       context: .
       dockerfile: Dockerfile.registry
+      platforms:
+        - linux/arm64
     ports:
       - "9000:9000"  # P2P port
       - "8000:8000"  # HTTP port
     environment:
       - DATABASE_URL=postgresql://spotted:spotted@postgres:5432/spotted?sslmode=disable
-      - ANVIL_URL=http://anvil:8545
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
+      - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
+      - START_BLOCK=${START_BLOCK:-0}
+      - LOG_LEVEL=debug
+      - CHAIN_ID=31337
+      - P2P_PORT=9000
+      - HTTP_PORT=8000
+      - CONFIG_PATH=/app/config/registry.yaml
+    volumes:
+      - ./config:/app/config
     networks:
       - spotted-net
     depends_on:
-      - postgres
-      - anvil
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "grpcurl", "-plaintext", "-import-path", "/app/proto", "-proto", "/app/proto/registry.proto", "localhost:8000", "registry.Registry/GetRegistryID"]
       interval: 10s

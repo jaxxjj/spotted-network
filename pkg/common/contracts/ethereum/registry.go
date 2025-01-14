@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -90,45 +91,48 @@ func (c *RegistryClient) IsOperatorRegistered(ctx context.Context, operator comm
 
 // WatchOperatorRegistered watches for operator registered events
 func (c *RegistryClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *contracts.OperatorRegisteredEvent) (event.Subscription, error) {
-	// Create a channel for the contract events
-	contractEvents := make(chan *bindings.ECDSAStakeRegistryOperatorRegistered)
-	
-	// Convert FilterOpts to WatchOpts
-	var start *uint64
-	if filterOpts.Start > 0 {
-		startVal := filterOpts.Start
-		start = &startVal
-	}
-	
-	watchOpts := &bind.WatchOpts{
-		Start:   start,
-		Context: filterOpts.Context,
-	}
-	
-	// Watch for events from the contract
-	sub, err := c.contract.WatchOperatorRegistered(watchOpts, contractEvents, nil, nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to watch for operator registered events: %w", err)
-	}
+	// Create a subscription
+	sub := event.NewSubscription(func(quit <-chan struct{}) error {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
 
-	// Start a goroutine to convert contract events to our event type
-	go func() {
-		defer sub.Unsubscribe()
+		var lastBlock uint64
+		if filterOpts.Start > 0 {
+			lastBlock = filterOpts.Start - 1 // Start from the block before to ensure we don't miss any events
+		}
+
 		for {
 			select {
-			case event := <-contractEvents:
-				sink <- &contracts.OperatorRegisteredEvent{
-					Operator:    event.Operator,
-					BlockNumber: event.BlockNumber,
-					SigningKey:  event.SigningKey,
-					Timestamp:   event.Timestamp,
-					AVS:         event.Avs,
+			case <-quit:
+				return nil
+			case <-ticker.C:
+				// Get events from last processed block
+				events, err := c.contract.FilterOperatorRegistered(&bind.FilterOpts{
+					Start:   lastBlock + 1,
+					Context: filterOpts.Context,
+				}, nil, nil, nil)
+				if err != nil {
+					continue
 				}
-			case <-sub.Err():
-				return
+
+				// Process events
+				for events.Next() {
+					event := events.Event
+					sink <- &contracts.OperatorRegisteredEvent{
+						Operator:    event.Operator,
+						BlockNumber: event.BlockNumber,
+						SigningKey:  event.SigningKey,
+						Timestamp:   event.Timestamp,
+						AVS:        event.Avs,
+					}
+					// Update last block to the event's block number
+					if event.BlockNumber.Uint64() > lastBlock {
+						lastBlock = event.BlockNumber.Uint64()
+					}
+				}
 			}
 		}
-	}()
+	})
 
 	return sub, nil
 }
