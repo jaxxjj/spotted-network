@@ -1,12 +1,11 @@
 package operator
 
 import (
-	"bufio"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,8 +15,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
+	pb "github.com/galxe/spotted-network/proto"
 )
 
 type Node struct {
@@ -92,73 +93,40 @@ func (n *Node) Start() error {
 func (n *Node) handleMessages(stream network.Stream) {
 	defer stream.Close()
 	
-	reader := bufio.NewReader(stream)
 	log.Printf("New stream opened from: %s", stream.Conn().RemotePeer())
 
-	for {
-		message, err := reader.ReadString('\n')
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("Error reading from stream: %v", err)
-			}
-			return
-		}
-
-		message = strings.TrimSpace(message)
-		log.Printf("Received message: %s", message)
-
-		if !strings.HasPrefix(message, "ANNOUNCE ") {
-			log.Printf("Invalid message format, expected ANNOUNCE prefix: %s", message)
-			continue
-		}
-
-		parts := strings.Split(strings.TrimPrefix(message, "ANNOUNCE "), " ")
-		if len(parts) != 2 {
-			log.Printf("Invalid message format: expected 2 parts, got %d", len(parts))
-			continue
-		}
-
-		operatorID, err := peer.Decode(parts[0])
-		if err != nil {
-			log.Printf("Invalid operator ID %s: %v", parts[0], err)
-			continue
-		}
-
-		addrStrs := strings.Split(parts[1], ",")
-		var addrs []multiaddr.Multiaddr
-		for _, addrStr := range addrStrs {
-			addr, err := multiaddr.NewMultiaddr(addrStr)
-			if err != nil {
-				log.Printf("Invalid address format %s: %v", addrStr, err)
-				continue
-			}
-			addrs = append(addrs, addr)
-		}
-
-		if len(addrs) == 0 {
-			log.Printf("No valid addresses found for operator %s", operatorID)
-			continue
-		}
-
-		log.Printf("New operator announced: %s with %d addresses", operatorID, len(addrs))
-
-		peerInfo := &peer.AddrInfo{
-			ID:    operatorID,
-			Addrs: addrs,
-		}
-
-		n.operatorsMu.Lock()
-		n.knownOperators[operatorID] = peerInfo
-		n.operatorsMu.Unlock()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := n.host.Connect(ctx, *peerInfo); err != nil {
-			log.Printf("Failed to connect to operator %s: %v", operatorID, err)
-		} else {
-			log.Printf("Successfully connected to operator %s", operatorID)
-		}
-		cancel()
+	// Read the entire message
+	data, err := io.ReadAll(stream)
+	if err != nil {
+		log.Printf("Error reading from stream: %v", err)
+		return
 	}
+
+	// Parse protobuf message
+	var req pb.JoinRequest
+	if err := proto.Unmarshal(data, &req); err != nil {
+		log.Printf("Error parsing protobuf message: %v", err)
+		return
+	}
+
+	log.Printf("Received join request from operator: %s", req.Address)
+
+	// Send success response
+	resp := &pb.JoinResponse{
+		Success: true,
+	}
+	respData, err := proto.Marshal(resp)
+	if err != nil {
+		log.Printf("Error marshaling response: %v", err)
+		return
+	}
+
+	if _, err := stream.Write(respData); err != nil {
+		log.Printf("Error writing response: %v", err)
+		return
+	}
+
+	log.Printf("Successfully processed join request from: %s", req.Address)
 }
 
 func (n *Node) healthCheck() {
@@ -235,16 +203,29 @@ func (n *Node) announceToRegistry() error {
 	}
 	defer stream.Close()
 
-	// Construct announcement message
-	addrStrs := make([]string, 0, len(n.host.Addrs()))
-	for _, addr := range n.host.Addrs() {
-		addrStrs = append(addrStrs, addr.String())
+	// Create join request message
+	message := []byte("join_request")
+	signature, err := n.signer.Sign(message)
+	if err != nil {
+		return fmt.Errorf("failed to sign message: %w", err)
 	}
-	msg := fmt.Sprintf("ANNOUNCE %s %s\n", n.host.ID(), strings.Join(addrStrs, ","))
-	
-	// Write message to stream
-	if _, err := stream.Write([]byte(msg)); err != nil {
-		return fmt.Errorf("failed to write announcement: %w", err)
+
+	// Create protobuf request
+	req := &pb.JoinRequest{
+		Address:    n.signer.GetAddress().Hex(),
+		Message:    string(message),
+		Signature:  hex.EncodeToString(signature),
+		SigningKey: n.signer.GetSigningKey(),
+	}
+
+	// Marshal and send request
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	if _, err := stream.Write(data); err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
 	}
 
 	return nil

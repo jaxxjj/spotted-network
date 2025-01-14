@@ -18,6 +18,8 @@ type Signer interface {
 	GetAddress() common.Address
 	// GetPublicKey returns the public key associated with the signer
 	GetPublicKey() *ecdsa.PublicKey
+	// GetSigningKey returns the signing key (public key) as hex string
+	GetSigningKey() string
 }
 
 // LocalSigner implements Signer interface using a local keystore file

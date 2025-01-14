@@ -44,7 +44,9 @@ services:
     volumes:
       - ./config:/app/config
     networks:
-      - spotted-net
+      spotted-net:
+        aliases:
+          - registry
     depends_on:
       postgres:
         condition: service_healthy
@@ -55,6 +57,96 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+  operator1:
+    build:
+      context: .
+      dockerfile: Dockerfile.operator
+    ports:
+      - "10000:10000"  # P2P port
+    environment:
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
+      - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
+      - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
+      - LOG_LEVEL=debug
+      - CHAIN_ID=31337
+      - P2P_PORT=10000
+      - KEYSTORE_PATH=/app/keys/operator1.key.json
+      - KEYSTORE_PASSWORD=testpassword
+    volumes:
+      - ./keys/operator1.key.json:/app/keys/operator1.key.json
+      - ./config:/app/config
+      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
+    networks:
+      spotted-net:
+        aliases:
+          - operator1
+    depends_on:
+      registry:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/app/scripts/start-operator.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  operator2:
+    build:
+      context: .
+      dockerfile: Dockerfile.operator
+    ports:
+      - "10001:10001"  # P2P port
+    environment:
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
+      - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
+      - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
+      - LOG_LEVEL=debug
+      - CHAIN_ID=31337
+      - P2P_PORT=10001
+      - KEYSTORE_PATH=/app/keys/operator2.key.json
+      - KEYSTORE_PASSWORD=testpassword
+    volumes:
+      - ./keys/operator2.key.json:/app/keys/operator2.key.json
+      - ./config:/app/config
+      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
+    networks:
+      spotted-net:
+        aliases:
+          - operator2
+    depends_on:
+      registry:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/app/scripts/start-operator.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  operator3:
+    build:
+      context: .
+      dockerfile: Dockerfile.operator
+    ports:
+      - "10002:10002"  # P2P port
+    environment:
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
+      - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
+      - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
+      - LOG_LEVEL=debug
+      - CHAIN_ID=31337
+      - P2P_PORT=10002
+      - KEYSTORE_PATH=/app/keys/operator3.key.json
+      - KEYSTORE_PASSWORD=testpassword
+    volumes:
+      - ./keys/operator3.key.json:/app/keys/operator3.key.json
+      - ./config:/app/config
+      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
+    networks:
+      spotted-net:
+        aliases:
+          - operator3
+    depends_on:
+      registry:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/app/scripts/start-operator.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 networks:
   spotted-net:

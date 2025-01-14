@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	"github.com/galxe/spotted-network/pkg/p2p"
-	"github.com/galxe/spotted-network/pkg/repos/registry"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
+	"github.com/galxe/spotted-network/pkg/p2p"
+	"github.com/galxe/spotted-network/pkg/repos/registry"
+	pb "github.com/galxe/spotted-network/proto"
 )
 
 type Node struct {
@@ -83,7 +85,7 @@ func (n *Node) handleStream(stream network.Stream) {
 	req, err := p2p.ReadJoinRequest(stream)
 	if err != nil {
 		log.Printf("Failed to read join request: %v", err)
-		stream.Reset()
+		p2p.SendError(stream, fmt.Errorf("failed to read request: %v", err))
 		return
 	}
 
@@ -208,14 +210,13 @@ func (n *Node) GetHostID() string {
 	return n.host.ID().String()
 }
 
-// HandleJoinRequest handles the join request from an operator
-func (n *Node) HandleJoinRequest(ctx context.Context, req *p2p.JoinRequest) error {
-	// Get mainnet client
-	mainnetClient := n.chainClients.GetMainnetClient()
+// HandleJoinRequest handles a join request from an operator
+func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error {
+	log.Printf("Handling join request from operator %s", req.Address)
 
-	// Verify operator is registered on chain
-	operatorAddr := common.HexToAddress(req.OperatorAddress)
-	isRegistered, err := mainnetClient.IsOperatorRegistered(ctx, operatorAddr)
+	// Check if operator is registered on chain
+	mainnetClient := n.chainClients.GetMainnetClient()
+	isRegistered, err := mainnetClient.IsOperatorRegistered(ctx, common.HexToAddress(req.Address))
 	if err != nil {
 		return fmt.Errorf("failed to check operator registration: %w", err)
 	}
@@ -225,7 +226,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *p2p.JoinRequest) erro
 	}
 
 	// Get operator from database
-	op, err := n.db.GetOperatorByAddress(ctx, req.OperatorAddress)
+	op, err := n.db.GetOperatorByAddress(ctx, req.Address)
 	if err != nil {
 		return fmt.Errorf("failed to get operator: %w", err)
 	}
@@ -235,21 +236,16 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *p2p.JoinRequest) erro
 		return fmt.Errorf("signing key mismatch")
 	}
 
-	// TODO: Implement signature verification
-	// if !n.verifySignature(req.OperatorAddress, req.Message, req.Signature) {
-	// 	return fmt.Errorf("invalid signature")
-	// }
-
 	// Update status to waitingActive
 	_, err = n.db.UpdateOperatorStatus(ctx, registry.UpdateOperatorStatusParams{
-		Address: req.OperatorAddress,
+		Address: req.Address,
 		Status:  string(OperatorStatusWaitingActive),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update operator status: %w", err)
 	}
 
-	log.Printf("Operator %s joined successfully", req.OperatorAddress)
+	log.Printf("Operator %s joined successfully", req.Address)
 	return nil
 }
 
