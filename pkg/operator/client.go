@@ -45,12 +45,13 @@ func (c *RegistryClient) GetRegistryID(ctx context.Context) (string, error) {
     return resp.RegistryId, nil
 }
 
-func (c *RegistryClient) Join(ctx context.Context, address, message, signature string) (bool, error) {
+func (c *RegistryClient) Join(ctx context.Context, address, message, signature, signingKey string) (bool, error) {
     log.Printf("Submitting join request for address %s", address)
     resp, err := c.client.Join(ctx, &pb.JoinRequest{
-        Address:   address,
-        Message:   message,
-        Signature: signature,
+        Address:    address,
+        Message:    message,
+        Signature:  signature,
+        SigningKey: signingKey,
     })
     if err != nil {
         return false, fmt.Errorf("failed to submit join request: %v", err)

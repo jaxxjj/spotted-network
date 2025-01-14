@@ -21,6 +21,7 @@ message JoinRequest {
   string address = 1;    // 操作节点的以太坊地址
   string message = 2;    // 加入请求消息
   string signature = 3;  // 签名
+  string signing_key = 4; // 操作节点的签名公钥
 }
 
 message JoinResponse {

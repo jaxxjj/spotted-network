@@ -271,4 +271,18 @@ func SendError(stream network.Stream, err error) {
 
 func SendSuccess(stream network.Stream) {
 	// TODO: Implement sending success response
+}
+
+// GetOperatorByAddress gets operator info from database
+func (n *Node) GetOperatorByAddress(ctx context.Context, address string) (registry.Operators, error) {
+	return n.db.GetOperatorByAddress(ctx, address)
+}
+
+// UpdateOperatorStatus updates operator status in database
+func (n *Node) UpdateOperatorStatus(ctx context.Context, address string, status string) error {
+	_, err := n.db.UpdateOperatorStatus(ctx, registry.UpdateOperatorStatusParams{
+		Address: address,
+		Status:  status,
+	})
+	return err
 } 

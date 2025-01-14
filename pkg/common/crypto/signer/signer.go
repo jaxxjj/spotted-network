@@ -85,3 +85,8 @@ func VerifySignature(address common.Address, message []byte, signature []byte) b
 	recoveredAddr := crypto.PubkeyToAddress(*pubkey)
 	return address == recoveredAddr
 }
+
+// GetSigningKey returns the signing key (public key) as hex string
+func (s *LocalSigner) GetSigningKey() string {
+	return crypto.PubkeyToAddress(s.privateKey.PublicKey).Hex()
+}

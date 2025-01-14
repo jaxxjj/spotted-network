@@ -62,7 +62,7 @@ func main() {
 			log.Fatal("Failed to sign message:", err)
 		}
 
-		success, err := client.Join(ctx, addr.Hex(), *message, hex.EncodeToString(sig))
+		success, err := client.Join(ctx, addr.Hex(), *message, hex.EncodeToString(sig), s.GetSigningKey())
 		if err != nil {
 			log.Fatal(err)
 		}

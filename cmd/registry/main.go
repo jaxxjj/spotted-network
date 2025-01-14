@@ -32,7 +32,32 @@ func (s *registryServer) GetRegistryID(ctx context.Context, req *pb.GetRegistryI
 }
 
 func (s *registryServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
-	// 解码签名
+	// Get operator status from database
+	op, err := s.node.GetOperatorByAddress(ctx, req.Address)
+	if err != nil {
+		return &pb.JoinResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to get operator: %v", err),
+		}, nil
+	}
+
+	// Verify operator is in waitingJoin status
+	if op.Status != string(registrynode.OperatorStatusWaitingJoin) {
+		return &pb.JoinResponse{
+			Success: false,
+			Error:   "Operator not in waitingJoin status",
+		}, nil
+	}
+
+	// Verify signing key matches
+	if op.SigningKey != req.SigningKey {
+		return &pb.JoinResponse{
+			Success: false,
+			Error:   "Signing key mismatch",
+		}, nil
+	}
+
+	// Decode signature
 	sigBytes, err := hex.DecodeString(req.Signature)
 	if err != nil {
 		return &pb.JoinResponse{
@@ -41,7 +66,7 @@ func (s *registryServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Joi
 		}, nil
 	}
 
-	// 验证签名
+	// Verify signature
 	addr := common.HexToAddress(req.Address)
 	message := []byte(req.Message)
 	if !signer.VerifySignature(addr, message, sigBytes) {
@@ -51,7 +76,14 @@ func (s *registryServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Joi
 		}, nil
 	}
 
-	// 签名验证成功
+	// Update operator status to waitingActive
+	if err := s.node.UpdateOperatorStatus(ctx, req.Address, string(registrynode.OperatorStatusWaitingActive)); err != nil {
+		return &pb.JoinResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to update operator status: %v", err),
+		}, nil
+	}
+
 	return &pb.JoinResponse{
 		Success: true,
 	}, nil

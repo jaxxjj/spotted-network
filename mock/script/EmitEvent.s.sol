@@ -15,22 +15,24 @@ contract EmitEventScript is Script {
         // Get contract instance
         MockRegistry registry = MockRegistry(registryAddress);
         
-        // Create 5 different operators with unique signing keys
-        for (uint i = 0; i < 5; i++) {
-            // Generate operator and signing key using different seeds
-            address operator = makeAddr(string.concat("operator", vm.toString(i)));
-            address signingKey = makeAddr(string.concat("signingKey", vm.toString(i)));
-
+        // Emit events for our 3 operators with their actual addresses
+        address[3] memory operators = [
+            0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342,  // operator1
+            0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5,  // operator2
+            0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B   // operator3
+        ];
+        
+        for (uint i = 0; i < operators.length; i++) {
             console.log("Emitting OperatorRegistered event for operator", i + 1);
-            console.log("Operator:", operator);
-            console.log("Signing Key:", signingKey);
+            console.log("Operator:", operators[i]);
+            console.log("Signing Key:", operators[i]); // Using same address as signing key
             console.log("AVS:", avs);
             console.log("-------------------");
 
             // Emit event
             registry.emitOperatorRegistered(
-                operator,
-                signingKey,
+                operators[i],
+                operators[i], // Using same address as signing key
                 avs
             );
         }
