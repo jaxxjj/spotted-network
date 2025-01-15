@@ -7,7 +7,6 @@ RUN apk add --no-cache \
     git
 
 # Set Go environment variables
-ENV GOPROXY=https://goproxy.cn,direct
 ENV GO111MODULE=on
 ENV GOSUMDB=off
 
@@ -28,11 +27,11 @@ WORKDIR /app
 RUN apk add --no-cache \
     wget \
     curl \
-    jq
+    jq \
+    netcat-openbsd
 
 COPY --from=builder /app/operator .
-COPY start-operator.sh .
-COPY pkg/common/crypto/signer/mock/dummy.key.json .
+COPY scripts/start-operator.sh .
 RUN chmod +x start-operator.sh
 
 ENTRYPOINT ["/bin/sh", "/app/start-operator.sh"] 

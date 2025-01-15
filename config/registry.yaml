@@ -1,0 +1,40 @@
+# Registry Node Configuration
+
+# Chains Configuration
+chains:
+  ethereum:  # This is the mainnet config but using anvil
+    rpc: ${CHAIN_RPC_URL}
+    contracts:
+      registry: ${REGISTRY_ADDRESS}
+      epochManager: ${EPOCH_MANAGER_ADDRESS}
+      stateManager: ${STATE_MANAGER_ADDRESS}
+
+# Chain Configuration
+chain:
+  id: 31337  # Anvil chain ID
+  rpc_url: ${CHAIN_RPC_URL}
+  registry_address: ${REGISTRY_ADDRESS}
+  start_block: ${START_BLOCK}
+
+# Database Configuration
+database:
+  url: ${DATABASE_URL}
+  max_open_conns: 20
+  max_idle_conns: 5
+  conn_max_lifetime: 1h
+
+# P2P Configuration
+p2p:
+  port: ${P2P_PORT}
+  bootstrap_nodes: []  # Empty for local testing
+  external_ip: "0.0.0.0"
+
+# HTTP Server Configuration
+http:
+  port: ${HTTP_PORT}
+  host: "0.0.0.0"
+
+# Logging Configuration
+logging:
+  level: ${LOG_LEVEL}
+  format: "json" 

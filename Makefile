@@ -1,4 +1,10 @@
-.PHONY: build clean run-registry run-operator stop
+.PHONY: build clean run-registry run-operator stop generate-keys
+
+# Generate operator keys
+generate-keys:
+	@echo "Generating operator keys..."
+	@go run scripts/generate_keys.go
+	@echo "Keys generated successfully in ./keys directory"
 
 # Build both binaries
 build:

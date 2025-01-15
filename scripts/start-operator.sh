@@ -1,8 +1,9 @@
 #!/bin/sh
 
-# Load dummy key
-KEYSTORE_PATH="/app/dummy.key.json"
-KEYSTORE_PASSWORD="testpassword"
+# Use environment variables for keystore configuration
+# Fallback to defaults if not set
+KEYSTORE_PATH=${KEYSTORE_PATH:-"/app/dummy.key.json"}
+KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD:-"testpassword"}
 
 echo "Starting operator with keystore: $KEYSTORE_PATH"
 
@@ -53,10 +54,15 @@ if [ "$?" -ne 0 ]; then
 fi
 echo "Join request successful"
 
-# Construct the full multiaddr
-REGISTRY_ADDR="/ip4/172.20.0.2/tcp/9000/p2p/$REGISTRY_ID"
+# Get registry container IP
+REGISTRY_IP=$(getent hosts registry | awk '{ print $1 }')
+echo "Registry IP: $REGISTRY_IP"
+
+# Construct the full multiaddr using the resolved IP
+REGISTRY_ADDR="/ip4/$REGISTRY_IP/tcp/9000/p2p/$REGISTRY_ID"
 echo "Connecting to registry at: $REGISTRY_ADDR"
 
-# Start the operator with the correct address
+# Start the operator with the correct address and add a delay
 echo "Starting operator node..."
+sleep 2  # Add a small delay before connecting
 exec ./operator -registry "$REGISTRY_ADDR" -keystore "$KEYSTORE_PATH" -password "$KEYSTORE_PASSWORD" 

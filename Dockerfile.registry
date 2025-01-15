@@ -7,7 +7,6 @@ RUN apk add --no-cache \
     git
 
 # Set Go environment variables
-ENV GOPROXY=https://goproxy.cn,direct
 ENV GO111MODULE=on
 ENV GOSUMDB=off
 

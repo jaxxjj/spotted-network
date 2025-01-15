@@ -18,6 +18,8 @@ type Signer interface {
 	GetAddress() common.Address
 	// GetPublicKey returns the public key associated with the signer
 	GetPublicKey() *ecdsa.PublicKey
+	// GetSigningKey returns the signing key (public key) as hex string
+	GetSigningKey() string
 }
 
 // LocalSigner implements Signer interface using a local keystore file
@@ -84,4 +86,9 @@ func VerifySignature(address common.Address, message []byte, signature []byte) b
 	// Verify address matches
 	recoveredAddr := crypto.PubkeyToAddress(*pubkey)
 	return address == recoveredAddr
+}
+
+// GetSigningKey returns the signing key (public key) as hex string
+func (s *LocalSigner) GetSigningKey() string {
+	return crypto.PubkeyToAddress(s.privateKey.PublicKey).Hex()
 }

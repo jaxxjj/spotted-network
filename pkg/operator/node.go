@@ -1,8 +1,8 @@
 package operator
 
 import (
-	"bufio"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -16,8 +16,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
+	pb "github.com/galxe/spotted-network/proto"
 )
 
 type Node struct {
@@ -28,6 +30,10 @@ type Node struct {
 	knownOperators map[peer.ID]*peer.AddrInfo
 	operatorsMu    sync.RWMutex
 	pingService    *ping.PingService
+	
+	// State sync related fields
+	operatorStates map[string]*pb.OperatorState  // address -> state
+	statesMu       sync.RWMutex
 }
 
 func NewNode(registryAddr string, s signer.Signer) (*Node, error) {
@@ -62,6 +68,8 @@ func NewNode(registryAddr string, s signer.Signer) (*Node, error) {
 		knownOperators: make(map[peer.ID]*peer.AddrInfo),
 		operatorsMu:    sync.RWMutex{},
 		pingService:    pingService,
+		operatorStates: make(map[string]*pb.OperatorState),
+		statesMu:      sync.RWMutex{},
 	}, nil
 }
 
@@ -79,6 +87,18 @@ func (n *Node) Start() error {
 	go n.healthCheck()
 	log.Printf("Message handler and health check started")
 
+	// Subscribe to state updates
+	if err := n.subscribeToStateUpdates(); err != nil {
+		return fmt.Errorf("failed to subscribe to state updates: %w", err)
+	}
+	log.Printf("Subscribed to state updates")
+
+	// Get initial state
+	if err := n.getFullState(); err != nil {
+		return fmt.Errorf("failed to get initial state: %w", err)
+	}
+	log.Printf("Got initial state")
+
 	// Announce to registry
 	log.Printf("Announcing to registry...")
 	if err := n.announceToRegistry(); err != nil {
@@ -92,73 +112,40 @@ func (n *Node) Start() error {
 func (n *Node) handleMessages(stream network.Stream) {
 	defer stream.Close()
 	
-	reader := bufio.NewReader(stream)
 	log.Printf("New stream opened from: %s", stream.Conn().RemotePeer())
 
-	for {
-		message, err := reader.ReadString('\n')
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("Error reading from stream: %v", err)
-			}
-			return
-		}
-
-		message = strings.TrimSpace(message)
-		log.Printf("Received message: %s", message)
-
-		if !strings.HasPrefix(message, "ANNOUNCE ") {
-			log.Printf("Invalid message format, expected ANNOUNCE prefix: %s", message)
-			continue
-		}
-
-		parts := strings.Split(strings.TrimPrefix(message, "ANNOUNCE "), " ")
-		if len(parts) != 2 {
-			log.Printf("Invalid message format: expected 2 parts, got %d", len(parts))
-			continue
-		}
-
-		operatorID, err := peer.Decode(parts[0])
-		if err != nil {
-			log.Printf("Invalid operator ID %s: %v", parts[0], err)
-			continue
-		}
-
-		addrStrs := strings.Split(parts[1], ",")
-		var addrs []multiaddr.Multiaddr
-		for _, addrStr := range addrStrs {
-			addr, err := multiaddr.NewMultiaddr(addrStr)
-			if err != nil {
-				log.Printf("Invalid address format %s: %v", addrStr, err)
-				continue
-			}
-			addrs = append(addrs, addr)
-		}
-
-		if len(addrs) == 0 {
-			log.Printf("No valid addresses found for operator %s", operatorID)
-			continue
-		}
-
-		log.Printf("New operator announced: %s with %d addresses", operatorID, len(addrs))
-
-		peerInfo := &peer.AddrInfo{
-			ID:    operatorID,
-			Addrs: addrs,
-		}
-
-		n.operatorsMu.Lock()
-		n.knownOperators[operatorID] = peerInfo
-		n.operatorsMu.Unlock()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := n.host.Connect(ctx, *peerInfo); err != nil {
-			log.Printf("Failed to connect to operator %s: %v", operatorID, err)
-		} else {
-			log.Printf("Successfully connected to operator %s", operatorID)
-		}
-		cancel()
+	// Read the entire message
+	data, err := io.ReadAll(stream)
+	if err != nil {
+		log.Printf("Error reading from stream: %v", err)
+		return
 	}
+
+	// Parse protobuf message
+	var req pb.JoinRequest
+	if err := proto.Unmarshal(data, &req); err != nil {
+		log.Printf("Error parsing protobuf message: %v", err)
+		return
+	}
+
+	log.Printf("Received join request from operator: %s", req.Address)
+
+	// Send success response
+	resp := &pb.JoinResponse{
+		Success: true,
+	}
+	respData, err := proto.Marshal(resp)
+	if err != nil {
+		log.Printf("Error marshaling response: %v", err)
+		return
+	}
+
+	if _, err := stream.Write(respData); err != nil {
+		log.Printf("Error writing response: %v", err)
+		return
+	}
+
+	log.Printf("Successfully processed join request from: %s", req.Address)
 }
 
 func (n *Node) healthCheck() {
@@ -235,17 +222,306 @@ func (n *Node) announceToRegistry() error {
 	}
 	defer stream.Close()
 
-	// Construct announcement message
-	addrStrs := make([]string, 0, len(n.host.Addrs()))
-	for _, addr := range n.host.Addrs() {
-		addrStrs = append(addrStrs, addr.String())
+	// Create join request message
+	message := []byte("join_request")
+	signature, err := n.signer.Sign(message)
+	if err != nil {
+		return fmt.Errorf("failed to sign message: %w", err)
 	}
-	msg := fmt.Sprintf("ANNOUNCE %s %s\n", n.host.ID(), strings.Join(addrStrs, ","))
-	
-	// Write message to stream
-	if _, err := stream.Write([]byte(msg)); err != nil {
-		return fmt.Errorf("failed to write announcement: %w", err)
+
+	// Create protobuf request
+	req := &pb.JoinRequest{
+		Address:    n.signer.GetAddress().Hex(),
+		Message:    string(message),
+		Signature:  hex.EncodeToString(signature),
+		SigningKey: n.signer.GetSigningKey(),
+	}
+
+	// Marshal and send request
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	if _, err := stream.Write(data); err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
 	}
 
 	return nil
+}
+
+// State sync related functions
+
+func (node *Node) subscribeToStateUpdates() error {
+	log.Printf("Opening state sync stream to registry...")
+	stream, err := node.host.NewStream(context.Background(), node.registryID, "/state-sync/1.0.0")
+	if err != nil {
+		return fmt.Errorf("failed to open state sync stream: %w", err)
+	}
+
+	// Send message type
+	msgType := []byte{0x02} // 0x02 for SubscribeRequest
+	if _, err := stream.Write(msgType); err != nil {
+		return fmt.Errorf("failed to write message type: %w", err)
+	}
+
+	// Send subscribe request
+	req := &pb.SubscribeRequest{}
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal subscribe request: %w", err)
+	}
+
+	// Send length prefix
+	length := uint32(len(data))
+	lengthBytes := make([]byte, 4)
+	lengthBytes[0] = byte(length >> 24)
+	lengthBytes[1] = byte(length >> 16)
+	lengthBytes[2] = byte(length >> 8)
+	lengthBytes[3] = byte(length)
+	
+	if _, err := stream.Write(lengthBytes); err != nil {
+		return fmt.Errorf("failed to write length prefix: %w", err)
+	}
+
+	log.Printf("Sending state sync subscribe request (type: 0x02, length: %d)...", length)
+	bytesWritten, err := stream.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to send subscribe request: %w", err)
+	}
+	log.Printf("Sent %d bytes to registry", bytesWritten)
+	log.Printf("Successfully subscribed to state updates")
+
+	// Handle updates in background
+	go node.handleStateUpdates(stream)
+	return nil
+}
+
+func (node *Node) getFullState() error {
+	log.Printf("Requesting full operator state from registry...")
+	stream, err := node.host.NewStream(context.Background(), node.registryID, "/state-sync/1.0.0")
+	if err != nil {
+		return fmt.Errorf("failed to open state sync stream: %w", err)
+	}
+	defer stream.Close()
+
+	// Send get full state request with message type
+	msgType := []byte{0x01} // 0x01 for GetFullStateRequest
+	if _, err := stream.Write(msgType); err != nil {
+		return fmt.Errorf("failed to write message type: %w", err)
+	}
+
+	// Send get full state request
+	req := &pb.GetFullStateRequest{}
+	data, err := proto.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal get state request: %w", err)
+	}
+
+	// Send length prefix
+	length := uint32(len(data))
+	lengthBytes := make([]byte, 4)
+	lengthBytes[0] = byte(length >> 24)
+	lengthBytes[1] = byte(length >> 16)
+	lengthBytes[2] = byte(length >> 8)
+	lengthBytes[3] = byte(length)
+	
+	if _, err := stream.Write(lengthBytes); err != nil {
+		return fmt.Errorf("failed to write length prefix: %w", err)
+	}
+
+	log.Printf("Sending GetFullState request to registry (type: 0x01, length: %d)...", length)
+	bytesWritten, err := stream.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to send get state request: %w", err)
+	}
+	log.Printf("Sent %d bytes to registry", bytesWritten)
+
+	// Read response
+	log.Printf("Waiting for response from registry...")
+	
+	// Read length prefix first
+	respLengthBytes := make([]byte, 4)
+	if _, err := io.ReadFull(stream, respLengthBytes); err != nil {
+		return fmt.Errorf("failed to read response length: %w", err)
+	}
+	
+	respLength := uint32(respLengthBytes[0])<<24 | 
+		uint32(respLengthBytes[1])<<16 | 
+		uint32(respLengthBytes[2])<<8 | 
+		uint32(respLengthBytes[3])
+		
+	log.Printf("Response length: %d bytes", respLength)
+	
+	// Read the full response
+	respData := make([]byte, respLength)
+	if _, err := io.ReadFull(stream, respData); err != nil {
+		return fmt.Errorf("failed to read response data: %w", err)
+	}
+
+	var resp pb.GetFullStateResponse
+	if err := proto.Unmarshal(respData, &resp); err != nil {
+		return fmt.Errorf("failed to unmarshal state response: %w", err)
+	}
+
+	log.Printf("Successfully unmarshaled response with %d operators", len(resp.Operators))
+	
+	// Update local state
+	log.Printf("Updating local operator states...")
+	node.updateOperatorStates(resp.Operators)
+	
+	// Print initial state table with header
+	log.Printf("\n=== Initial Operator State Table ===")
+	if len(resp.Operators) == 0 {
+		log.Printf("No operators found in response")
+	} else {
+		log.Printf("Received operators:")
+		for _, op := range resp.Operators {
+			log.Printf("- Address: %s, Status: %s, ActiveEpoch: %d, Weight: %s", 
+				op.Address, op.Status, op.ActiveEpoch, op.Weight)
+		}
+	}
+	node.PrintOperatorStates()
+	log.Printf("===================================\n")
+	
+	return nil
+}
+
+func (node *Node) handleStateUpdates(stream network.Stream) {
+	defer stream.Close()
+	log.Printf("Started handling state updates from registry")
+
+	for {
+		// Read length prefix first
+		lengthBytes := make([]byte, 4)
+		if _, err := io.ReadFull(stream, lengthBytes); err != nil {
+			if err != io.EOF {
+				log.Printf("Error reading update length: %v", err)
+			} else {
+				log.Printf("State update stream closed by registry")
+			}
+			return
+		}
+		
+		length := uint32(lengthBytes[0])<<24 | 
+			uint32(lengthBytes[1])<<16 | 
+			uint32(lengthBytes[2])<<8 | 
+			uint32(lengthBytes[3])
+			
+		// Sanity check on length
+		if length > 1024*1024 { // Max 1MB
+			log.Printf("Warning: Received very large update length: %d bytes, ignoring", length)
+			stream.Reset()
+			return
+		}
+			
+		log.Printf("Received state update with length: %d bytes", length)
+		
+		// Read the full update
+		data := make([]byte, length)
+		if _, err := io.ReadFull(stream, data); err != nil {
+			if err != io.EOF {
+				log.Printf("Error reading state update data: %v", err)
+			}
+			return
+		}
+
+		var update pb.OperatorStateUpdate
+		if err := proto.Unmarshal(data, &update); err != nil {
+			log.Printf("Error unmarshaling state update: %v", err)
+			continue
+		}
+
+		log.Printf("Received state update - Type: %s, Operators count: %d", update.Type, len(update.Operators))
+
+		// Handle the update based on type
+		if update.Type == "FULL" {
+			log.Printf("Processing full state update...")
+			node.updateOperatorStates(update.Operators)
+			log.Printf("Full state update processed, total operators: %d", len(update.Operators))
+		} else {
+			log.Printf("Processing delta state update...")
+			// For delta updates, merge with existing state
+			node.mergeOperatorStates(update.Operators)
+			log.Printf("Delta state update processed, updated operators: %d", len(update.Operators))
+		}
+	}
+}
+
+func (node *Node) updateOperatorStates(operators []*pb.OperatorState) {
+	node.statesMu.Lock()
+	defer node.statesMu.Unlock()
+
+	log.Printf("Updating operator states in memory...")
+	log.Printf("Current operator count before update: %d", len(node.operatorStates))
+	
+	// Update memory state
+	node.operatorStates = make(map[string]*pb.OperatorState)
+	for _, op := range operators {
+		node.operatorStates[op.Address] = op
+		log.Printf("Added/Updated operator in memory - Address: %s, Status: %s, ActiveEpoch: %d, Weight: %s", 
+			op.Address, op.Status, op.ActiveEpoch, op.Weight)
+	}
+	
+	log.Printf("Memory state updated - New operator count: %d", len(node.operatorStates))
+	
+	// Print current state of operatorStates map
+	log.Printf("\nCurrent Operator States in Memory:")
+	for addr, state := range node.operatorStates {
+		log.Printf("Address: %s, Status: %s, ActiveEpoch: %d, Weight: %s",
+			addr, state.Status, state.ActiveEpoch, state.Weight)
+	}
+}
+
+func (node *Node) mergeOperatorStates(operators []*pb.OperatorState) {
+	node.statesMu.Lock()
+	defer node.statesMu.Unlock()
+
+	// Update or add operators
+	for _, op := range operators {
+		node.operatorStates[op.Address] = op
+		log.Printf("Merged operator state - Address: %s, Status: %s, ActiveEpoch: %d", 
+			op.Address, op.Status, op.ActiveEpoch)
+	}
+	log.Printf("Memory state merged with %d operators, total operators: %d", 
+		len(operators), len(node.operatorStates))
+		
+	// Print current state table
+	log.Printf("\nOperator State Table:")
+	node.PrintOperatorStates()
+}
+
+// PrintOperatorStates prints all operator states stored in memory
+func (node *Node) PrintOperatorStates() {
+	node.statesMu.RLock()
+	defer node.statesMu.RUnlock()
+
+	log.Printf("\nOperator States (%d total):", len(node.operatorStates))
+	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
+	log.Printf("| %-42s | %-12s | %-12s | %-10s |", "Address", "Status", "ActiveEpoch", "Weight")
+	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
+	
+	for _, op := range node.operatorStates {
+		log.Printf("| %-42s | %-12s | %-12d | %-10s |", 
+			op.Address,
+			op.Status,
+			op.ActiveEpoch,
+			op.Weight,
+		)
+	}
+	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
+}
+
+// GetOperatorState returns the state of a specific operator
+func (node *Node) GetOperatorState(address string) *pb.OperatorState {
+	node.statesMu.RLock()
+	defer node.statesMu.RUnlock()
+	return node.operatorStates[address]
+}
+
+// GetOperatorCount returns the number of operators in memory
+func (node *Node) GetOperatorCount() int {
+	node.statesMu.RLock()
+	defer node.statesMu.RUnlock()
+	return len(node.operatorStates)
 } 
