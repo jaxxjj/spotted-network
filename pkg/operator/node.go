@@ -408,6 +408,13 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 			uint32(lengthBytes[2])<<8 | 
 			uint32(lengthBytes[3])
 			
+		// Sanity check on length
+		if length > 1024*1024 { // Max 1MB
+			log.Printf("Warning: Received very large update length: %d bytes, ignoring", length)
+			stream.Reset()
+			return
+		}
+			
 		log.Printf("Received state update with length: %d bytes", length)
 		
 		// Read the full update
