@@ -13,6 +13,8 @@ type Querier interface {
 	CreateOperator(ctx context.Context, arg CreateOperatorParams) (Operators, error)
 	// Get operator information by address
 	GetOperatorByAddress(ctx context.Context, address string) (Operators, error)
+	// Get all operators regardless of status
+	ListAllOperators(ctx context.Context) ([]Operators, error)
 	// Get all operators with a specific status
 	ListOperatorsByStatus(ctx context.Context, status string) ([]Operators, error)
 	// Update operator status

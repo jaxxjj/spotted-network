@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package sync;
+
+option go_package = "github.com/galxe/spotted-network/proto";
+
+// Operator state sync messages
+message OperatorState {
+  string address = 1;
+  string signing_key = 2;
+  int64 registered_at_block_number = 3;
+  int64 registered_at_timestamp = 4;
+  int32 active_epoch = 5;
+  optional int32 exit_epoch = 6;
+  string status = 7;
+  string weight = 8;
+  int32 missing = 9;
+  int32 successful_response_count = 10;
+}
+
+message OperatorStateUpdate {
+  string type = 1; // "FULL" or "DELTA"
+  repeated OperatorState operators = 2;
+}
+
+// State sync service
+service StateSync {
+  // Get full operator state
+  rpc GetFullState(GetFullStateRequest) returns (GetFullStateResponse);
+  
+  // Subscribe to state updates
+  rpc SubscribeUpdates(SubscribeRequest) returns (stream OperatorStateUpdate);
+}
+
+message GetFullStateRequest {}
+
+message GetFullStateResponse {
+  repeated OperatorState operators = 1;
+}
+
+message SubscribeRequest {} 

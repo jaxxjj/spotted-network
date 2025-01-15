@@ -34,4 +34,9 @@ WHERE address = $1 AND status = 'waitingJoin';
 -- Get all operators with a specific status
 SELECT * FROM operators
 WHERE status = $1
+ORDER BY created_at DESC;
+
+-- name: ListAllOperators :many
+-- Get all operators regardless of status
+SELECT * FROM operators
 ORDER BY created_at DESC; 

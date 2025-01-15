@@ -87,6 +87,45 @@ func (q *Queries) GetOperatorByAddress(ctx context.Context, address string) (Ope
 	return i, err
 }
 
+const listAllOperators = `-- name: ListAllOperators :many
+SELECT address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, missing, successful_response_count, created_at, updated_at FROM operators
+ORDER BY created_at DESC
+`
+
+// Get all operators regardless of status
+func (q *Queries) ListAllOperators(ctx context.Context) ([]Operators, error) {
+	rows, err := q.db.Query(ctx, listAllOperators)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Operators{}
+	for rows.Next() {
+		var i Operators
+		if err := rows.Scan(
+			&i.Address,
+			&i.SigningKey,
+			&i.RegisteredAtBlockNumber,
+			&i.RegisteredAtTimestamp,
+			&i.ActiveEpoch,
+			&i.ExitEpoch,
+			&i.Status,
+			&i.Weight,
+			&i.Missing,
+			&i.SuccessfulResponseCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOperatorsByStatus = `-- name: ListOperatorsByStatus :many
 SELECT address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, missing, successful_response_count, created_at, updated_at FROM operators
 WHERE status = $1
