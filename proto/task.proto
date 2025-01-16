@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "github.com/galxe/spotted-network/proto";
+
+// TaskResponseMessage represents a task response message
+message TaskResponseMessage {
+    string task_id = 1;
+    string operator_addr = 2;
+    bytes signature = 3;
+    string value = 4;
+    string block_number = 5;
+    int32 chain_id = 6;
+    string target_address = 7;
+    string key = 8;
+    uint32 epoch = 9;
+}
+
+// TaskMessage represents a task message
+message TaskMessage {
+    string task_id = 1;
+    int32 chain_id = 2;
+    string target_address = 3;
+    string key = 4;
+    string block_number = 5;
+    string timestamp = 6;
+    uint32 epoch = 7;
+}
+
+// ConsensusReachedMessage represents a consensus reached message
+message ConsensusReachedMessage {
+    string task_id = 1;
+    uint32 epoch = 2;
+    map<string, bytes> operator_signatures = 3; // operator_addr -> signature
+    bytes aggregated_signatures = 4;
+    int64 consensus_reached_at = 5;
+} 

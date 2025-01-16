@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"sync"
 
 	"github.com/libp2p/go-libp2p"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
@@ -16,6 +18,8 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/operator/api"
+	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,12 +41,17 @@ type Node struct {
 	// Database connection
 	db          *pgxpool.Pool
 	taskQueries *tasks.Queries
+	responseQueries *task_responses.Queries
+	consensusQueries *consensus_responses.Queries
 	
 	// Chain clients
 	chainClient *ethereum.ChainClients
 	
 	// API server
 	apiServer *api.Server
+
+	// P2P pubsub
+	PubSub *pubsub.PubSub
 }
 
 func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *ethereum.ChainClients) (*Node, error) {
@@ -81,14 +90,22 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
-	// Create queries
+	// Initialize pubsub
+	ps, err := pubsub.NewGossipSub(context.Background(), host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pubsub: %w", err)
+	}
+
+	// Initialize database queries
 	taskQueries := tasks.New(db)
+	responseQueries := task_responses.New(db)
+	consensusQueries := consensus_responses.New(db)
 
 	// Create ping service
 	pingService := ping.NewPingService(host)
 
 	// Initialize API handler and server
-	apiHandler := api.NewHandler(taskQueries, chainClients)
+	apiHandler := api.NewHandler(taskQueries, chainClients, consensusQueries)
 	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
 	
 	// Start API server
@@ -110,8 +127,11 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		statesMu:       sync.RWMutex{},
 		db:            db,
 		taskQueries:   taskQueries,
+		responseQueries: responseQueries,
+		consensusQueries: consensusQueries,
 		chainClient:   chainClients,
 		apiServer:     apiServer,
+		PubSub:        ps,
 	}, nil
 }
 
@@ -222,4 +242,37 @@ func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
 	}
 
 	return nil
+}
+
+// getOperatorWeight returns the weight of an operator
+func (n *Node) getOperatorWeight(addr string) *big.Int {
+	n.statesMu.RLock()
+	defer n.statesMu.RUnlock()
+	
+	if state, exists := n.operatorStates[addr]; exists {
+		weight := new(big.Int)
+		weight.SetString(state.Weight, 10)
+		return weight
+	}
+	return big.NewInt(0)
+}
+
+// getConsensusThreshold returns the required weight threshold for consensus
+func (n *Node) getConsensusThreshold() *big.Int {
+	n.statesMu.RLock()
+	defer n.statesMu.RUnlock()
+	
+	// Calculate total weight
+	totalWeight := big.NewInt(0)
+	for _, state := range n.operatorStates {
+		weight := new(big.Int)
+		weight.SetString(state.Weight, 10)
+		totalWeight.Add(totalWeight, weight)
+	}
+	
+	// Threshold is 2/3 of total weight
+	threshold := new(big.Int).Mul(totalWeight, big.NewInt(2))
+	threshold.Div(threshold, big.NewInt(3))
+	
+	return threshold
 } 

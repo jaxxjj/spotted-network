@@ -9,20 +9,27 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
+	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 )
 
+// Handler handles HTTP requests
 type Handler struct {
 	taskQueries *tasks.Queries
 	chainClient *ethereum.ChainClients
+	consensusDB *consensus_responses.Queries
 }
 
-func NewHandler(taskQueries *tasks.Queries, chainClient *ethereum.ChainClients) *Handler {
+// NewHandler creates a new handler
+func NewHandler(taskQueries *tasks.Queries, chainClient *ethereum.ChainClients, consensusDB *consensus_responses.Queries) *Handler {
 	return &Handler{
 		taskQueries: taskQueries,
 		chainClient: chainClient,
+		consensusDB: consensusDB,
 	}
 }
 
@@ -187,4 +194,38 @@ func (h *Handler) generateTaskID(params *SendRequestParams, epoch int64, value s
 
 	hash := crypto.Keccak256(data)
 	return common.Bytes2Hex(hash)
+}
+
+// GetTaskConsensus returns the consensus result for a task
+func (h *Handler) GetTaskConsensus(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "taskID")
+	
+	consensus, err := h.consensusDB.GetConsensusResponse(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get consensus: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Format response
+	response := struct {
+		TaskID              string          `json:"task_id"`
+		Epoch              int32           `json:"epoch"`
+		Status             string          `json:"status"`
+		OperatorSignatures json.RawMessage `json:"operator_signatures"`
+		AggregatedSignatures []byte        `json:"aggregated_signatures"`
+		ConsensusReachedAt *time.Time     `json:"consensus_reached_at,omitempty"`
+	}{
+		TaskID:              consensus.TaskID,
+		Epoch:              consensus.Epoch,
+		Status:             consensus.Status,
+		OperatorSignatures: consensus.OperatorSignatures,
+		AggregatedSignatures: consensus.AggregatedSignatures,
+		ConsensusReachedAt: &consensus.ConsensusReachedAt.Time,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf("failed to encode response: %v", err), http.StatusInternalServerError)
+		return
+	}
 } 
