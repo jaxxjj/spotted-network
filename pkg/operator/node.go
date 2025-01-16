@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 
 	"github.com/libp2p/go-libp2p"
@@ -12,8 +13,12 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
 
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
+	"github.com/galxe/spotted-network/pkg/operator/api"
+	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pb "github.com/galxe/spotted-network/proto"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Node struct {
@@ -26,11 +31,21 @@ type Node struct {
 	pingService    *ping.PingService
 	
 	// State sync related fields
-	operatorStates map[string]*pb.OperatorState  // address -> state
+	operatorStates map[string]*pb.OperatorState
 	statesMu       sync.RWMutex
+	
+	// Database connection
+	db          *pgxpool.Pool
+	taskQueries *tasks.Queries
+	
+	// Chain clients
+	chainClient *ethereum.ChainClients
+	
+	// API server
+	apiServer *api.Server
 }
 
-func NewNode(registryAddr string, s signer.Signer) (*Node, error) {
+func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *ethereum.ChainClients) (*Node, error) {
 	// Parse the registry multiaddr
 	maddr, err := multiaddr.NewMultiaddr(registryAddr)
 	if err != nil {
@@ -43,16 +58,45 @@ func NewNode(registryAddr string, s signer.Signer) (*Node, error) {
 		return nil, fmt.Errorf("failed to parse registry peer info: %w", err)
 	}
 
-	// Create a new host with default configuration
+	// Create a new host with P2P configuration
 	host, err := libp2p.New(
-		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
+		libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/%s/tcp/%d", cfg.P2P.ExternalIP, cfg.P2P.Port)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create host: %w", err)
 	}
 
+	// Initialize database connection
+	db, err := pgxpool.New(context.Background(), cfg.Database.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Configure database pool
+	db.Config().MaxConns = int32(cfg.Database.MaxOpenConns)
+	db.Config().MinConns = int32(cfg.Database.MaxIdleConns)
+
+	// Initialize database tables
+	if err := initDatabase(context.Background(), db); err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	}
+
+	// Create queries
+	taskQueries := tasks.New(db)
+
 	// Create ping service
 	pingService := ping.NewPingService(host)
+
+	// Initialize API handler and server
+	apiHandler := api.NewHandler(taskQueries, chainClients)
+	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
+	
+	// Start API server
+	go func() {
+		if err := apiServer.Start(); err != nil && err != http.ErrServerClosed {
+			log.Printf("API server error: %v", err)
+		}
+	}()
 
 	return &Node{
 		host:           host,
@@ -63,7 +107,11 @@ func NewNode(registryAddr string, s signer.Signer) (*Node, error) {
 		operatorsMu:    sync.RWMutex{},
 		pingService:    pingService,
 		operatorStates: make(map[string]*pb.OperatorState),
-		statesMu:      sync.RWMutex{},
+		statesMu:       sync.RWMutex{},
+		db:            db,
+		taskQueries:   taskQueries,
+		chainClient:   chainClients,
+		apiServer:     apiServer,
 	}, nil
 }
 
@@ -104,6 +152,19 @@ func (n *Node) Start() error {
 }
 
 func (n *Node) Stop() error {
+	// Stop API server
+	if err := n.apiServer.Stop(context.Background()); err != nil {
+		log.Printf("Error stopping API server: %v", err)
+	}
+	
+	// Close database connection
+	n.db.Close()
+	
+	// Close chain clients
+	if err := n.chainClient.Close(); err != nil {
+		log.Printf("Error closing chain clients: %v", err)
+	}
+	
 	return n.host.Close()
 }
 
@@ -131,5 +192,34 @@ func (n *Node) connectToRegistry() error {
 	n.registryID = peerInfo.ID
 
 	log.Printf("Successfully connected to Registry Node with ID: %s\n", n.registryID)
+	return nil
+}
+
+func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
+	// Create tasks table
+	_, err := db.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS tasks (
+			task_id TEXT PRIMARY KEY,
+			target_address TEXT NOT NULL,
+			chain_id INT NOT NULL,
+			block_number NUMERIC(78),
+			timestamp NUMERIC(78),
+			epoch INT NOT NULL,
+			key NUMERIC(78) NOT NULL,
+			value NUMERIC(78),
+			expire_time TIMESTAMP NOT NULL,
+			retries INT DEFAULT 0,
+			status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'expired', 'failed')),
+			created_at TIMESTAMP NOT NULL DEFAULT NOW()
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+		CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
+		CREATE INDEX IF NOT EXISTS idx_tasks_expire_time ON tasks(expire_time);
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to create tasks table: %w", err)
+	}
+
 	return nil
 } 

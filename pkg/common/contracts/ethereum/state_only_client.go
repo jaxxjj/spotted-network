@@ -42,7 +42,7 @@ func NewStateOnlyClient(rpcEndpoint string, stateManagerAddr common.Address) (co
 // GetStateAtBlock gets state at a specific block number
 func (c *StateOnlyClient) GetStateAtBlock(ctx context.Context, target common.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
-	history, err := c.contract.GetHistoryAt(opts, target, key, big.NewInt(int64(blockNumber)))
+	history, err := c.contract.GetHistoryAtBlock(opts, target, key, big.NewInt(int64(blockNumber)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get state at block: %w", err)
 	}

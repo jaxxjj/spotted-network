@@ -15,3 +15,17 @@ sql:
         emit_interface: true
         emit_exact_table_names: true
         emit_empty_slices: true 
+  - schema: "operator/tasks/schema.sql"
+    queries: "operator/tasks/query.sql"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "tasks"
+        out: "operator/tasks"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "pg_catalog.numeric"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric" 

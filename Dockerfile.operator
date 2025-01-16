@@ -28,7 +28,8 @@ RUN apk add --no-cache \
     wget \
     curl \
     jq \
-    netcat-openbsd
+    netcat-openbsd \
+    postgresql-client
 
 COPY --from=builder /app/operator .
 COPY scripts/start-operator.sh .

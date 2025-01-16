@@ -1,10 +1,20 @@
-.PHONY: build clean run-registry run-operator stop generate-keys
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task
 
 # Generate operator keys
 generate-keys:
 	@echo "Generating operator keys..."
 	@go run scripts/generate_keys.go
 	@echo "Keys generated successfully in ./keys directory"
+
+# Check operator1 tasks
+check-tasks:
+	@echo "Querying tasks from operator1 database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM tasks;"
+
+# Create new task
+create-task:
+	@echo "Creating new task..."
+	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8001/api/v1/task
 
 # Build both binaries
 build:
