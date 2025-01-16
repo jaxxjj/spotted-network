@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -275,4 +276,26 @@ func (n *Node) getConsensusThreshold() *big.Int {
 	threshold.Div(threshold, big.NewInt(3))
 	
 	return threshold
+}
+
+// CalculateTotalWeight calculates the total weight of operator signatures
+func (n *Node) CalculateTotalWeight(sigs []byte) string {
+	var operatorSigs map[string][]byte
+	if err := json.Unmarshal(sigs, &operatorSigs); err != nil {
+		return "0"
+	}
+
+	totalWeight := new(big.Int)
+	n.statesMu.RLock()
+	defer n.statesMu.RUnlock()
+
+	for addr := range operatorSigs {
+		if state, ok := n.operatorStates[addr]; ok {
+			weight := new(big.Int)
+			weight.SetString(state.Weight, 10)
+			totalWeight.Add(totalWeight, weight)
+		}
+	}
+
+	return totalWeight.String()
 } 

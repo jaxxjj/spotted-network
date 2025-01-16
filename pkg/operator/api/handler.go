@@ -17,11 +17,28 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 )
 
+type TaskFinalResponse struct {
+	TaskID              string            `json:"task_id"`
+	Epoch               uint32            `json:"epoch"`
+	Status             string            `json:"status"`
+	Value              string            `json:"value"`
+	BlockNumber        uint64            `json:"block_number"`
+	ChainID            uint64            `json:"chain_id"`
+	TargetAddress      string            `json:"target_address"`
+	Key                string            `json:"key"`
+	OperatorSignatures map[string][]byte `json:"operator_signatures"`
+	TotalWeight        string            `json:"total_weight"`
+	ConsensusReachedAt time.Time         `json:"consensus_reached_at"`
+}
+
 // Handler handles HTTP requests
 type Handler struct {
 	taskQueries *tasks.Queries
 	chainClient *ethereum.ChainClients
 	consensusDB *consensus_responses.Queries
+	node        interface {
+		CalculateTotalWeight(sigs []byte) string
+	}
 }
 
 // NewHandler creates a new handler
@@ -226,6 +243,74 @@ func (h *Handler) GetTaskConsensus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, fmt.Sprintf("failed to encode response: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "taskID")
+	
+	// Get consensus response
+	consensus, err := h.consensusDB.GetConsensusResponse(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get consensus: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Get task information
+	task, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get task: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert numeric values to strings
+	var blockNum uint64
+	var chainID uint64
+	var value, key string
+
+	if err := task.BlockNumber.Scan(&blockNum); err != nil {
+		blockNum = 0
+	}
+	chainID = uint64(task.ChainID)
+	if err := task.Value.Scan(&value); err != nil {
+		value = "0"
+	}
+	if err := task.Key.Scan(&key); err != nil {
+		key = "0"
+	}
+
+	// Calculate total weight
+	totalWeight := "0"
+	if h.node != nil {
+		totalWeight = h.node.CalculateTotalWeight(consensus.OperatorSignatures)
+	}
+
+	// Parse operator signatures
+	var operatorSigs map[string][]byte
+	if err := json.Unmarshal(consensus.OperatorSignatures, &operatorSigs); err != nil {
+		operatorSigs = make(map[string][]byte)
+	}
+
+	// Build response
+	response := &TaskFinalResponse{
+		TaskID:             taskID,
+		Epoch:             uint32(consensus.Epoch),
+		Status:            consensus.Status,
+		Value:             value,
+		BlockNumber:       blockNum,
+		ChainID:          chainID,
+		TargetAddress:     task.TargetAddress,
+		Key:              key,
+		OperatorSignatures: operatorSigs,
+		TotalWeight:       totalWeight,
+		ConsensusReachedAt: consensus.ConsensusReachedAt.Time,
+	}
+
+	// Return JSON response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 		return
 	}
 } 
