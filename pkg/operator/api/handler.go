@@ -56,6 +56,7 @@ type SendRequestParams struct {
 	Key           string `json:"key"`
 	BlockNumber   *int64 `json:"block_number,omitempty"`
 	Timestamp     *int64 `json:"timestamp,omitempty"`
+	WaitFinality  bool   `json:"wait_finality"`
 }
 
 type SendRequestResponse struct {
@@ -101,25 +102,47 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	keyBig := new(big.Int)
 	keyBig.SetString(params.Key, 0)
 
-	// Query state based on block number or timestamp
-	var value *big.Int
-	if params.BlockNumber != nil {
-		value, err = stateClient.GetStateAtBlock(r.Context(), common.HexToAddress(params.TargetAddress), keyBig, uint64(*params.BlockNumber))
-	} else {
-		value, err = stateClient.GetStateAtTimestamp(r.Context(), common.HexToAddress(params.TargetAddress), keyBig, uint64(*params.Timestamp))
-	}
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to query state: %v", err), http.StatusInternalServerError)
+	// Generate task ID first
+	taskID := h.generateTaskID(&params, int64(currentEpoch), "0")
+
+	// Check if task already exists
+	existingTask, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
+	if err == nil {
+		// Task exists, return its current status
+		response := struct {
+			TaskID string `json:"task_id"`
+			Status string `json:"status"`
+			CurrentConfirmations int32 `json:"current_confirmations,omitempty"`
+			RequiredConfirmations int32 `json:"required_confirmations,omitempty"`
+		}{
+			TaskID: existingTask.TaskID,
+			Status: existingTask.Status,
+			CurrentConfirmations: existingTask.CurrentConfirmations.Int32,
+			RequiredConfirmations: existingTask.RequiredConfirmations.Int32,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
 		return
 	}
 
-	// Generate task ID
-	taskID := h.generateTaskID(&params, int64(currentEpoch), value.String())
+	// Get latest block number
+	latestBlock, err := stateClient.GetLatestBlockNumber(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get latest block: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Determine required confirmations
+	requiredConfirmations := h.getRequiredConfirmations(params.ChainID)
 
 	// Convert numeric values
-	var blockNumber, timestamp pgtype.Numeric
+	var blockNumber, timestamp, lastCheckedBlock pgtype.Numeric
 	if params.BlockNumber != nil {
 		if err := blockNumber.Scan(fmt.Sprintf("%d", *params.BlockNumber)); err != nil {
+			http.Error(w, "Invalid block number", http.StatusBadRequest)
+			return
+		}
+		if err := lastCheckedBlock.Scan(fmt.Sprintf("%d", latestBlock)); err != nil {
 			http.Error(w, "Invalid block number", http.StatusBadRequest)
 			return
 		}
@@ -131,22 +154,17 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Convert key and value to Numeric
-	var keyNum, valueNum pgtype.Numeric
+	// Convert key to Numeric
+	var keyNum pgtype.Numeric
 	if err := keyNum.Scan(keyBig.String()); err != nil {
-		http.Error(w, "Invalid key value", http.StatusInternalServerError)
-		return
-	}
-	if err := valueNum.Scan(value.String()); err != nil {
-		http.Error(w, "Invalid state value", http.StatusInternalServerError)
+		http.Error(w, "Invalid key value", http.StatusBadRequest)
 		return
 	}
 
-	// Convert expiration time
-	var expireTime pgtype.Timestamp
-	if err := expireTime.Scan(time.Now().Add(15 * time.Second)); err != nil {
-		http.Error(w, "Failed to set expiration time", http.StatusInternalServerError)
-		return
+	// Set initial status
+	status := "pending"
+	if params.WaitFinality && params.BlockNumber != nil {
+		status = "confirming"
 	}
 
 	// Create task
@@ -158,9 +176,9 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		Timestamp:     timestamp,
 		Epoch:        int32(currentEpoch),
 		Key:          keyNum,
-		Value:        valueNum,
-		ExpireTime:   expireTime,
-		Status:       "pending",
+		Status:       status,
+		RequiredConfirmations: pgtype.Int4{Int32: int32(requiredConfirmations), Valid: true},
+		Value:        pgtype.Numeric{}, // Empty value for now
 	})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create task: %v", err), http.StatusInternalServerError)
@@ -168,10 +186,17 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(SendRequestResponse{
+	response := struct {
+		TaskID string `json:"task_id"`
+		Status string `json:"status"`
+		RequiredConfirmations int32 `json:"required_confirmations,omitempty"`
+	}{
 		TaskID: task.TaskID,
-	})
+		Status: task.Status,
+		RequiredConfirmations: task.RequiredConfirmations.Int32,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func (h *Handler) validateRequest(params *SendRequestParams) error {
@@ -312,5 +337,19 @@ func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
 		return
+	}
+}
+
+// getRequiredConfirmations returns the required confirmations for a chain
+func (h *Handler) getRequiredConfirmations(chainID int64) int32 {
+	switch chainID {
+	case 1: // Ethereum mainnet
+		return 12
+	case 137: // Polygon
+		return 256
+	case 56: // BSC
+		return 15
+	default:
+		return 12
 	}
 } 

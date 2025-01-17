@@ -14,7 +14,7 @@ import (
 const cleanupOldTasks = `-- name: CleanupOldTasks :exec
 DELETE FROM tasks
 WHERE created_at < NOW() - INTERVAL '24 hours'
-AND status IN ('completed', 'expired', 'failed')
+AND status IN ('completed', 'failed')
 `
 
 func (q *Queries) CleanupOldTasks(ctx context.Context) error {
@@ -32,24 +32,24 @@ INSERT INTO tasks (
     epoch,
     key,
     value,
-    expire_time,
-    status
+    status,
+    required_confirmations
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING task_id, target_address, chain_id, block_number, timestamp, epoch, key, value, expire_time, retries, status, created_at
+) RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, current_confirmations, last_checked_block, created_at, updated_at
 `
 
 type CreateTaskParams struct {
-	TaskID        string           `json:"task_id"`
-	TargetAddress string           `json:"target_address"`
-	ChainID       int32            `json:"chain_id"`
-	BlockNumber   pgtype.Numeric   `json:"block_number"`
-	Timestamp     pgtype.Numeric   `json:"timestamp"`
-	Epoch         int32            `json:"epoch"`
-	Key           pgtype.Numeric   `json:"key"`
-	Value         pgtype.Numeric   `json:"value"`
-	ExpireTime    pgtype.Timestamp `json:"expire_time"`
-	Status        string           `json:"status"`
+	TaskID                string         `json:"task_id"`
+	TargetAddress         string         `json:"target_address"`
+	ChainID               int32          `json:"chain_id"`
+	BlockNumber           pgtype.Numeric `json:"block_number"`
+	Timestamp             pgtype.Numeric `json:"timestamp"`
+	Epoch                 int32          `json:"epoch"`
+	Key                   pgtype.Numeric `json:"key"`
+	Value                 pgtype.Numeric `json:"value"`
+	Status                string         `json:"status"`
+	RequiredConfirmations pgtype.Int4    `json:"required_confirmations"`
 }
 
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error) {
@@ -62,29 +62,31 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		arg.Epoch,
 		arg.Key,
 		arg.Value,
-		arg.ExpireTime,
 		arg.Status,
+		arg.RequiredConfirmations,
 	)
 	var i Task
 	err := row.Scan(
 		&i.TaskID,
-		&i.TargetAddress,
 		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
 		&i.BlockNumber,
 		&i.Timestamp,
-		&i.Epoch,
-		&i.Key,
 		&i.Value,
-		&i.ExpireTime,
-		&i.Retries,
+		&i.Epoch,
 		&i.Status,
+		&i.RequiredConfirmations,
+		&i.CurrentConfirmations,
+		&i.LastCheckedBlock,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const getTaskByID = `-- name: GetTaskByID :one
-SELECT task_id, target_address, chain_id, block_number, timestamp, epoch, key, value, expire_time, retries, status, created_at FROM tasks
+SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, current_confirmations, last_checked_block, created_at, updated_at FROM tasks
 WHERE task_id = $1
 `
 
@@ -93,30 +95,31 @@ func (q *Queries) GetTaskByID(ctx context.Context, taskID string) (Task, error) 
 	var i Task
 	err := row.Scan(
 		&i.TaskID,
-		&i.TargetAddress,
 		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
 		&i.BlockNumber,
 		&i.Timestamp,
-		&i.Epoch,
-		&i.Key,
 		&i.Value,
-		&i.ExpireTime,
-		&i.Retries,
+		&i.Epoch,
 		&i.Status,
+		&i.RequiredConfirmations,
+		&i.CurrentConfirmations,
+		&i.LastCheckedBlock,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const listExpiredTasks = `-- name: ListExpiredTasks :many
-SELECT task_id, target_address, chain_id, block_number, timestamp, epoch, key, value, expire_time, retries, status, created_at FROM tasks
-WHERE status = 'pending'
-AND expire_time <= NOW()
-ORDER BY created_at ASC
+const listConfirmingTasks = `-- name: ListConfirmingTasks :many
+SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, current_confirmations, last_checked_block, created_at, updated_at FROM tasks 
+WHERE status = 'confirming'
+ORDER BY created_at DESC
 `
 
-func (q *Queries) ListExpiredTasks(ctx context.Context) ([]Task, error) {
-	rows, err := q.db.Query(ctx, listExpiredTasks)
+func (q *Queries) ListConfirmingTasks(ctx context.Context) ([]Task, error) {
+	rows, err := q.db.Query(ctx, listConfirmingTasks)
 	if err != nil {
 		return nil, err
 	}
@@ -126,17 +129,19 @@ func (q *Queries) ListExpiredTasks(ctx context.Context) ([]Task, error) {
 		var i Task
 		if err := rows.Scan(
 			&i.TaskID,
-			&i.TargetAddress,
 			&i.ChainID,
+			&i.TargetAddress,
+			&i.Key,
 			&i.BlockNumber,
 			&i.Timestamp,
-			&i.Epoch,
-			&i.Key,
 			&i.Value,
-			&i.ExpireTime,
-			&i.Retries,
+			&i.Epoch,
 			&i.Status,
+			&i.RequiredConfirmations,
+			&i.CurrentConfirmations,
+			&i.LastCheckedBlock,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -149,9 +154,8 @@ func (q *Queries) ListExpiredTasks(ctx context.Context) ([]Task, error) {
 }
 
 const listPendingTasks = `-- name: ListPendingTasks :many
-SELECT task_id, target_address, chain_id, block_number, timestamp, epoch, key, value, expire_time, retries, status, created_at FROM tasks
+SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, current_confirmations, last_checked_block, created_at, updated_at FROM tasks
 WHERE status = 'pending'
-AND expire_time > NOW()
 ORDER BY created_at ASC
 `
 
@@ -166,17 +170,19 @@ func (q *Queries) ListPendingTasks(ctx context.Context) ([]Task, error) {
 		var i Task
 		if err := rows.Scan(
 			&i.TaskID,
-			&i.TargetAddress,
 			&i.ChainID,
+			&i.TargetAddress,
+			&i.Key,
 			&i.BlockNumber,
 			&i.Timestamp,
-			&i.Epoch,
-			&i.Key,
 			&i.Value,
-			&i.ExpireTime,
-			&i.Retries,
+			&i.Epoch,
 			&i.Status,
+			&i.RequiredConfirmations,
+			&i.CurrentConfirmations,
+			&i.LastCheckedBlock,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -188,15 +194,43 @@ func (q *Queries) ListPendingTasks(ctx context.Context) ([]Task, error) {
 	return items, nil
 }
 
+const updateTaskCompleted = `-- name: UpdateTaskCompleted :exec
+UPDATE tasks
+SET status = 'completed',
+    updated_at = NOW()
+WHERE task_id = $1
+`
+
+func (q *Queries) UpdateTaskCompleted(ctx context.Context, taskID string) error {
+	_, err := q.db.Exec(ctx, updateTaskCompleted, taskID)
+	return err
+}
+
+const updateTaskConfirmations = `-- name: UpdateTaskConfirmations :exec
+UPDATE tasks 
+SET current_confirmations = $1,
+    last_checked_block = $2,
+    updated_at = NOW()
+WHERE task_id = $3
+`
+
+type UpdateTaskConfirmationsParams struct {
+	CurrentConfirmations pgtype.Int4    `json:"current_confirmations"`
+	LastCheckedBlock     pgtype.Numeric `json:"last_checked_block"`
+	TaskID               string         `json:"task_id"`
+}
+
+func (q *Queries) UpdateTaskConfirmations(ctx context.Context, arg UpdateTaskConfirmationsParams) error {
+	_, err := q.db.Exec(ctx, updateTaskConfirmations, arg.CurrentConfirmations, arg.LastCheckedBlock, arg.TaskID)
+	return err
+}
+
 const updateTaskStatus = `-- name: UpdateTaskStatus :one
 UPDATE tasks
 SET status = $2,
-    retries = CASE 
-        WHEN $2 = 'pending' THEN retries + 1
-        ELSE retries
-    END
+    updated_at = NOW()
 WHERE task_id = $1
-RETURNING task_id, target_address, chain_id, block_number, timestamp, epoch, key, value, expire_time, retries, status, created_at
+RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, current_confirmations, last_checked_block, created_at, updated_at
 `
 
 type UpdateTaskStatusParams struct {
@@ -209,17 +243,19 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 	var i Task
 	err := row.Scan(
 		&i.TaskID,
-		&i.TargetAddress,
 		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
 		&i.BlockNumber,
 		&i.Timestamp,
-		&i.Epoch,
-		&i.Key,
 		&i.Value,
-		&i.ExpireTime,
-		&i.Retries,
+		&i.Epoch,
 		&i.Status,
+		&i.RequiredConfirmations,
+		&i.CurrentConfirmations,
+		&i.LastCheckedBlock,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -227,9 +263,10 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 const updateTaskValue = `-- name: UpdateTaskValue :one
 UPDATE tasks
 SET value = $2,
-    status = 'pending'
+    status = 'pending',
+    updated_at = NOW()
 WHERE task_id = $1
-RETURNING task_id, target_address, chain_id, block_number, timestamp, epoch, key, value, expire_time, retries, status, created_at
+RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, current_confirmations, last_checked_block, created_at, updated_at
 `
 
 type UpdateTaskValueParams struct {
@@ -242,17 +279,19 @@ func (q *Queries) UpdateTaskValue(ctx context.Context, arg UpdateTaskValueParams
 	var i Task
 	err := row.Scan(
 		&i.TaskID,
-		&i.TargetAddress,
 		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
 		&i.BlockNumber,
 		&i.Timestamp,
-		&i.Epoch,
-		&i.Key,
 		&i.Value,
-		&i.ExpireTime,
-		&i.Retries,
+		&i.Epoch,
 		&i.Status,
+		&i.RequiredConfirmations,
+		&i.CurrentConfirmations,
+		&i.LastCheckedBlock,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

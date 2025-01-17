@@ -12,8 +12,10 @@ type Querier interface {
 	CleanupOldTasks(ctx context.Context) error
 	CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error)
 	GetTaskByID(ctx context.Context, taskID string) (Task, error)
-	ListExpiredTasks(ctx context.Context) ([]Task, error)
+	ListConfirmingTasks(ctx context.Context) ([]Task, error)
 	ListPendingTasks(ctx context.Context) ([]Task, error)
+	UpdateTaskCompleted(ctx context.Context, taskID string) error
+	UpdateTaskConfirmations(ctx context.Context, arg UpdateTaskConfirmationsParams) error
 	UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusParams) (Task, error)
 	UpdateTaskValue(ctx context.Context, arg UpdateTaskValueParams) (Task, error)
 }

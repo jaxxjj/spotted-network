@@ -9,16 +9,18 @@ import (
 )
 
 type Task struct {
-	TaskID        string           `json:"task_id"`
-	TargetAddress string           `json:"target_address"`
-	ChainID       int32            `json:"chain_id"`
-	BlockNumber   pgtype.Numeric   `json:"block_number"`
-	Timestamp     pgtype.Numeric   `json:"timestamp"`
-	Epoch         int32            `json:"epoch"`
-	Key           pgtype.Numeric   `json:"key"`
-	Value         pgtype.Numeric   `json:"value"`
-	ExpireTime    pgtype.Timestamp `json:"expire_time"`
-	Retries       pgtype.Int4      `json:"retries"`
-	Status        string           `json:"status"`
-	CreatedAt     pgtype.Timestamp `json:"created_at"`
+	TaskID                string             `json:"task_id"`
+	ChainID               int32              `json:"chain_id"`
+	TargetAddress         string             `json:"target_address"`
+	Key                   pgtype.Numeric     `json:"key"`
+	BlockNumber           pgtype.Numeric     `json:"block_number"`
+	Timestamp             pgtype.Numeric     `json:"timestamp"`
+	Value                 pgtype.Numeric     `json:"value"`
+	Epoch                 int32              `json:"epoch"`
+	Status                string             `json:"status"`
+	RequiredConfirmations pgtype.Int4        `json:"required_confirmations"`
+	CurrentConfirmations  pgtype.Int4        `json:"current_confirmations"`
+	LastCheckedBlock      pgtype.Numeric     `json:"last_checked_block"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 }

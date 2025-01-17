@@ -228,15 +228,18 @@ func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
 			epoch INT NOT NULL,
 			key NUMERIC(78) NOT NULL,
 			value NUMERIC(78),
-			expire_time TIMESTAMP NOT NULL,
 			retries INT DEFAULT 0,
-			status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'expired', 'failed')),
-			created_at TIMESTAMP NOT NULL DEFAULT NOW()
+			required_confirmations INT,          
+			current_confirmations INT DEFAULT 0,  
+			last_checked_block NUMERIC(78),      
+			status TEXT NOT NULL CHECK (status IN ('pending', 'confirming', 'completed', 'expired', 'failed')),
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 		CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
-		CREATE INDEX IF NOT EXISTS idx_tasks_expire_time ON tasks(expire_time);
+		CREATE INDEX IF NOT EXISTS idx_tasks_confirming ON tasks(status, current_confirmations) WHERE status = 'confirming';
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to create tasks table: %w", err)

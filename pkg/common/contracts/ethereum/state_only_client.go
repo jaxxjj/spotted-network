@@ -72,6 +72,15 @@ func (c *StateOnlyClient) GetLatestState(ctx context.Context, target common.Addr
 	return value, nil
 }
 
+// GetLatestBlockNumber gets the latest block number
+func (c *StateOnlyClient) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
+	blockNumber, err := c.ethClient.BlockNumber(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get latest block number: %w", err)
+	}
+	return blockNumber, nil
+}
+
 // Close closes the client connection
 func (c *StateOnlyClient) Close() error {
 	c.ethClient.Close()

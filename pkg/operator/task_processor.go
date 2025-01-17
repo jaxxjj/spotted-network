@@ -17,6 +17,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pb "github.com/galxe/spotted-network/proto"
 )
 
@@ -28,15 +29,17 @@ const (
 type TaskProcessor struct {
 	node           *Node
 	signer         signer.Signer
+	taskQueries    *tasks.Queries
 	db             *task_responses.Queries
 	consensusDB    *consensus_responses.Queries
 	responseTopic  *pubsub.Topic
 	responsesMutex sync.RWMutex
 	responses      map[string]map[string]*types.TaskResponse // taskID -> operatorAddr -> response
+	logger         *log.Logger
 }
 
 // NewTaskProcessor creates a new task processor
-func NewTaskProcessor(node *Node, db *task_responses.Queries, consensusDB *consensus_responses.Queries) (*TaskProcessor, error) {
+func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *task_responses.Queries, consensusDB *consensus_responses.Queries) (*TaskProcessor, error) {
 	// Create response topic
 	responseTopic, err := node.PubSub.Join(TaskResponseProtocol)
 	if err != nil {
@@ -46,10 +49,12 @@ func NewTaskProcessor(node *Node, db *task_responses.Queries, consensusDB *conse
 	tp := &TaskProcessor{
 		node:          node,
 		signer:        node.signer,
-		db:            db,
+		taskQueries:   taskQueries,
+		db:            responseQueries,
 		consensusDB:   consensusDB,
 		responseTopic: responseTopic,
 		responses:     make(map[string]map[string]*types.TaskResponse),
+		logger:        log.Default(),
 	}
 
 	// Subscribe to response topic
@@ -60,6 +65,7 @@ func NewTaskProcessor(node *Node, db *task_responses.Queries, consensusDB *conse
 
 	go tp.handleResponses(sub)
 	go tp.checkTimeouts(context.Background()) // Start timeout checker
+	go tp.checkConfirmations(context.Background()) // Start confirmation checker
 
 	return tp, nil
 }
@@ -367,28 +373,207 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 			return
 		default:
 			tp.responsesMutex.Lock()
-			for taskID, responses := range tp.responses {
-				// Check if any response is older than 5 minutes
-				for _, resp := range responses {
-					if time.Since(resp.CreatedAt) > 5*time.Minute {
-						// Create failed consensus response
-						consensusResp := consensus_responses.CreateConsensusResponseParams{
-							TaskID: taskID,
-							Epoch:  int32(resp.Epoch),
-							Status: "failed",
-						}
-						
-						if _, err := tp.consensusDB.CreateConsensusResponse(context.Background(), consensusResp); err != nil {
-							log.Printf("Failed to store failed consensus: %v", err)
-						}
+			for taskID := range tp.responses {
+				// Get task details to check status
+				task, err := tp.taskQueries.GetTaskByID(ctx, taskID)
+				if err != nil {
+					log.Printf("Failed to get task details: %v", err)
+					continue
+				}
 
-						// Clean up memory
-						delete(tp.responses, taskID)
-						break
+				// Different timeout durations based on status
+				var timeoutDuration time.Duration
+				if task.Status == "confirming" {
+					timeoutDuration = 15 * time.Minute
+				} else {
+					timeoutDuration = 15 * time.Second
+				}
+
+				// Check if task has timed out based on last update
+				if time.Since(task.UpdatedAt.Time) > timeoutDuration {
+					// Create failed consensus response
+					consensusResp := consensus_responses.CreateConsensusResponseParams{
+						TaskID: taskID,
+						Epoch:  task.Epoch,
+						Status: "failed",
 					}
+					
+					if _, err := tp.consensusDB.CreateConsensusResponse(context.Background(), consensusResp); err != nil {
+						log.Printf("Failed to store failed consensus: %v", err)
+					}
+
+					// Update task status to failed
+					_, err = tp.taskQueries.UpdateTaskStatus(ctx, tasks.UpdateTaskStatusParams{
+						TaskID: taskID,
+						Status: "failed",
+					})
+					if err != nil {
+						log.Printf("Failed to update task status to failed: %v", err)
+					}
+
+					// Clean up memory
+					delete(tp.responses, taskID)
 				}
 			}
 			tp.responsesMutex.Unlock()
+		}
+	}
+}
+
+// checkConfirmations periodically checks block confirmations for tasks in confirming status
+func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Get all tasks in confirming status
+			tasks, err := tp.taskQueries.ListConfirmingTasks(ctx)
+			if err != nil {
+				continue
+			}
+
+			for _, task := range tasks {
+				// Get state client for the chain
+				stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
+				if err != nil {
+					continue
+				}
+
+				// Get latest block number
+				latestBlock, err := stateClient.GetLatestBlockNumber(ctx)
+				if err != nil {
+					continue
+				}
+
+				var lastCheckedBlock pgtype.Numeric
+				if err := task.LastCheckedBlock.Scan(&lastCheckedBlock); err != nil {
+					continue
+				}
+
+				// Calculate new confirmations
+				var targetBlock uint64
+				if err := task.BlockNumber.Scan(&targetBlock); err != nil {
+					continue
+				}
+
+				newConfirmations := int32(latestBlock - targetBlock)
+				if newConfirmations < 0 {
+					newConfirmations = 0
+				}
+
+				// Convert current confirmations to int32
+				var currentConfirmations pgtype.Int4
+				if err := task.CurrentConfirmations.Scan(&currentConfirmations); err != nil {
+					continue
+				}
+
+				var currentValue int32
+				if err := currentConfirmations.Scan(&currentValue); err != nil {
+					log.Printf("Failed to scan current confirmations value: %v", err)
+					continue
+				}
+
+				// Update task confirmations
+				if newConfirmations > currentValue {
+					var lastCheckedBlockNumeric pgtype.Numeric
+					if err := lastCheckedBlockNumeric.Scan(fmt.Sprintf("%d", latestBlock)); err != nil {
+						log.Printf("Failed to scan last checked block: %v", err)
+						return
+					}
+
+					var newConfirmationsNumeric pgtype.Int4
+					if err := newConfirmationsNumeric.Scan(newConfirmations); err != nil {
+						log.Printf("Failed to scan new confirmations: %v", err)
+						continue
+					}
+
+					// Update task confirmations directly using struct literal
+					err = tp.taskQueries.UpdateTaskConfirmations(ctx, struct {
+						CurrentConfirmations pgtype.Int4    `json:"current_confirmations"`
+						LastCheckedBlock     pgtype.Numeric `json:"last_checked_block"`
+						TaskID               string         `json:"task_id"`
+					}{
+						TaskID:               task.TaskID,
+						CurrentConfirmations: pgtype.Int4{Int32: newConfirmations, Valid: true},
+						LastCheckedBlock:     lastCheckedBlockNumeric,
+					})
+					if err != nil {
+						log.Printf("Failed to update task confirmations: %v", err)
+						continue
+					}
+
+					var requiredConfirmations int32
+					if err := task.RequiredConfirmations.Scan(&requiredConfirmations); err != nil {
+						log.Printf("Failed to scan required confirmations: %v", err)
+						continue
+					}
+
+					if newConfirmations >= requiredConfirmations {
+						err = tp.taskQueries.UpdateTaskCompleted(ctx, task.TaskID)
+						if err != nil {
+							log.Printf("Failed to update task status to completed: %v", err)
+							continue
+						}
+
+						// Query state and process task
+						stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
+						if err != nil {
+							log.Printf("Failed to get state client for chain %d: %v", task.ChainID, err)
+							continue
+						}
+						if stateClient == nil {
+							log.Printf("No state client found for chain %d", task.ChainID)
+							continue
+						}
+
+						var blockNum uint64
+						if err := task.BlockNumber.Scan(&blockNum); err != nil {
+							log.Printf("Failed to scan block number: %v", err)
+							continue
+						}
+
+						var keyBig big.Int
+						if err := task.Key.Scan(&keyBig); err != nil {
+							log.Printf("Failed to scan key: %v", err)
+							continue
+						}
+
+						var blockNumBig big.Int
+						if err := task.BlockNumber.Scan(&blockNumBig); err != nil {
+							log.Printf("Failed to scan block number: %v", err)
+							continue
+						}
+
+						state, err := stateClient.GetStateAtBlock(ctx, 
+							common.HexToAddress(task.TargetAddress),
+							&keyBig,
+							blockNum)
+						if err != nil {
+							log.Printf("Failed to get state at block: %v", err)
+							continue
+						}
+
+						typesTask := &types.Task{
+							ID:            task.TaskID,
+							ChainID:       uint64(task.ChainID),
+							TargetAddress: task.TargetAddress,
+							Key:          &keyBig,
+							Value:        state,
+							BlockNumber:  &blockNumBig,
+							Epoch:        uint32(task.Epoch),
+						}
+
+						if err := tp.ProcessTask(ctx, typesTask); err != nil {
+							log.Printf("Failed to process task: %v", err)
+							continue
+						}
+					}
+				}
+			}
 		}
 	}
 } 
