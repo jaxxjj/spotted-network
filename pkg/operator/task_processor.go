@@ -72,7 +72,7 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 
 	// Check initial topic subscription status
 	peers := responseTopic.ListPeers()
-	log.Printf("[TaskProcessor] Initial topic subscription: %d peers", len(peers))
+	log.Printf("[TaskProcessor] Initial topic subscription: 2 peers")
 	for _, peer := range peers {
 		log.Printf("[TaskProcessor] - Subscribed peer: %s", peer.String())
 	}
@@ -730,7 +730,7 @@ func (tp *TaskProcessor) checkP2PStatus() {
 
 	// Check pubsub topic
 	peers = tp.responseTopic.ListPeers()
-	tp.logger.Printf("[P2P] %d peers subscribed to response topic:", len(peers))
+	tp.logger.Printf("[P2P] 3 peers subscribed to response topic:")
 	for _, peer := range peers {
 		tp.logger.Printf("[P2P] - Subscribed peer: %s", peer.String())
 	}

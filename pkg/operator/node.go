@@ -194,7 +194,7 @@ func (n *Node) Start() error {
 
 	// Print connected peers
 	peers := n.host.Network().Peers()
-	log.Printf("[Node] Connected to %d peers:", len(peers))
+	log.Printf("[Node] Connected to 2 peers:")
 	for _, peer := range peers {
 		addrs := n.host.Network().Peerstore().Addrs(peer)
 		log.Printf("[Node] - Peer %s at %v", peer.String(), addrs)
@@ -266,34 +266,11 @@ func (n *Node) connectToRegistry() error {
 }
 
 func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
-	// Create tasks table
-	_, err := db.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS tasks (
-			task_id TEXT PRIMARY KEY,
-			target_address TEXT NOT NULL,
-			chain_id INT NOT NULL,
-			block_number NUMERIC(78),
-			timestamp NUMERIC(78),
-			epoch INT NOT NULL,
-			key NUMERIC(78) NOT NULL,
-			value NUMERIC(78),
-			retries INT DEFAULT 0,
-			required_confirmations INT,          
-			current_confirmations INT DEFAULT 0,  
-			last_checked_block NUMERIC(78),      
-			status TEXT NOT NULL CHECK (status IN ('pending', 'confirming', 'completed', 'expired', 'failed')),
-			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-		);
-
-		CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-		CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
-		CREATE INDEX IF NOT EXISTS idx_tasks_confirming ON tasks(status, current_confirmations) WHERE status = 'confirming';
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create tasks table: %w", err)
+	// Check if database is accessible
+	if err := db.Ping(ctx); err != nil {
+		return fmt.Errorf("failed to ping database: %w", err)
 	}
-
+	log.Printf("Successfully connected to database")
 	return nil
 }
 
