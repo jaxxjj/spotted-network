@@ -23,6 +23,7 @@ import (
 
 const (
 	TaskResponseProtocol = "/spotted/task-response/1.0.0"
+	TaskResponseTopic = "/spotted/task-response"
 )
 
 // TaskProcessor handles task processing and consensus
@@ -41,10 +42,11 @@ type TaskProcessor struct {
 // NewTaskProcessor creates a new task processor
 func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *task_responses.Queries, consensusDB *consensus_responses.Queries) (*TaskProcessor, error) {
 	// Create response topic
-	responseTopic, err := node.PubSub.Join(TaskResponseProtocol)
+	responseTopic, err := node.PubSub.Join(TaskResponseTopic)
 	if err != nil {
 		return nil, fmt.Errorf("failed to join response topic: %w", err)
 	}
+	log.Printf("[TaskProcessor] Joined response topic: %s", TaskResponseTopic)
 
 	tp := &TaskProcessor{
 		node:          node,
@@ -62,21 +64,48 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe to response topic: %w", err)
 	}
+	log.Printf("[TaskProcessor] Subscribed to response topic")
 
+	// Wait for topic subscription to propagate
+	log.Printf("[TaskProcessor] Waiting for topic subscription to propagate...")
+	time.Sleep(5 * time.Second)
+
+	// Check initial topic subscription status
+	peers := responseTopic.ListPeers()
+	log.Printf("[TaskProcessor] Initial topic subscription: %d peers", len(peers))
+	for _, peer := range peers {
+		log.Printf("[TaskProcessor] - Subscribed peer: %s", peer.String())
+	}
+
+	// Start goroutines
 	go tp.handleResponses(sub)
-	go tp.checkTimeouts(context.Background()) // Start timeout checker
-	go tp.checkConfirmations(context.Background()) // Start confirmation checker
+	go tp.checkTimeouts(context.Background())
+	go tp.checkConfirmations(context.Background())
+	go tp.checkPendingTasks(context.Background())
+
+	// Start periodic P2P status check
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			tp.checkP2PStatus()
+			<-ticker.C
+		}
+	}()
 
 	return tp, nil
 }
 
 // ProcessTask processes a new task and broadcasts response
 func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) error {
+	tp.logger.Printf("[ProcessTask] Starting to process task %s", task.ID)
+	
 	// Get state client for chain
 	stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
 	if err != nil {
 		return fmt.Errorf("failed to get state client: %w", err)
 	}
+	tp.logger.Printf("[ProcessTask] Got state client for chain %d", task.ChainID)
 
 	// Get state from chain
 	value, err := stateClient.GetStateAtBlock(
@@ -88,11 +117,13 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	if err != nil {
 		return fmt.Errorf("failed to get state: %w", err)
 	}
+	tp.logger.Printf("[ProcessTask] Retrieved state value: %s", value.String())
 
 	// Verify the state matches
 	if value.Cmp(task.Value) != 0 {
 		return fmt.Errorf("state value mismatch: expected %s, got %s", task.Value, value)
 	}
+	tp.logger.Printf("[ProcessTask] Verified state value matches expected value")
 
 	// Sign the response with all required fields
 	signParams := signer.TaskSignParams{
@@ -108,6 +139,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	if err != nil {
 		return fmt.Errorf("failed to sign response: %w", err)
 	}
+	tp.logger.Printf("[ProcessTask] Signed task response")
 
 	// Create response
 	response := &types.TaskResponse{
@@ -127,11 +159,13 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	if err := tp.storeResponse(ctx, response); err != nil {
 		return fmt.Errorf("failed to store response: %w", err)
 	}
+	tp.logger.Printf("[ProcessTask] Stored response in database")
 
 	// Broadcast response
 	if err := tp.broadcastResponse(response); err != nil {
 		return fmt.Errorf("failed to broadcast response: %w", err)
 	}
+	tp.logger.Printf("[ProcessTask] Broadcasted response")
 
 	return nil
 }
@@ -157,6 +191,8 @@ func (tp *TaskProcessor) storeResponse(ctx context.Context, resp *types.TaskResp
 
 // broadcastResponse broadcasts a task response to other operators
 func (tp *TaskProcessor) broadcastResponse(resp *types.TaskResponse) error {
+	tp.logger.Printf("[Broadcast] Starting to broadcast response for task %s", resp.TaskID)
+	
 	// Create protobuf message
 	msg := &pb.TaskResponseMessage{
 		TaskId:        resp.TaskID,
@@ -175,8 +211,16 @@ func (tp *TaskProcessor) broadcastResponse(resp *types.TaskResponse) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
+	tp.logger.Printf("[Broadcast] Marshaled response message for task %s", resp.TaskID)
 
-	return tp.responseTopic.Publish(context.Background(), data)
+	// Publish to topic
+	if err := tp.responseTopic.Publish(context.Background(), data); err != nil {
+		tp.logger.Printf("[Broadcast] Failed to publish response: %v", err)
+		return err
+	}
+	tp.logger.Printf("[Broadcast] Successfully published response for task %s to topic %s", resp.TaskID, tp.responseTopic.String())
+
+	return nil
 }
 
 // handleResponses handles incoming task responses
@@ -492,64 +536,81 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			tp.logger.Printf("[Confirmation] Starting confirmation check...")
+			
 			// Get all tasks in confirming status
 			tasks, err := tp.taskQueries.ListConfirmingTasks(ctx)
 			if err != nil {
+				tp.logger.Printf("[Confirmation] Failed to list confirming tasks: %v", err)
 				continue
 			}
+			tp.logger.Printf("[Confirmation] Found %d tasks in confirming status", len(tasks))
 
 			for _, task := range tasks {
+				tp.logger.Printf("[Confirmation] Processing task %s", task.TaskID)
+				
 				// Get state client for the chain
 				stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
 				if err != nil {
+					tp.logger.Printf("[Confirmation] Failed to get state client for chain %d: %v", task.ChainID, err)
 					continue
 				}
 
 				// Get latest block number
 				latestBlock, err := stateClient.GetLatestBlockNumber(ctx)
 				if err != nil {
+					tp.logger.Printf("[Confirmation] Failed to get latest block number: %v", err)
 					continue
 				}
+				tp.logger.Printf("[Confirmation] Latest block: %d", latestBlock)
 
 				var lastCheckedBlock pgtype.Numeric
 				if err := task.LastCheckedBlock.Scan(&lastCheckedBlock); err != nil {
+					tp.logger.Printf("[Confirmation] Failed to scan last checked block: %v", err)
 					continue
 				}
 
 				// Calculate new confirmations
 				var targetBlock uint64
 				if err := task.BlockNumber.Scan(&targetBlock); err != nil {
+					tp.logger.Printf("[Confirmation] Failed to scan target block: %v", err)
 					continue
 				}
+				tp.logger.Printf("[Confirmation] Target block: %d", targetBlock)
 
 				newConfirmations := int32(latestBlock - targetBlock)
 				if newConfirmations < 0 {
 					newConfirmations = 0
 				}
+				tp.logger.Printf("[Confirmation] New confirmations: %d", newConfirmations)
 
 				// Convert current confirmations to int32
 				var currentConfirmations pgtype.Int4
 				if err := task.CurrentConfirmations.Scan(&currentConfirmations); err != nil {
+					tp.logger.Printf("[Confirmation] Failed to scan current confirmations: %v", err)
 					continue
 				}
 
 				var currentValue int32
 				if err := currentConfirmations.Scan(&currentValue); err != nil {
-					log.Printf("Failed to scan current confirmations value: %v", err)
+					tp.logger.Printf("[Confirmation] Failed to scan current confirmations value: %v", err)
 					continue
 				}
+				tp.logger.Printf("[Confirmation] Current confirmations: %d", currentValue)
 
 				// Update task confirmations
 				if newConfirmations > currentValue {
+					tp.logger.Printf("[Confirmation] Updating confirmations for task %s from %d to %d", task.TaskID, currentValue, newConfirmations)
+					
 					var lastCheckedBlockNumeric pgtype.Numeric
 					if err := lastCheckedBlockNumeric.Scan(fmt.Sprintf("%d", latestBlock)); err != nil {
-						log.Printf("Failed to scan last checked block: %v", err)
-						return
+						tp.logger.Printf("[Confirmation] Failed to scan last checked block: %v", err)
+						continue
 					}
 
 					var newConfirmationsNumeric pgtype.Int4
 					if err := newConfirmationsNumeric.Scan(newConfirmations); err != nil {
-						log.Printf("Failed to scan new confirmations: %v", err)
+						tp.logger.Printf("[Confirmation] Failed to scan new confirmations: %v", err)
 						continue
 					}
 
@@ -564,47 +625,51 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 						LastCheckedBlock:     lastCheckedBlockNumeric,
 					})
 					if err != nil {
-						log.Printf("Failed to update task confirmations: %v", err)
+						tp.logger.Printf("[Confirmation] Failed to update task confirmations: %v", err)
 						continue
 					}
+					tp.logger.Printf("[Confirmation] Successfully updated confirmations for task %s", task.TaskID)
 
 					var requiredConfirmations int32
 					if err := task.RequiredConfirmations.Scan(&requiredConfirmations); err != nil {
-						log.Printf("Failed to scan required confirmations: %v", err)
+						tp.logger.Printf("[Confirmation] Failed to scan required confirmations: %v", err)
 						continue
 					}
+					tp.logger.Printf("[Confirmation] Required confirmations: %d", requiredConfirmations)
 
 					if newConfirmations >= requiredConfirmations {
+						tp.logger.Printf("[Confirmation] Task %s has reached required confirmations (%d >= %d), changing status to pending", task.TaskID, newConfirmations, requiredConfirmations)
+						
 						// Change task status to pending
 						err = tp.taskQueries.UpdateTaskToPending(ctx, task.TaskID)
 						if err != nil {
-							log.Printf("Failed to update task status to pending: %v", err)
+							tp.logger.Printf("[Confirmation] Failed to update task status to pending: %v", err)
 							continue
 						}
-						tp.logger.Printf("[Confirmation] Task %s has reached required confirmations, changed status to pending", task.TaskID)
+						tp.logger.Printf("[Confirmation] Successfully changed task %s status to pending", task.TaskID)
 
 						// Query state and process task
 						stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
 						if err != nil {
-							log.Printf("Failed to get state client for chain %d: %v", task.ChainID, err)
+							tp.logger.Printf("[Confirmation] Failed to get state client for chain %d: %v", task.ChainID, err)
 							continue
 						}
 
 						var blockNum uint64
 						if err := task.BlockNumber.Scan(&blockNum); err != nil {
-							log.Printf("Failed to scan block number: %v", err)
+							tp.logger.Printf("[Confirmation] Failed to scan block number: %v", err)
 							continue
 						}
 
 						var keyBig big.Int
 						if err := task.Key.Scan(&keyBig); err != nil {
-							log.Printf("Failed to scan key: %v", err)
+							tp.logger.Printf("[Confirmation] Failed to scan key: %v", err)
 							continue
 						}
 
 						var blockNumBig big.Int
 						if err := task.BlockNumber.Scan(&blockNumBig); err != nil {
-							log.Printf("Failed to scan block number: %v", err)
+							tp.logger.Printf("[Confirmation] Failed to scan block number: %v", err)
 							continue
 						}
 
@@ -613,9 +678,10 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 							&keyBig,
 							blockNum)
 						if err != nil {
-							log.Printf("Failed to get state at block: %v", err)
+							tp.logger.Printf("[Confirmation] Failed to get state at block: %v", err)
 							continue
 						}
+						tp.logger.Printf("[Confirmation] Successfully retrieved state for task %s", task.TaskID)
 
 						typesTask := &types.Task{
 							ID:            task.TaskID,
@@ -628,11 +694,100 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 						}
 
 						if err := tp.ProcessTask(ctx, typesTask); err != nil {
-							log.Printf("Failed to process task: %v", err)
+							tp.logger.Printf("[Confirmation] Failed to process task: %v", err)
 							continue
 						}
+						tp.logger.Printf("[Confirmation] Successfully processed task %s", task.TaskID)
 					}
 				}
+			}
+		}
+	}
+}
+
+// checkPendingTasks periodically checks and processes pending tasks
+func (tp *TaskProcessor) checkPendingTasks(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			log.Printf("[TaskProcessor] Starting pending tasks check...")
+			
+			// List all pending tasks
+			pendingTasks, err := tp.taskQueries.ListPendingTasks(ctx)
+			if err != nil {
+				log.Printf("[TaskProcessor] Failed to list pending tasks: %v", err)
+				continue
+			}
+			log.Printf("[TaskProcessor] Found %d pending tasks", len(pendingTasks))
+
+			for _, task := range pendingTasks {
+				log.Printf("[TaskProcessor] Processing pending task %s", task.TaskID)
+				
+				// Get state client for the chain
+				stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
+				if err != nil {
+					log.Printf("[TaskProcessor] Failed to get state client for chain %d: %v", task.ChainID, err)
+					continue
+				}
+
+				// Convert block number from Numeric to string then to big.Int
+				var blockNumStr string
+				if err := task.BlockNumber.Scan(&blockNumStr); err != nil {
+					log.Printf("[TaskProcessor] Failed to scan block number: %v", err)
+					continue
+				}
+				blockNum := new(big.Int)
+				if _, ok := blockNum.SetString(blockNumStr, 10); !ok {
+					log.Printf("[TaskProcessor] Failed to parse block number: %s", blockNumStr)
+					continue
+				}
+				
+				log.Printf("[TaskProcessor] Getting state at block %s for task %s", blockNumStr, task.TaskID)
+				
+				// Convert key from Numeric to string then to big.Int
+				var keyStr string
+				if err := task.Key.Scan(&keyStr); err != nil {
+					log.Printf("[TaskProcessor] Failed to scan key: %v", err)
+					continue
+				}
+				keyBig := new(big.Int)
+				if _, ok := keyBig.SetString(keyStr, 10); !ok {
+					log.Printf("[TaskProcessor] Failed to parse key: %s", keyStr)
+					continue
+				}
+				
+				// Get state at block
+				state, err := stateClient.GetStateAtBlock(ctx, 
+					common.HexToAddress(task.TargetAddress),
+					keyBig,
+					blockNum.Uint64())
+				if err != nil {
+					log.Printf("[TaskProcessor] Failed to get state at block for task %s: %v", task.TaskID, err)
+					continue
+				}
+
+				// Create types.Task
+				typesTask := &types.Task{
+					ID:            task.TaskID,
+					ChainID:       uint64(task.ChainID),
+					TargetAddress: task.TargetAddress,
+					BlockNumber:   blockNum,
+					Key:          keyBig,
+					Value:        state,
+				}
+
+				// Process the task
+				if err := tp.ProcessTask(ctx, typesTask); err != nil {
+					log.Printf("[TaskProcessor] Failed to process task %s: %v", task.TaskID, err)
+					continue
+				}
+				
+				log.Printf("[TaskProcessor] Successfully processed pending task %s", task.TaskID)
 			}
 		}
 	}
@@ -648,4 +803,21 @@ func (tp *TaskProcessor) Stop() {
 	tp.responsesMutex.Unlock()
 	
 	tp.logger.Printf("[TaskProcessor] Task processor stopped")
+}
+
+// checkP2PStatus checks the status of P2P connections
+func (tp *TaskProcessor) checkP2PStatus() {
+	peers := tp.node.host.Network().Peers()
+	tp.logger.Printf("[P2P] Connected to %d peers:", len(peers))
+	for _, peer := range peers {
+		addrs := tp.node.host.Network().Peerstore().Addrs(peer)
+		tp.logger.Printf("[P2P] - Peer %s at %v", peer.String(), addrs)
+	}
+
+	// Check pubsub topic
+	peers = tp.responseTopic.ListPeers()
+	tp.logger.Printf("[P2P] %d peers subscribed to response topic:", len(peers))
+	for _, peer := range peers {
+		tp.logger.Printf("[P2P] - Subscribed peer: %s", peer.String())
+	}
 } 

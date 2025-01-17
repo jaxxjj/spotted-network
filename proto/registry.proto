@@ -21,10 +21,16 @@ message JoinRequest {
   string address = 1;   
   string message = 2;    
   string signature = 3; 
-  string signing_key = 4; 
+  string signing_key = 4;
+}
+
+message ActiveOperator {
+  string peer_id = 1;
+  repeated string multiaddrs = 2;
 }
 
 message JoinResponse {
   bool success = 1;
-  string error = 2;     
-} 
+  string error = 2;
+  repeated ActiveOperator active_operators = 3;  // List of active operators in the network
+}

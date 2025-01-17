@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -32,6 +33,7 @@ type Node struct {
 	registryAddr   string
 	signer         signer.Signer
 	knownOperators map[peer.ID]*peer.AddrInfo
+	operators      map[peer.ID]*OperatorInfo
 	operatorsMu    sync.RWMutex
 	pingService    *ping.PingService
 	
@@ -125,6 +127,7 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		registryAddr:   registryAddr,
 		signer:         s,
 		knownOperators: make(map[peer.ID]*peer.AddrInfo),
+		operators:      make(map[peer.ID]*OperatorInfo),
 		operatorsMu:    sync.RWMutex{},
 		pingService:    pingService,
 		operatorStates: make(map[string]*pb.OperatorState),
@@ -140,45 +143,75 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 }
 
 func (n *Node) Start() error {
-	log.Printf("Operator node started with ID: %s", n.host.ID())
+	log.Printf("[Node] Starting operator node with ID: %s", n.host.ID())
+	log.Printf("[Node] Listening addresses: %v", n.host.Addrs())
 
-	log.Printf("Connecting to registry...")
+	log.Printf("[Node] Connecting to registry...")
 	if err := n.connectToRegistry(); err != nil {
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
-	log.Printf("Successfully connected to registry")
+	log.Printf("[Node] Successfully connected to registry")
 
-	// Initialize and start task processor
-	var err error
-	n.taskProcessor, err = NewTaskProcessor(n, n.taskQueries, n.responseQueries, n.consensusQueries)
-	if err != nil {
-		return fmt.Errorf("failed to create task processor: %w", err)
-	}
-	log.Printf("Task processor initialized")
-
-	// Start message handler and health check
-	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
-	go n.healthCheck()
-	log.Printf("Message handler and health check started")
-
-	// Subscribe to state updates
+	// Subscribe to state updates first
 	if err := n.subscribeToStateUpdates(); err != nil {
 		return fmt.Errorf("failed to subscribe to state updates: %w", err)
 	}
-	log.Printf("Subscribed to state updates")
+	log.Printf("[Node] Subscribed to state updates")
 
 	// Get initial state
 	if err := n.getFullState(); err != nil {
 		return fmt.Errorf("failed to get initial state: %w", err)
 	}
-	log.Printf("Got initial state")
+	log.Printf("[Node] Got initial state")
 
 	// Announce to registry
-	log.Printf("Announcing to registry...")
+	log.Printf("[Node] Announcing to registry...")
 	if err := n.announceToRegistry(); err != nil {
 		return fmt.Errorf("failed to announce to registry: %w", err)
 	}
-	log.Printf("Successfully announced to registry")
+	log.Printf("[Node] Successfully announced to registry")
+
+	// Wait for a short time to allow other operators to be discovered
+	log.Printf("[Node] Waiting for other operators to be discovered...")
+	time.Sleep(5 * time.Second)
+
+	// Connect to known operators
+	n.operatorsMu.RLock()
+	log.Printf("[Node] Found %d known operators", len(n.knownOperators))
+	for _, addrInfo := range n.knownOperators {
+		if addrInfo.ID == n.host.ID() {
+			log.Printf("[Node] Skipping self connection")
+			continue // Skip self
+		}
+		log.Printf("[Node] Connecting to operator %s at %v", addrInfo.ID, addrInfo.Addrs)
+		if err := n.host.Connect(context.Background(), *addrInfo); err != nil {
+			log.Printf("[Node] Failed to connect to operator %s: %v", addrInfo.ID, err)
+			continue
+		}
+		log.Printf("[Node] Successfully connected to operator %s", addrInfo.ID)
+	}
+	n.operatorsMu.RUnlock()
+
+	// Print connected peers
+	peers := n.host.Network().Peers()
+	log.Printf("[Node] Connected to %d peers:", len(peers))
+	for _, peer := range peers {
+		addrs := n.host.Network().Peerstore().Addrs(peer)
+		log.Printf("[Node] - Peer %s at %v", peer.String(), addrs)
+	}
+
+	// Initialize and start task processor after P2P connections are established
+	var err error
+	n.taskProcessor, err = NewTaskProcessor(n, n.taskQueries, n.responseQueries, n.consensusQueries)
+	if err != nil {
+		return fmt.Errorf("failed to create task processor: %w", err)
+	}
+	log.Printf("[Node] Task processor initialized")
+
+	// Start message handler and health check
+	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
+	go n.healthCheck()
+	log.Printf("[Node] Message handler and health check started")
 
 	return nil
 }

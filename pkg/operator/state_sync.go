@@ -7,10 +7,9 @@ import (
 	"log"
 	"strings"
 
+	pb "github.com/galxe/spotted-network/proto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"google.golang.org/protobuf/proto"
-
-	pb "github.com/galxe/spotted-network/proto"
 )
 
 func (node *Node) subscribeToStateUpdates() error {

@@ -84,8 +84,25 @@ func (s *registryServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Joi
 		}, nil
 	}
 
+	// Get list of active operators
+	activeOperators := make([]*pb.ActiveOperator, 0)
+	for _, peerID := range s.node.GetConnectedOperators() {
+		info := s.node.GetOperatorInfo(peerID)
+		if info != nil && info.Status == string(registrynode.OperatorStatusActive) {
+			addrs := make([]string, len(info.Addrs))
+			for i, addr := range info.Addrs {
+				addrs[i] = addr.String()
+			}
+			activeOperators = append(activeOperators, &pb.ActiveOperator{
+				PeerId: peerID.String(),
+				Multiaddrs: addrs,
+			})
+		}
+	}
+
 	return &pb.JoinResponse{
 		Success: true,
+		ActiveOperators: activeOperators,
 	}, nil
 }
 

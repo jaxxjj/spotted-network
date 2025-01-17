@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/p2p"
@@ -17,6 +18,10 @@ import (
 // handleStream handles incoming p2p streams
 func (n *Node) handleStream(stream network.Stream) {
 	defer stream.Close()
+
+	// Get peer ID from the connection
+	peerID := stream.Conn().RemotePeer()
+	log.Printf("New p2p connection from peer: %s", peerID.String())
 
 	// Read join request
 	req, err := p2p.ReadJoinRequest(stream)
@@ -34,8 +39,63 @@ func (n *Node) handleStream(stream network.Stream) {
 		return
 	}
 
-	// Send success response
-	p2p.SendSuccess(stream)
+	// Add operator to p2p network
+	n.operatorsMu.Lock()
+	n.operators[peerID] = &OperatorInfo{
+		ID: peerID,
+		Addrs: n.host.Peerstore().Addrs(peerID),
+		LastSeen: time.Now(),
+		Status: string(OperatorStatusWaitingActive),
+	}
+	n.operatorsMu.Unlock()
+	log.Printf("Added new operator to p2p network: %s", peerID.String())
+
+	// Get active operators for response
+	n.operatorsMu.RLock()
+	activeOperators := make([]*pb.ActiveOperator, 0, len(n.operators))
+	for id, info := range n.operators {
+		// Skip registry and new operator
+		if id == n.host.ID() || id == peerID {
+			continue
+		}
+		// Only include active operators
+		if info.Status == string(OperatorStatusActive) {
+			addrs := make([]string, len(info.Addrs))
+			for i, addr := range info.Addrs {
+				addrs[i] = addr.String()
+			}
+			activeOperators = append(activeOperators, &pb.ActiveOperator{
+				PeerId: id.String(),
+				Multiaddrs: addrs,
+			})
+		}
+	}
+	n.operatorsMu.RUnlock()
+
+	// Send success response with active operators
+	resp := &pb.JoinResponse{
+		Success: true,
+		ActiveOperators: activeOperators,
+	}
+	respData, err := proto.Marshal(resp)
+	if err != nil {
+		log.Printf("Error marshaling response: %v", err)
+		p2p.SendError(stream, fmt.Errorf("failed to marshal response: %v", err))
+		return
+	}
+
+	if _, err := stream.Write(respData); err != nil {
+		log.Printf("Error writing response: %v", err)
+		return
+	}
+
+	// Broadcast new operator to other peers
+	n.BroadcastStateUpdate([]*pb.OperatorState{{
+		Address: req.Address,
+		Status: string(OperatorStatusWaitingActive),
+	}}, "UPDATE")
+
+	log.Printf("Successfully processed join request from: %s", req.Address)
 }
 
 // HandleJoinRequest handles a join request from an operator

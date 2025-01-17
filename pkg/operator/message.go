@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
 
 	pb "github.com/galxe/spotted-network/proto"
+	"github.com/multiformats/go-multiaddr"
 )
 
 func (n *Node) handleMessages(stream network.Stream) {
@@ -85,5 +87,81 @@ func (n *Node) announceToRegistry() error {
 		return fmt.Errorf("failed to write request: %w", err)
 	}
 
+	// Read response
+	respData, err := io.ReadAll(stream)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Unmarshal response
+	resp := &pb.JoinResponse{}
+	if err := proto.Unmarshal(respData, resp); err != nil {
+		return fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	// Handle join response
+	if err := n.handleJoinResponse(resp); err != nil {
+		return fmt.Errorf("failed to handle join response: %w", err)
+	}
+
+	log.Printf("Successfully joined registry")
+	return nil
+}
+
+func (n *Node) handleJoinResponse(resp *pb.JoinResponse) error {
+	if !resp.Success {
+		return fmt.Errorf("join request failed: %s", resp.Error)
+	}
+
+	log.Printf("Processing join response with %d active operators", len(resp.ActiveOperators))
+
+	// Connect to each active operator
+	for _, op := range resp.ActiveOperators {
+		// Parse peer ID
+		peerID, err := peer.Decode(op.PeerId)
+		if err != nil {
+			log.Printf("Failed to decode peer ID %s: %v", op.PeerId, err)
+			continue
+		}
+
+		// Skip self
+		if peerID == n.host.ID() {
+			continue
+		}
+
+		// Parse multiaddrs
+		addrs := make([]multiaddr.Multiaddr, 0, len(op.Multiaddrs))
+		for _, addr := range op.Multiaddrs {
+			maddr, err := multiaddr.NewMultiaddr(addr)
+			if err != nil {
+				log.Printf("Failed to parse multiaddr %s: %v", addr, err)
+				continue
+			}
+			addrs = append(addrs, maddr)
+		}
+
+		// Store operator info
+		n.operatorsMu.Lock()
+		n.operators[peerID] = &OperatorInfo{
+			ID:       peerID,
+			Addrs:    addrs,
+			LastSeen: time.Now(),
+			Status:   string(OperatorStatusActive),
+		}
+		n.operatorsMu.Unlock()
+
+		// Connect to operator
+		if err := n.host.Connect(context.Background(), peer.AddrInfo{
+			ID:    peerID,
+			Addrs: addrs,
+		}); err != nil {
+			log.Printf("Failed to connect to operator %s: %v", peerID, err)
+			continue
+		}
+
+		log.Printf("Successfully connected to operator %s", peerID)
+	}
+
+	log.Printf("Successfully processed join response and connected to %d operators", len(resp.ActiveOperators))
 	return nil
 } 
