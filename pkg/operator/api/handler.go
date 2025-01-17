@@ -12,6 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"log"
+
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
@@ -161,10 +163,17 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set initial status
+	// Determine initial status based on block confirmations
 	status := "pending"
-	if params.WaitFinality && params.BlockNumber != nil {
-		status = "confirming"
+	if params.BlockNumber != nil {
+		// Calculate current confirmations
+		currentConfirmations := int32(latestBlock - uint64(*params.BlockNumber))
+		if currentConfirmations < int32(requiredConfirmations) {
+			status = "confirming"
+			log.Printf("[API] Task requires %d confirmations, current confirmations: %d", requiredConfirmations, currentConfirmations)
+		} else {
+			log.Printf("[API] Task already has sufficient confirmations: %d/%d", currentConfirmations, requiredConfirmations)
+		}
 	}
 
 	// Create task
@@ -183,6 +192,11 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create task: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	log.Printf("[API] Created new task %s with status %s", task.TaskID, task.Status)
+	if task.Status == "confirming" {
+		log.Printf("[API] Task %s requires %d block confirmations", task.TaskID, requiredConfirmations)
 	}
 
 	// Return response

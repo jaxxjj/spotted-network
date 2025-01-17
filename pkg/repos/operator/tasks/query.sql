@@ -59,4 +59,9 @@ WHERE task_id = $3;
 UPDATE tasks
 SET status = 'completed',
     updated_at = NOW()
-WHERE task_id = $1; 
+WHERE task_id = $1;
+
+-- name: UpdateTaskToPending :exec
+UPDATE tasks 
+SET status = 'pending', updated_at = NOW()
+WHERE task_id = $1;

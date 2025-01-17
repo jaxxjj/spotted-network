@@ -16,6 +16,11 @@ create-task:
 	@echo "Creating new task..."
 	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8001/api/v1/task
 
+# Mine 15 blocks
+mine-15:
+	@echo "Mining 15 blocks..."
+	@curl -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"anvil_mine","params":["0xF"],"id":1}' http://localhost:8545
+
 # Build both binaries
 build:
 	@echo "Building registry and operator..."

@@ -184,21 +184,24 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 	for {
 		msg, err := sub.Next(context.Background())
 		if err != nil {
-			log.Printf("Failed to get next response message: %v", err)
+			tp.logger.Printf("[Response] Failed to get next response message: %v", err)
 			continue
 		}
 
 		// Skip messages from self
 		if msg.ReceivedFrom == tp.node.host.ID() {
+			tp.logger.Printf("[Response] Skipping message from self")
 			continue
 		}
 
 		// Unmarshal protobuf message
 		pbMsg := &pb.TaskResponseMessage{}
 		if err := proto.Unmarshal(msg.Data, pbMsg); err != nil {
-			log.Printf("Failed to unmarshal response: %v", err)
+			tp.logger.Printf("[Response] Failed to unmarshal response: %v", err)
 			continue
 		}
+
+		tp.logger.Printf("[Response] Received response for task %s from operator %s", pbMsg.TaskId, pbMsg.OperatorAddr)
 
 		// Convert to TaskResponse
 		value := new(big.Int)
@@ -222,13 +225,22 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 
 		// Verify signature
 		if err := tp.verifyResponse(resp); err != nil {
-			log.Printf("Failed to verify response: %v", err)
+			tp.logger.Printf("[Response] Failed to verify response signature from %s: %v", resp.OperatorAddr, err)
 			continue
 		}
+		tp.logger.Printf("[Response] Verified signature from operator %s", resp.OperatorAddr)
 
 		// Store response
 		if err := tp.storeResponse(context.Background(), resp); err != nil {
-			log.Printf("Failed to store response: %v", err)
+			tp.logger.Printf("[Response] Failed to store response in database: %v", err)
+			continue
+		}
+		tp.logger.Printf("[Response] Stored response from operator %s in database", resp.OperatorAddr)
+
+		// Get task details
+		task, err := tp.taskQueries.GetTaskByID(context.Background(), resp.TaskID)
+		if err != nil {
+			tp.logger.Printf("[Response] Failed to get task details: %v", err)
 			continue
 		}
 
@@ -238,11 +250,20 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			tp.responses[resp.TaskID] = make(map[string]*types.TaskResponse)
 		}
 		tp.responses[resp.TaskID][resp.OperatorAddr] = resp
+		responseCount := len(tp.responses[resp.TaskID])
 		tp.responsesMutex.Unlock()
 
-		// Check consensus
+		tp.logger.Printf("[Response] Added response to memory (total responses for task %s: %d)", resp.TaskID, responseCount)
+
+		// For confirming tasks, we need to wait for block confirmations
+		if task.Status == "confirming" {
+			tp.logger.Printf("[Response] Task %s is in confirming status, waiting for block confirmations", resp.TaskID)
+			continue
+		}
+
+		// Check consensus for non-confirming tasks
 		if err := tp.checkConsensus(context.Background(), resp.TaskID); err != nil {
-			log.Printf("Failed to check consensus: %v", err)
+			tp.logger.Printf("[Response] Failed to check consensus: %v", err)
 			continue
 		}
 	}
@@ -277,11 +298,14 @@ func (tp *TaskProcessor) aggregateSignatures(sigs map[string][]byte) []byte {
 
 // checkConsensus checks if consensus has been reached for a task
 func (tp *TaskProcessor) checkConsensus(ctx context.Context, taskID string) error {
+	tp.logger.Printf("[Consensus] Starting consensus check for task %s", taskID)
+	
 	tp.responsesMutex.RLock()
 	responses := tp.responses[taskID]
 	tp.responsesMutex.RUnlock()
 
 	if len(responses) == 0 {
+		tp.logger.Printf("[Consensus] No responses yet for task %s", taskID)
 		return nil
 	}
 
@@ -290,6 +314,8 @@ func (tp *TaskProcessor) checkConsensus(ctx context.Context, taskID string) erro
 	operatorSigs := make(map[string][]byte)
 	
 	var firstResponse *types.TaskResponse
+	tp.logger.Printf("[Consensus] Processing %d responses for task %s", len(responses), taskID)
+	
 	for addr, resp := range responses {
 		if firstResponse == nil {
 			firstResponse = resp
@@ -297,23 +323,40 @@ func (tp *TaskProcessor) checkConsensus(ctx context.Context, taskID string) erro
 		// Get operator weight
 		weight := tp.node.getOperatorWeight(addr)
 		if weight.Cmp(big.NewInt(0)) <= 0 {
-			log.Printf("Operator %s has no weight, skipping response", addr)
+			tp.logger.Printf("[Consensus] Operator %s has no weight, skipping response", addr)
 			continue
 		}
 		
 		// Verify signature
 		if err := tp.verifyResponse(resp); err != nil {
-			log.Printf("Invalid signature from operator %s: %v", addr, err)
+			tp.logger.Printf("[Consensus] Invalid signature from operator %s: %v", addr, err)
 			continue
 		}
 
 		totalWeight.Add(totalWeight, weight)
 		operatorSigs[addr] = resp.Signature
+		tp.logger.Printf("[Consensus] Added operator %s weight: %s (total: %s)", addr, weight.String(), totalWeight.String())
 	}
 
 	// Check if threshold is reached
 	threshold := tp.node.getConsensusThreshold()
+	tp.logger.Printf("[Consensus] Current total weight: %s, Required threshold: %s", totalWeight.String(), threshold.String())
+	
 	if totalWeight.Cmp(threshold) >= 0 {
+		tp.logger.Printf("[Consensus] Threshold reached for task %s! Creating consensus response", taskID)
+		
+		// Get task details to check if it needs confirmation
+		task, err := tp.taskQueries.GetTaskByID(ctx, taskID)
+		if err != nil {
+			return fmt.Errorf("failed to get task details: %w", err)
+		}
+
+		// If task is in confirming status, we need to wait for block confirmations
+		if task.Status == "confirming" {
+			tp.logger.Printf("[Consensus] Task %s is in confirming status, waiting for block confirmations", taskID)
+			return nil
+		}
+
 		// Create consensus response
 		consensusResp := consensus_responses.CreateConsensusResponseParams{
 			TaskID:              taskID,
@@ -328,18 +371,37 @@ func (tp *TaskProcessor) checkConsensus(ctx context.Context, taskID string) erro
 		if _, err := tp.consensusDB.CreateConsensusResponse(ctx, consensusResp); err != nil {
 			return fmt.Errorf("failed to store consensus: %w", err)
 		}
+		tp.logger.Printf("[Consensus] Stored consensus response for task %s", taskID)
+
+		// Update task status to completed if not in confirming status
+		if task.Status != "confirming" {
+			_, err = tp.taskQueries.UpdateTaskStatus(ctx, tasks.UpdateTaskStatusParams{
+				TaskID: taskID,
+				Status: "completed",
+			})
+			if err != nil {
+				tp.logger.Printf("[Consensus] Failed to update task status to completed: %v", err)
+				return fmt.Errorf("failed to update task status: %w", err)
+			}
+			tp.logger.Printf("[Consensus] Updated task %s status to completed", taskID)
+		}
 
 		// Broadcast consensus reached message
 		if err := tp.broadcastConsensusReached(taskID, &consensusResp); err != nil {
-			log.Printf("Failed to broadcast consensus reached: %v", err)
+			tp.logger.Printf("[Consensus] Failed to broadcast consensus reached: %v", err)
+		} else {
+			tp.logger.Printf("[Consensus] Broadcasted consensus reached message for task %s", taskID)
 		}
 
 		// Clean up memory
 		tp.responsesMutex.Lock()
 		delete(tp.responses, taskID)
 		tp.responsesMutex.Unlock()
+		tp.logger.Printf("[Consensus] Cleaned up memory for task %s", taskID)
 
-		log.Printf("Consensus reached for task %s with weight %s/%s", taskID, totalWeight, threshold)
+		tp.logger.Printf("[Consensus] Consensus process completed for task %s with weight %s/%s", taskID, totalWeight, threshold)
+	} else {
+		tp.logger.Printf("[Consensus] Threshold not yet reached for task %s (%s/%s)", taskID, totalWeight, threshold)
 	}
 
 	return nil
@@ -513,20 +575,18 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 					}
 
 					if newConfirmations >= requiredConfirmations {
-						err = tp.taskQueries.UpdateTaskCompleted(ctx, task.TaskID)
+						// Change task status to pending
+						err = tp.taskQueries.UpdateTaskToPending(ctx, task.TaskID)
 						if err != nil {
-							log.Printf("Failed to update task status to completed: %v", err)
+							log.Printf("Failed to update task status to pending: %v", err)
 							continue
 						}
+						tp.logger.Printf("[Confirmation] Task %s has reached required confirmations, changed status to pending", task.TaskID)
 
 						// Query state and process task
 						stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
 						if err != nil {
 							log.Printf("Failed to get state client for chain %d: %v", task.ChainID, err)
-							continue
-						}
-						if stateClient == nil {
-							log.Printf("No state client found for chain %d", task.ChainID)
 							continue
 						}
 
@@ -576,4 +636,16 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// Stop gracefully stops the task processor
+func (tp *TaskProcessor) Stop() {
+	tp.logger.Printf("[TaskProcessor] Stopping task processor")
+	
+	// Clean up responses map
+	tp.responsesMutex.Lock()
+	tp.responses = make(map[string]map[string]*types.TaskResponse)
+	tp.responsesMutex.Unlock()
+	
+	tp.logger.Printf("[TaskProcessor] Task processor stopped")
 } 

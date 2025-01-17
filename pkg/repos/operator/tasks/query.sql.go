@@ -260,6 +260,17 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 	return i, err
 }
 
+const updateTaskToPending = `-- name: UpdateTaskToPending :exec
+UPDATE tasks 
+SET status = 'pending', updated_at = NOW()
+WHERE task_id = $1
+`
+
+func (q *Queries) UpdateTaskToPending(ctx context.Context, taskID string) error {
+	_, err := q.db.Exec(ctx, updateTaskToPending, taskID)
+	return err
+}
+
 const updateTaskValue = `-- name: UpdateTaskValue :one
 UPDATE tasks
 SET value = $2,

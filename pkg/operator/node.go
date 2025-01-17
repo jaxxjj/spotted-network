@@ -53,6 +53,9 @@ type Node struct {
 
 	// P2P pubsub
 	PubSub *pubsub.PubSub
+
+	// Task processor
+	taskProcessor *TaskProcessor
 }
 
 func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *ethereum.ChainClients) (*Node, error) {
@@ -145,6 +148,14 @@ func (n *Node) Start() error {
 	}
 	log.Printf("Successfully connected to registry")
 
+	// Initialize and start task processor
+	var err error
+	n.taskProcessor, err = NewTaskProcessor(n, n.taskQueries, n.responseQueries, n.consensusQueries)
+	if err != nil {
+		return fmt.Errorf("failed to create task processor: %w", err)
+	}
+	log.Printf("Task processor initialized")
+
 	// Start message handler and health check
 	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
 	go n.healthCheck()
@@ -184,6 +195,11 @@ func (n *Node) Stop() error {
 	// Close chain clients
 	if err := n.chainClient.Close(); err != nil {
 		log.Printf("Error closing chain clients: %v", err)
+	}
+
+	// Clean up task processor resources
+	if n.taskProcessor != nil {
+		n.taskProcessor.Stop()
 	}
 	
 	return n.host.Close()

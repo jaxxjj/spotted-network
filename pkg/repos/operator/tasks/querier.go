@@ -17,6 +17,7 @@ type Querier interface {
 	UpdateTaskCompleted(ctx context.Context, taskID string) error
 	UpdateTaskConfirmations(ctx context.Context, arg UpdateTaskConfirmationsParams) error
 	UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusParams) (Task, error)
+	UpdateTaskToPending(ctx context.Context, taskID string) error
 	UpdateTaskValue(ctx context.Context, arg UpdateTaskValueParams) (Task, error)
 }
 
