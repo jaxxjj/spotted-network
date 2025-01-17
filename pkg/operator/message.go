@@ -12,6 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/galxe/spotted-network/pkg/p2p"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -56,11 +57,19 @@ func (n *Node) handleMessages(stream network.Stream) {
 }
 
 func (n *Node) announceToRegistry() error {
-	stream, err := n.host.NewStream(context.Background(), peer.ID(n.registryID), "/spotted/1.0.0")
+	log.Printf("[Announce] Starting to announce to registry %s", n.registryID)
+	
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Open stream with timeout context
+	stream, err := n.host.NewStream(ctx, peer.ID(n.registryID), "/spotted/1.0.0")
 	if err != nil {
-		return fmt.Errorf("failed to open stream to registry: %w", err)
+		return fmt.Errorf("failed to open stream to registry (timeout 30s): %w", err)
 	}
 	defer stream.Close()
+	log.Printf("[Announce] Successfully opened stream to registry")
 
 	// Create join request message
 	message := []byte("join_request")
@@ -68,6 +77,7 @@ func (n *Node) announceToRegistry() error {
 	if err != nil {
 		return fmt.Errorf("failed to sign message: %w", err)
 	}
+	log.Printf("[Announce] Created and signed join request message")
 
 	// Create protobuf request
 	req := &pb.JoinRequest{
@@ -76,21 +86,40 @@ func (n *Node) announceToRegistry() error {
 		Signature:  hex.EncodeToString(signature),
 		SigningKey: n.signer.GetSigningKey(),
 	}
+	log.Printf("[Announce] Created join request for address: %s", req.Address)
 
-	// Marshal and send request
+	// Marshal request
 	data, err := proto.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	if _, err := stream.Write(data); err != nil {
+	// Write request with length prefix
+	if err := p2p.WriteLengthPrefixed(stream, p2p.MsgTypeJoinRequest, data); err != nil {
 		return fmt.Errorf("failed to write request: %w", err)
 	}
+	log.Printf("[Announce] Successfully sent join request to registry")
 
-	// Read response
-	respData, err := io.ReadAll(stream)
+	// Set read deadline
+	if err := stream.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		log.Printf("[Announce] Warning: Failed to set read deadline: %v", err)
+	}
+
+	// Read response with length prefix
+	msgType, respData, err := p2p.ReadLengthPrefixed(stream)
 	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+		return fmt.Errorf("failed to read response (timeout 30s): %w", err)
+	}
+	log.Printf("[Announce] Received response data of length: %d bytes", len(respData))
+
+	// Verify message type
+	if msgType != p2p.MsgTypeJoinResponse {
+		return fmt.Errorf("unexpected response message type: %d", msgType)
+	}
+
+	// Reset read deadline
+	if err := stream.SetReadDeadline(time.Time{}); err != nil {
+		log.Printf("[Announce] Warning: Failed to reset read deadline: %v", err)
 	}
 
 	// Unmarshal response
@@ -98,13 +127,15 @@ func (n *Node) announceToRegistry() error {
 	if err := proto.Unmarshal(respData, resp); err != nil {
 		return fmt.Errorf("failed to unmarshal response: %w", err)
 	}
+	log.Printf("[Announce] Successfully unmarshaled response: success=%v, error=%s, active_operators=%d",
+		resp.Success, resp.Error, len(resp.ActiveOperators))
 
 	// Handle join response
 	if err := n.handleJoinResponse(resp); err != nil {
 		return fmt.Errorf("failed to handle join response: %w", err)
 	}
 
-	log.Printf("Successfully joined registry")
+	log.Printf("[Announce] Successfully completed announcement to registry")
 	return nil
 }
 
