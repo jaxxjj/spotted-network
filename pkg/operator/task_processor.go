@@ -98,8 +98,15 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 
 // ProcessTask processes a new task and broadcasts response
 func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) error {
+	if task == nil {
+		return fmt.Errorf("task is nil")
+	}
 	tp.logger.Printf("[ProcessTask] Starting to process task %s", task.ID)
 	
+	if task.BlockNumber == nil {
+		return fmt.Errorf("task block number is nil")
+	}
+
 	// Get state client for chain
 	stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
 	if err != nil {
@@ -107,12 +114,17 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	}
 	tp.logger.Printf("[ProcessTask] Got state client for chain %d", task.ChainID)
 
+	if task.Key == nil {
+		return fmt.Errorf("task key is nil")
+	}
+
 	// Get state from chain
+	blockUint64 := task.BlockNumber.Uint64()
 	value, err := stateClient.GetStateAtBlock(
 		ctx,
 		common.HexToAddress(task.TargetAddress),
 		task.Key,
-		task.BlockNumber.Uint64(),
+		blockUint64,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get state: %w", err)
@@ -129,7 +141,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	signParams := signer.TaskSignParams{
 		User:        common.HexToAddress(task.TargetAddress),
 		ChainID:     uint32(task.ChainID),
-		BlockNumber: task.BlockNumber.Uint64(),
+		BlockNumber: blockUint64,
 		Timestamp:   task.Timestamp.Uint64(),
 		Key:         task.Key,
 		Value:       value,
@@ -648,56 +660,12 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 						}
 						tp.logger.Printf("[Confirmation] Successfully changed task %s status to pending", task.TaskID)
 
-						// Query state and process task
-						stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
-						if err != nil {
-							tp.logger.Printf("[Confirmation] Failed to get state client for chain %d: %v", task.ChainID, err)
+						// Process task immediately
+						if err := tp.ProcessPendingTask(ctx, &task); err != nil {
+							tp.logger.Printf("[Confirmation] Failed to process task immediately: %v", err)
 							continue
 						}
-
-						var blockNum uint64
-						if err := task.BlockNumber.Scan(&blockNum); err != nil {
-							tp.logger.Printf("[Confirmation] Failed to scan block number: %v", err)
-							continue
-						}
-
-						var keyBig big.Int
-						if err := task.Key.Scan(&keyBig); err != nil {
-							tp.logger.Printf("[Confirmation] Failed to scan key: %v", err)
-							continue
-						}
-
-						var blockNumBig big.Int
-						if err := task.BlockNumber.Scan(&blockNumBig); err != nil {
-							tp.logger.Printf("[Confirmation] Failed to scan block number: %v", err)
-							continue
-						}
-
-						state, err := stateClient.GetStateAtBlock(ctx, 
-							common.HexToAddress(task.TargetAddress),
-							&keyBig,
-							blockNum)
-						if err != nil {
-							tp.logger.Printf("[Confirmation] Failed to get state at block: %v", err)
-							continue
-						}
-						tp.logger.Printf("[Confirmation] Successfully retrieved state for task %s", task.TaskID)
-
-						typesTask := &types.Task{
-							ID:            task.TaskID,
-							ChainID:       uint64(task.ChainID),
-							TargetAddress: task.TargetAddress,
-							Key:          &keyBig,
-							Value:        state,
-							BlockNumber:  &blockNumBig,
-							Epoch:        uint32(task.Epoch),
-						}
-
-						if err := tp.ProcessTask(ctx, typesTask); err != nil {
-							tp.logger.Printf("[Confirmation] Failed to process task: %v", err)
-							continue
-						}
-						tp.logger.Printf("[Confirmation] Successfully processed task %s", task.TaskID)
+						tp.logger.Printf("[Confirmation] Successfully processed task %s immediately", task.TaskID)
 					}
 				}
 			}
@@ -728,61 +696,7 @@ func (tp *TaskProcessor) checkPendingTasks(ctx context.Context) {
 			for _, task := range pendingTasks {
 				log.Printf("[TaskProcessor] Processing pending task %s", task.TaskID)
 				
-				// Get state client for the chain
-				stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
-				if err != nil {
-					log.Printf("[TaskProcessor] Failed to get state client for chain %d: %v", task.ChainID, err)
-					continue
-				}
-
-				// Convert block number from Numeric to string then to big.Int
-				var blockNumStr string
-				if err := task.BlockNumber.Scan(&blockNumStr); err != nil {
-					log.Printf("[TaskProcessor] Failed to scan block number: %v", err)
-					continue
-				}
-				blockNum := new(big.Int)
-				if _, ok := blockNum.SetString(blockNumStr, 10); !ok {
-					log.Printf("[TaskProcessor] Failed to parse block number: %s", blockNumStr)
-					continue
-				}
-				
-				log.Printf("[TaskProcessor] Getting state at block %s for task %s", blockNumStr, task.TaskID)
-				
-				// Convert key from Numeric to string then to big.Int
-				var keyStr string
-				if err := task.Key.Scan(&keyStr); err != nil {
-					log.Printf("[TaskProcessor] Failed to scan key: %v", err)
-					continue
-				}
-				keyBig := new(big.Int)
-				if _, ok := keyBig.SetString(keyStr, 10); !ok {
-					log.Printf("[TaskProcessor] Failed to parse key: %s", keyStr)
-					continue
-				}
-				
-				// Get state at block
-				state, err := stateClient.GetStateAtBlock(ctx, 
-					common.HexToAddress(task.TargetAddress),
-					keyBig,
-					blockNum.Uint64())
-				if err != nil {
-					log.Printf("[TaskProcessor] Failed to get state at block for task %s: %v", task.TaskID, err)
-					continue
-				}
-
-				// Create types.Task
-				typesTask := &types.Task{
-					ID:            task.TaskID,
-					ChainID:       uint64(task.ChainID),
-					TargetAddress: task.TargetAddress,
-					BlockNumber:   blockNum,
-					Key:          keyBig,
-					Value:        state,
-				}
-
-				// Process the task
-				if err := tp.ProcessTask(ctx, typesTask); err != nil {
+				if err := tp.ProcessPendingTask(ctx, &task); err != nil {
 					log.Printf("[TaskProcessor] Failed to process task %s: %v", task.TaskID, err)
 					continue
 				}
@@ -820,4 +734,96 @@ func (tp *TaskProcessor) checkP2PStatus() {
 	for _, peer := range peers {
 		tp.logger.Printf("[P2P] - Subscribed peer: %s", peer.String())
 	}
+}
+
+// ProcessPendingTask processes a single pending task immediately
+func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Task) error {
+	tp.logger.Printf("[TaskProcessor] Processing pending task %s immediately", task.TaskID)
+	
+	// Get state client for the chain
+	stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
+	if err != nil {
+		return fmt.Errorf("failed to get state client for chain %d: %w", task.ChainID, err)
+	}
+
+	// Convert block number to big.Int
+	blockNumNumeric := task.BlockNumber
+	if !blockNumNumeric.Valid {
+		return fmt.Errorf("block number is null")
+	}
+	blockNum := new(big.Int)
+	if blockNumNumeric.Int == nil {
+		return fmt.Errorf("block number Int value is null")
+	}
+	if _, ok := blockNum.SetString(blockNumNumeric.Int.String(), 10); !ok {
+		return fmt.Errorf("failed to parse block number: %s", blockNumNumeric.Int.String())
+	}
+
+	// Convert key to big.Int
+	if !task.Key.Valid {
+		return fmt.Errorf("key is null")
+	}
+	keyBig := new(big.Int)
+	if task.Key.Int == nil {
+		return fmt.Errorf("key Int value is null") 
+	}
+	if _, ok := keyBig.SetString(task.Key.Int.String(), 10); !ok {
+		return fmt.Errorf("failed to parse key: %s", task.Key.Int.String())
+	}
+
+	// Get state at block
+	blockUint64 := blockNum.Uint64()
+	state, err := stateClient.GetStateAtBlock(ctx,
+		common.HexToAddress(task.TargetAddress),
+		keyBig,
+		blockUint64)
+	if err != nil {
+		return fmt.Errorf("failed to get state at block: %w", err)
+	}
+
+	// Create types.Task
+	typesTask := &types.Task{
+		ID:            task.TaskID,
+		ChainID:       uint64(task.ChainID),
+		TargetAddress: task.TargetAddress,
+		BlockNumber:   blockNum,
+		Key:          keyBig,
+		Value:        state,
+		Epoch:        uint32(task.Epoch),
+		Timestamp:    &big.Int{}, // Initialize with current timestamp
+	}
+
+	// Set timestamp to current time
+	typesTask.Timestamp.SetInt64(time.Now().Unix())
+
+	// Process the task
+	return tp.ProcessTask(ctx, typesTask)
+}
+
+// ProcessNewTask processes a newly created task immediately if it has sufficient confirmations
+func (tp *TaskProcessor) ProcessNewTask(ctx context.Context, task *tasks.Task) error {
+	tp.logger.Printf("[TaskProcessor] Processing new task %s", task.TaskID)
+
+	// Get current confirmations
+	var currentConfirmations int32
+	if err := task.CurrentConfirmations.Scan(&currentConfirmations); err != nil {
+		return fmt.Errorf("failed to scan current confirmations: %w", err)
+	}
+
+	// Get required confirmations
+	var requiredConfirmations int32
+	if err := task.RequiredConfirmations.Scan(&requiredConfirmations); err != nil {
+		return fmt.Errorf("failed to scan required confirmations: %w", err)
+	}
+
+	// If task has sufficient confirmations, process it immediately
+	if currentConfirmations >= requiredConfirmations {
+		tp.logger.Printf("[TaskProcessor] Task %s has sufficient confirmations (%d/%d), processing immediately", 
+			task.TaskID, currentConfirmations, requiredConfirmations)
+		return tp.ProcessPendingTask(ctx, task)
+	}
+
+	tp.logger.Printf("[TaskProcessor] Task %s needs more confirmations (%d/%d), will process later", 
+		task.TaskID, currentConfirmations, requiredConfirmations)
+	return nil
 } 
