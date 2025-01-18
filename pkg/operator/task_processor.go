@@ -72,9 +72,9 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 
 	// Check initial topic subscription status
 	peers := responseTopic.ListPeers()
-	log.Printf("[TaskProcessor] Initial topic subscription: 2 peers")
+	tp.logger.Printf("[TaskProcessor] Initial topic subscription: %d peers", len(peers))
 	for _, peer := range peers {
-		log.Printf("[TaskProcessor] - Subscribed peer: %s", peer.String())
+		tp.logger.Printf("[TaskProcessor] - Subscribed peer: %s", peer.String())
 	}
 
 	// Start goroutines
@@ -730,7 +730,7 @@ func (tp *TaskProcessor) checkP2PStatus() {
 
 	// Check pubsub topic
 	peers = tp.responseTopic.ListPeers()
-	tp.logger.Printf("[P2P] 3 peers subscribed to response topic:")
+	tp.logger.Printf("[P2P] %d peers subscribed to response topic:", len(peers))
 	for _, peer := range peers {
 		tp.logger.Printf("[P2P] - Subscribed peer: %s", peer.String())
 	}

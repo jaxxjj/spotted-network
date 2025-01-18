@@ -140,6 +140,14 @@ func main() {
 					StateManager: os.Getenv("STATE_MANAGER_ADDRESS"),
 				},
 			},
+			"31337": {
+				RPC: os.Getenv("CHAIN_RPC_URL"),
+				Contracts: config.ContractConfig{
+					Registry:     os.Getenv("REGISTRY_ADDRESS"),
+					EpochManager: os.Getenv("EPOCH_MANAGER_ADDRESS"),
+					StateManager: os.Getenv("STATE_MANAGER_ADDRESS"),
+				},
+			},
 		},
 	}
 

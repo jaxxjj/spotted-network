@@ -19,7 +19,7 @@ message OperatorState {
 }
 
 message OperatorStateUpdate {
-  string type = 1; // "FULL" or "DELTA"
+  string type = 1; 
   repeated OperatorState operators = 2;
 }
 

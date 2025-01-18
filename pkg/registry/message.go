@@ -28,75 +28,68 @@ func (n *Node) handleStream(stream network.Stream) {
 		log.Printf("Warning: Failed to set read deadline: %v", err)
 	}
 
-	// Read join request
+	// Read and verify join request message type
 	log.Printf("Reading join request from peer: %s", peerID.String())
-	req, err := p2p.ReadJoinRequest(stream)
+	msgType, _, err := p2p.ReadLengthPrefixed(stream)
 	if err != nil {
 		log.Printf("Failed to read join request from peer %s: %v", peerID.String(), err)
 		p2p.SendError(stream, fmt.Errorf("failed to read request: %v", err))
 		return
 	}
-	log.Printf("Successfully read join request from peer %s with address %s", peerID.String(), req.Address)
+	if msgType != p2p.MsgTypeJoinRequest {
+		log.Printf("Unexpected message type from peer %s: %d", peerID.String(), msgType)
+		p2p.SendError(stream, fmt.Errorf("unexpected message type"))
+		return
+	}
+	log.Printf("Successfully read join request from peer %s", peerID.String())
 
 	// Reset read deadline
 	if err := stream.SetReadDeadline(time.Time{}); err != nil {
 		log.Printf("Warning: Failed to reset read deadline: %v", err)
 	}
 
-	// Handle join request
-	log.Printf("Handling join request from peer %s with address %s", peerID.String(), req.Address)
-	err = n.HandleJoinRequest(context.Background(), req)
-	if err != nil {
-		log.Printf("Failed to handle join request from peer %s: %v", peerID.String(), err)
-		p2p.SendError(stream, err)
-		return
-	}
-	log.Printf("Successfully handled join request from peer %s", peerID.String())
-
-	// Add operator to p2p network
-	log.Printf("Adding operator %s to p2p network", peerID.String())
+	// Add peer to p2p network
+	log.Printf("Adding peer %s to p2p network", peerID.String())
 	n.operatorsMu.Lock()
 	n.operators[peerID] = &OperatorInfo{
 		ID: peerID,
 		Addrs: n.host.Peerstore().Addrs(peerID),
 		LastSeen: time.Now(),
-		Status: string(OperatorStatusWaitingActive),
+		Status: "active", // All connected peers are considered active
 	}
 	n.operatorsMu.Unlock()
-	log.Printf("Added new operator to p2p network: %s", peerID.String())
+	log.Printf("Added new peer to p2p network: %s", peerID.String())
 
-	// Get active operators for response
-	log.Printf("Getting active operators for response to peer %s", peerID.String())
+	// Get active peers for response
+	log.Printf("Getting active peers for response to peer %s", peerID.String())
 	n.operatorsMu.RLock()
-	activeOperators := make([]*pb.ActiveOperator, 0, len(n.operators))
+	activePeers := make([]*pb.ActiveOperator, 0, len(n.operators))
 	for id, info := range n.operators {
-		// Skip registry and new operator
+		// Skip registry and new peer
 		if id == n.host.ID() || id == peerID {
 			continue
 		}
-		// Only include active operators
-		if info.Status == string(OperatorStatusActive) {
-			addrs := make([]string, len(info.Addrs))
-			for i, addr := range info.Addrs {
-				addrs[i] = addr.String()
-			}
-			activeOperators = append(activeOperators, &pb.ActiveOperator{
-				PeerId: id.String(),
-				Multiaddrs: addrs,
-			})
+		// Include all connected peers
+		addrs := make([]string, len(info.Addrs))
+		for i, addr := range info.Addrs {
+			addrs[i] = addr.String()
 		}
+		activePeers = append(activePeers, &pb.ActiveOperator{
+			PeerId: id.String(),
+			Multiaddrs: addrs,
+		})
 	}
 	n.operatorsMu.RUnlock()
-	log.Printf("Found %d active operators to send to peer %s", len(activeOperators), peerID.String())
+	log.Printf("Found %d connected peers to send to peer %s", len(activePeers), peerID.String())
 
 	// Set write deadline
 	if err := stream.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		log.Printf("Warning: Failed to set write deadline: %v", err)
 	}
 
-	// Send success response with active operators
-	log.Printf("Sending success response with %d active operators to peer %s", len(activeOperators), peerID.String())
-	p2p.SendSuccess(stream, activeOperators)
+	// Send success response with active peers
+	log.Printf("Sending success response with %d active peers to peer %s", len(activePeers), peerID.String())
+	p2p.SendSuccess(stream, activePeers)
 	log.Printf("Successfully sent response to peer %s", peerID.String())
 
 	// Reset write deadline
@@ -104,15 +97,7 @@ func (n *Node) handleStream(stream network.Stream) {
 		log.Printf("Warning: Failed to reset write deadline: %v", err)
 	}
 
-	// Broadcast new operator to other peers
-	log.Printf("Broadcasting new operator state update for peer %s", peerID.String())
-	n.BroadcastStateUpdate([]*pb.OperatorState{{
-		Address: req.Address,
-		Status: string(OperatorStatusWaitingActive),
-	}}, "UPDATE")
-	log.Printf("Successfully broadcast state update for peer %s", peerID.String())
-
-	log.Printf("Successfully processed join request from: %s (address: %s)", peerID.String(), req.Address)
+	log.Printf("Successfully processed join request from peer: %s", peerID.String())
 }
 
 // HandleJoinRequest handles a join request from an operator

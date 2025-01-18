@@ -164,12 +164,25 @@ func (n *Node) Start() error {
 	}
 	log.Printf("[Node] Got initial state")
 
-	// Announce to registry
+	// Announce to registry and get active operators
 	log.Printf("[Node] Announcing to registry...")
-	if err := n.announceToRegistry(); err != nil {
+	activeOperators, err := n.announceToRegistry()
+	if err != nil {
 		return fmt.Errorf("failed to announce to registry: %w", err)
 	}
-	log.Printf("[Node] Successfully announced to registry")
+	log.Printf("[Node] Successfully announced to registry and received %d active operators", len(activeOperators))
+
+	// Store active operators
+	n.operatorsMu.Lock()
+	for _, addrInfo := range activeOperators {
+		if addrInfo.ID == n.host.ID() {
+			log.Printf("[Node] Skipping self in active operators list")
+			continue
+		}
+		n.knownOperators[addrInfo.ID] = addrInfo
+		log.Printf("[Node] Added operator %s with addresses %v", addrInfo.ID, addrInfo.Addrs)
+	}
+	n.operatorsMu.Unlock()
 
 	// Wait for a short time to allow other operators to be discovered
 	log.Printf("[Node] Waiting for other operators to be discovered...")
@@ -194,14 +207,13 @@ func (n *Node) Start() error {
 
 	// Print connected peers
 	peers := n.host.Network().Peers()
-	log.Printf("[Node] Connected to 2 peers:")
+	log.Printf("[Node] Connected to %d peers:", len(peers))
 	for _, peer := range peers {
 		addrs := n.host.Network().Peerstore().Addrs(peer)
 		log.Printf("[Node] - Peer %s at %v", peer.String(), addrs)
 	}
 
 	// Initialize and start task processor after P2P connections are established
-	var err error
 	n.taskProcessor, err = NewTaskProcessor(n, n.taskQueries, n.responseQueries, n.consensusQueries)
 	if err != nil {
 		return fmt.Errorf("failed to create task processor: %w", err)
