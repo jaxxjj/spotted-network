@@ -2,9 +2,12 @@ package operator
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +39,10 @@ type TaskProcessor struct {
 	responseTopic  *pubsub.Topic
 	responsesMutex sync.RWMutex
 	responses      map[string]map[string]*types.TaskResponse // taskID -> operatorAddr -> response
+	weightsMutex   sync.RWMutex
+	taskWeights    map[string]map[string]*big.Int  // taskID -> operatorAddr -> weight
+	threshold      *big.Int
+	totalWeight    *big.Int  // 总权重
 	logger         *log.Logger
 }
 
@@ -48,6 +55,10 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 	}
 	log.Printf("[TaskProcessor] Joined response topic: %s", TaskResponseTopic)
 
+	// 设置硬编码的权重和阈值
+	threshold := big.NewInt(2)  // 阈值设为2
+	totalWeight := big.NewInt(3)  // 总权重设为3
+
 	tp := &TaskProcessor{
 		node:          node,
 		signer:        node.signer,
@@ -56,6 +67,9 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 		consensusDB:   consensusDB,
 		responseTopic: responseTopic,
 		responses:     make(map[string]map[string]*types.TaskResponse),
+		taskWeights:   make(map[string]map[string]*big.Int),
+		threshold:     threshold,
+		totalWeight:   totalWeight,
 		logger:        log.Default(),
 	}
 
@@ -78,10 +92,11 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 	}
 
 	// Start goroutines
+	ctx := context.Background()
 	go tp.handleResponses(sub)
-	go tp.checkTimeouts(context.Background())
-	go tp.checkConfirmations(context.Background())
-	go tp.checkPendingTasks(context.Background())
+	go tp.checkTimeouts(ctx)
+	go tp.checkConfirmations(ctx)
+	go tp.checkPendingTasks(ctx)
 
 	// Start periodic P2P status check
 	go func() {
@@ -102,6 +117,27 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 		return fmt.Errorf("task is nil")
 	}
 	tp.logger.Printf("[ProcessTask] Starting to process task %s", task.ID)
+
+	// Check if we have already processed this task
+	tp.responsesMutex.RLock()
+	if responses, exists := tp.responses[task.ID]; exists {
+		if _, processed := responses[tp.signer.Address()]; processed {
+			tp.responsesMutex.RUnlock()
+			tp.logger.Printf("[ProcessTask] Task %s already processed by this operator", task.ID)
+			return nil
+		}
+	}
+	tp.responsesMutex.RUnlock()
+
+	// Also check database
+	_, err := tp.db.GetTaskResponse(ctx, task_responses.GetTaskResponseParams{
+		TaskID: task.ID,
+		OperatorAddress: tp.signer.Address(),
+	})
+	if err == nil {
+		tp.logger.Printf("[ProcessTask] Task %s already processed and stored in database", task.ID)
+		return nil
+	}
 	
 	if task.BlockNumber == nil {
 		return fmt.Errorf("task block number is nil")
@@ -157,6 +193,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	response := &types.TaskResponse{
 		TaskID:        task.ID,
 		OperatorAddr:  tp.signer.Address(),
+		SigningKey:    tp.signer.GetSigningKey(),
 		Signature:     signature,
 		Value:         value,
 		BlockNumber:   task.BlockNumber,
@@ -164,14 +201,27 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 		TargetAddress: task.TargetAddress,
 		Key:          task.Key,
 		Epoch:        task.Epoch,
+		Timestamp:    task.Timestamp,
 		CreatedAt:    time.Now(),
 	}
 
 	// Store response in database
 	if err := tp.storeResponse(ctx, response); err != nil {
+		if strings.Contains(err.Error(), "duplicate key value") {
+			tp.logger.Printf("[ProcessTask] Task %s already processed (duplicate key)", task.ID)
+			return nil
+		}
 		return fmt.Errorf("failed to store response: %w", err)
 	}
 	tp.logger.Printf("[ProcessTask] Stored response in database")
+
+	// Store in local map
+	tp.responsesMutex.Lock()
+	if _, exists := tp.responses[task.ID]; !exists {
+		tp.responses[task.ID] = make(map[string]*types.TaskResponse)
+	}
+	tp.responses[task.ID][tp.signer.Address()] = response
+	tp.responsesMutex.Unlock()
 
 	// Broadcast response
 	if err := tp.broadcastResponse(response); err != nil {
@@ -187,6 +237,7 @@ func (tp *TaskProcessor) storeResponse(ctx context.Context, resp *types.TaskResp
 	params := task_responses.CreateTaskResponseParams{
 		TaskID:         resp.TaskID,
 		OperatorAddress: resp.OperatorAddr,
+		SigningKey:     resp.SigningKey,
 		Signature:      resp.Signature,
 		Epoch:         int32(resp.Epoch),
 		ChainID:       int32(resp.ChainID),
@@ -194,7 +245,7 @@ func (tp *TaskProcessor) storeResponse(ctx context.Context, resp *types.TaskResp
 		Key:           types.NumericFromBigInt(resp.Key),
 		Value:         types.NumericFromBigInt(resp.Value),
 		BlockNumber:   types.NumericFromBigInt(resp.BlockNumber),
-		Status:        "verified",
+		Timestamp:     types.NumericFromBigInt(resp.Timestamp),
 	}
 
 	_, err := tp.db.CreateTaskResponse(ctx, params)
@@ -209,6 +260,7 @@ func (tp *TaskProcessor) broadcastResponse(resp *types.TaskResponse) error {
 	msg := &pb.TaskResponseMessage{
 		TaskId:        resp.TaskID,
 		OperatorAddr:  resp.OperatorAddr,
+		SigningKey:    tp.signer.GetSigningKey(),
 		Signature:     resp.Signature,
 		Value:         resp.Value.String(),
 		BlockNumber:   resp.BlockNumber.String(),
@@ -244,81 +296,66 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			continue
 		}
 
-		// Skip messages from self
-		if msg.ReceivedFrom == tp.node.host.ID() {
-			tp.logger.Printf("[Response] Skipping message from self")
+		// Parse protobuf message
+		var pbMsg pb.TaskResponseMessage
+		if err := proto.Unmarshal(msg.Data, &pbMsg); err != nil {
+			tp.logger.Printf("[Response] Failed to unmarshal message: %v", err)
 			continue
 		}
 
-		// Unmarshal protobuf message
-		pbMsg := &pb.TaskResponseMessage{}
-		if err := proto.Unmarshal(msg.Data, pbMsg); err != nil {
-			tp.logger.Printf("[Response] Failed to unmarshal response: %v", err)
+		// Skip messages from self (使用 operator address 和 signing key 判断)
+		if pbMsg.OperatorAddr == tp.signer.Address() && pbMsg.SigningKey == tp.signer.GetSigningKey() {
+			tp.logger.Printf("[Response] Skipping message from self (operator: %s, signing key: %s)", 
+				pbMsg.OperatorAddr, pbMsg.SigningKey)
 			continue
 		}
-
-		tp.logger.Printf("[Response] Received response for task %s from operator %s", pbMsg.TaskId, pbMsg.OperatorAddr)
 
 		// Convert to TaskResponse
-		value := new(big.Int)
-		value.SetString(pbMsg.Value, 10)
-		blockNumber := new(big.Int)
-		blockNumber.SetString(pbMsg.BlockNumber, 10)
-		key := new(big.Int)
-		key.SetString(pbMsg.Key, 10)
-
-		resp := &types.TaskResponse{
-			TaskID:        pbMsg.TaskId,
-			OperatorAddr:  pbMsg.OperatorAddr,
-			Signature:     pbMsg.Signature,
-			Value:         value,
-			BlockNumber:   blockNumber,
-			ChainID:       uint64(pbMsg.ChainId),
-			TargetAddress: pbMsg.TargetAddress,
-			Key:          key,
-			Epoch:        pbMsg.Epoch,
-		}
-
-		// Verify signature
-		if err := tp.verifyResponse(resp); err != nil {
-			tp.logger.Printf("[Response] Failed to verify response signature from %s: %v", resp.OperatorAddr, err)
-			continue
-		}
-		tp.logger.Printf("[Response] Verified signature from operator %s", resp.OperatorAddr)
-
-		// Store response
-		if err := tp.storeResponse(context.Background(), resp); err != nil {
-			tp.logger.Printf("[Response] Failed to store response in database: %v", err)
-			continue
-		}
-		tp.logger.Printf("[Response] Stored response from operator %s in database", resp.OperatorAddr)
-
-		// Get task details
-		task, err := tp.taskQueries.GetTaskByID(context.Background(), resp.TaskID)
+		response, err := convertToTaskResponse(&pbMsg)
 		if err != nil {
-			tp.logger.Printf("[Response] Failed to get task details: %v", err)
+			tp.logger.Printf("[Response] Failed to convert message: %v", err)
 			continue
 		}
 
-		// Update responses map
-		tp.responsesMutex.Lock()
-		if _, exists := tp.responses[resp.TaskID]; !exists {
-			tp.responses[resp.TaskID] = make(map[string]*types.TaskResponse)
+		// Get operator weight
+		weight, err := tp.getOperatorWeight(response.OperatorAddr)
+		if err != nil {
+			tp.logger.Printf("[Response] Invalid operator %s: %v", response.OperatorAddr, err)
+			continue
 		}
-		tp.responses[resp.TaskID][resp.OperatorAddr] = resp
-		responseCount := len(tp.responses[resp.TaskID])
+
+		// Verify response
+		if err := tp.verifyResponse(response); err != nil {
+			tp.logger.Printf("[Response] Invalid response from %s: %v", response.OperatorAddr, err)
+			continue
+		}
+
+		// Store response in local map
+		tp.responsesMutex.Lock()
+		if _, exists := tp.responses[response.TaskID]; !exists {
+			tp.responses[response.TaskID] = make(map[string]*types.TaskResponse)
+		}
+		tp.responses[response.TaskID][response.OperatorAddr] = response
 		tp.responsesMutex.Unlock()
 
-		tp.logger.Printf("[Response] Added response to memory (total responses for task %s: %d)", resp.TaskID, responseCount)
+		// Store weight in local map
+		tp.weightsMutex.Lock()
+		if _, exists := tp.taskWeights[response.TaskID]; !exists {
+			tp.taskWeights[response.TaskID] = make(map[string]*big.Int)
+		}
+		tp.taskWeights[response.TaskID][response.OperatorAddr] = weight
+		tp.weightsMutex.Unlock()
 
-		// For confirming tasks, we need to wait for block confirmations
-		if task.Status == "confirming" {
-			tp.logger.Printf("[Response] Task %s is in confirming status, waiting for block confirmations", resp.TaskID)
+		// Store in database
+		if err := tp.storeResponse(context.Background(), response); err != nil {
+			if !strings.Contains(err.Error(), "duplicate key value") {
+				tp.logger.Printf("[Response] Failed to store response: %v", err)
+			}
 			continue
 		}
 
-		// Check consensus for non-confirming tasks
-		if err := tp.checkConsensus(context.Background(), resp.TaskID); err != nil {
+		// Check consensus
+		if err := tp.checkConsensus(response.TaskID); err != nil {
 			tp.logger.Printf("[Response] Failed to check consensus: %v", err)
 			continue
 		}
@@ -327,13 +364,33 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 
 // verifyResponse verifies a task response signature
 func (tp *TaskProcessor) verifyResponse(response *types.TaskResponse) error {
-	return tp.signer.VerifyTaskResponse(
-		response.TaskID,
-		response.Value,
-		response.BlockNumber,
-		response.Signature,
-		response.OperatorAddr,
-	)
+	if response == nil {
+		return fmt.Errorf("response is nil")
+	}
+
+	if response.BlockNumber == nil {
+		return fmt.Errorf("block number is nil")
+	}
+	if response.Key == nil {
+		return fmt.Errorf("key is nil")
+	}
+	if response.Value == nil {
+		return fmt.Errorf("value is nil")
+	}
+	if response.Timestamp == nil {
+		return fmt.Errorf("timestamp is nil")
+	}
+
+	params := signer.TaskSignParams{
+		User:        common.HexToAddress(response.TargetAddress),
+		ChainID:     uint32(response.ChainID),
+		BlockNumber: response.BlockNumber.Uint64(),
+		Timestamp:   response.Timestamp.Uint64(),
+		Key:         response.Key,
+		Value:       response.Value,
+	}
+
+	return tp.signer.VerifyTaskResponse(params, response.Signature, response.OperatorAddr)
 }
 
 // aggregateSignatures combines multiple ECDSA signatures by concatenation
@@ -353,131 +410,91 @@ func (tp *TaskProcessor) aggregateSignatures(sigs map[string][]byte) []byte {
 }
 
 // checkConsensus checks if consensus has been reached for a task
-func (tp *TaskProcessor) checkConsensus(ctx context.Context, taskID string) error {
-	tp.logger.Printf("[Consensus] Starting consensus check for task %s", taskID)
-	
+func (tp *TaskProcessor) checkConsensus(taskID string) error {
+	// Get responses and weights
 	tp.responsesMutex.RLock()
 	responses := tp.responses[taskID]
 	tp.responsesMutex.RUnlock()
 
+	tp.weightsMutex.RLock()
+	weights := tp.taskWeights[taskID]
+	tp.weightsMutex.RUnlock()
+
 	if len(responses) == 0 {
-		tp.logger.Printf("[Consensus] No responses yet for task %s", taskID)
 		return nil
 	}
 
+	// Get a sample response for task details
+	var sampleResp *types.TaskResponse
+	for _, resp := range responses {
+		sampleResp = resp
+		break
+	}
+
 	// Calculate total weight and collect signatures
-	totalWeight := big.NewInt(0)
-	operatorSigs := make(map[string][]byte)
-	
-	var firstResponse *types.TaskResponse
-	tp.logger.Printf("[Consensus] Processing %d responses for task %s", len(responses), taskID)
+	totalWeight := new(big.Int)
+	operatorSigs := make(map[string]map[string]interface{})
 	
 	for addr, resp := range responses {
-		if firstResponse == nil {
-			firstResponse = resp
-		}
-		// Get operator weight
-		weight := tp.node.getOperatorWeight(addr)
-		if weight.Cmp(big.NewInt(0)) <= 0 {
-			tp.logger.Printf("[Consensus] Operator %s has no weight, skipping response", addr)
-			continue
-		}
-		
-		// Verify signature
-		if err := tp.verifyResponse(resp); err != nil {
-			tp.logger.Printf("[Consensus] Invalid signature from operator %s: %v", addr, err)
+		weight := weights[addr]
+		if weight == nil {
 			continue
 		}
 
 		totalWeight.Add(totalWeight, weight)
-		operatorSigs[addr] = resp.Signature
-		tp.logger.Printf("[Consensus] Added operator %s weight: %s (total: %s)", addr, weight.String(), totalWeight.String())
+		operatorSigs[addr] = map[string]interface{}{
+			"signature": hex.EncodeToString(resp.Signature),
+			"weight":   weight.String(),
+		}
 	}
 
 	// Check if threshold is reached
-	threshold := tp.node.getConsensusThreshold()
-	tp.logger.Printf("[Consensus] Current total weight: %s, Required threshold: %s", totalWeight.String(), threshold.String())
-	
-	if totalWeight.Cmp(threshold) >= 0 {
-		tp.logger.Printf("[Consensus] Threshold reached for task %s! Creating consensus response", taskID)
-		
-		// Get task details to check if it needs confirmation
-		task, err := tp.taskQueries.GetTaskByID(ctx, taskID)
-		if err != nil {
-			return fmt.Errorf("failed to get task details: %w", err)
-		}
-
-		// If task is in confirming status, we need to wait for block confirmations
-		if task.Status == "confirming" {
-			tp.logger.Printf("[Consensus] Task %s is in confirming status, waiting for block confirmations", taskID)
-			return nil
-		}
-
-		// Create consensus response
-		consensusResp := consensus_responses.CreateConsensusResponseParams{
-			TaskID:              taskID,
-			Epoch:              int32(firstResponse.Epoch),
-			Status:             "completed",
-			AggregatedSignatures: tp.aggregateSignatures(operatorSigs),
-			OperatorSignatures:  tp.aggregateSignatures(operatorSigs),
-			ConsensusReachedAt:  pgtype.Timestamp{Time: time.Now(), Valid: true},
-		}
-		
-		// Store consensus result
-		if _, err := tp.consensusDB.CreateConsensusResponse(ctx, consensusResp); err != nil {
-			return fmt.Errorf("failed to store consensus: %w", err)
-		}
-		tp.logger.Printf("[Consensus] Stored consensus response for task %s", taskID)
-
-		// Update task status to completed if not in confirming status
-		if task.Status != "confirming" {
-			_, err = tp.taskQueries.UpdateTaskStatus(ctx, tasks.UpdateTaskStatusParams{
-				TaskID: taskID,
-				Status: "completed",
-			})
-			if err != nil {
-				tp.logger.Printf("[Consensus] Failed to update task status to completed: %v", err)
-				return fmt.Errorf("failed to update task status: %w", err)
-			}
-			tp.logger.Printf("[Consensus] Updated task %s status to completed", taskID)
-		}
-
-		// Broadcast consensus reached message
-		if err := tp.broadcastConsensusReached(taskID, &consensusResp); err != nil {
-			tp.logger.Printf("[Consensus] Failed to broadcast consensus reached: %v", err)
-		} else {
-			tp.logger.Printf("[Consensus] Broadcasted consensus reached message for task %s", taskID)
-		}
-
-		// Clean up memory
-		tp.responsesMutex.Lock()
-		delete(tp.responses, taskID)
-		tp.responsesMutex.Unlock()
-		tp.logger.Printf("[Consensus] Cleaned up memory for task %s", taskID)
-
-		tp.logger.Printf("[Consensus] Consensus process completed for task %s with weight %s/%s", taskID, totalWeight, threshold)
-	} else {
-		tp.logger.Printf("[Consensus] Threshold not yet reached for task %s (%s/%s)", taskID, totalWeight, threshold)
+	if totalWeight.Cmp(tp.threshold) < 0 {
+		return nil
 	}
+
+	// Convert operator signatures to JSONB
+	operatorSigsJSON, err := json.Marshal(operatorSigs)
+	if err != nil {
+		return fmt.Errorf("failed to marshal operator signatures: %w", err)
+	}
+
+	// Create consensus response
+	consensus := consensus_responses.CreateConsensusResponseParams{
+		TaskID:              taskID,
+		Epoch:              int32(sampleResp.Epoch),
+		Status:             "completed",
+		AggregatedSignatures: []byte{}, // TODO: Implement signature aggregation if needed
+		OperatorSignatures:  operatorSigsJSON,
+		ConsensusReachedAt:  pgtype.Timestamp{Time: time.Now(), Valid: true},
+	}
+
+	// Store consensus in database
+	if err := tp.storeConsensus(context.Background(), consensus); err != nil {
+		return fmt.Errorf("failed to store consensus: %w", err)
+	}
+
+	// Clean up local maps
+	tp.cleanupTask(taskID)
 
 	return nil
 }
 
-// broadcastConsensusReached broadcasts a consensus reached message
-func (tp *TaskProcessor) broadcastConsensusReached(taskID string, consensus *consensus_responses.CreateConsensusResponseParams) error {
-	msg := &pb.ConsensusReachedMessage{
-		TaskId: taskID,
-		Epoch: uint32(consensus.Epoch),
-		AggregatedSignatures: consensus.AggregatedSignatures,
-		ConsensusReachedAt: consensus.ConsensusReachedAt.Time.Unix(),
-	}
+// cleanupTask removes task data from local maps
+func (tp *TaskProcessor) cleanupTask(taskID string) {
+	tp.responsesMutex.Lock()
+	delete(tp.responses, taskID)
+	tp.responsesMutex.Unlock()
 
-	data, err := proto.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal consensus message: %w", err)
-	}
+	tp.weightsMutex.Lock()
+	delete(tp.taskWeights, taskID)
+	tp.weightsMutex.Unlock()
+}
 
-	return tp.responseTopic.Publish(context.Background(), data)
+// getOperatorWeight returns the weight of an operator
+func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error) {
+	// TODO: 后续从链上获取operator权重
+	return big.NewInt(1), nil
 }
 
 // checkTimeouts periodically checks for timed out tasks
@@ -516,7 +533,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 						Status: "failed",
 					}
 					
-					if _, err := tp.consensusDB.CreateConsensusResponse(context.Background(), consensusResp); err != nil {
+					if _, err := tp.consensusDB.CreateConsensusResponse(ctx, consensusResp); err != nil {
 						log.Printf("Failed to store failed consensus: %v", err)
 					}
 
@@ -576,9 +593,9 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 				}
 				tp.logger.Printf("[Confirmation] Latest block: %d", latestBlock)
 
-				var lastCheckedBlock pgtype.Numeric
-				if err := task.LastCheckedBlock.Scan(&lastCheckedBlock); err != nil {
-					tp.logger.Printf("[Confirmation] Failed to scan last checked block: %v", err)
+				// Use LastCheckedBlock directly since it's already pgtype.Numeric
+				if !task.LastCheckedBlock.Valid {
+					tp.logger.Printf("[Confirmation] Last checked block is not valid")
 					continue
 				}
 
@@ -614,10 +631,10 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 				if newConfirmations > currentValue {
 					tp.logger.Printf("[Confirmation] Updating confirmations for task %s from %d to %d", task.TaskID, currentValue, newConfirmations)
 					
-					var lastCheckedBlockNumeric pgtype.Numeric
-					if err := lastCheckedBlockNumeric.Scan(fmt.Sprintf("%d", latestBlock)); err != nil {
-						tp.logger.Printf("[Confirmation] Failed to scan last checked block: %v", err)
-						continue
+					// Create numeric type for last checked block
+					lastCheckedBlockNumeric := pgtype.Numeric{
+						Int:   new(big.Int).SetUint64(latestBlock),
+						Valid: true,
 					}
 
 					var newConfirmationsNumeric pgtype.Int4
@@ -826,4 +843,50 @@ func (tp *TaskProcessor) ProcessNewTask(ctx context.Context, task *tasks.Task) e
 	tp.logger.Printf("[TaskProcessor] Task %s needs more confirmations (%d/%d), will process later", 
 		task.TaskID, currentConfirmations, requiredConfirmations)
 	return nil
+}
+
+// convertToTaskResponse converts a protobuf message to TaskResponse
+func convertToTaskResponse(msg *pb.TaskResponseMessage) (*types.TaskResponse, error) {
+	if msg == nil {
+		return nil, fmt.Errorf("message is nil")
+	}
+
+	value := new(big.Int)
+	if _, ok := value.SetString(msg.Value, 10); !ok {
+		return nil, fmt.Errorf("invalid value: %s", msg.Value)
+	}
+
+	blockNumber := new(big.Int)
+	if _, ok := blockNumber.SetString(msg.BlockNumber, 10); !ok {
+		return nil, fmt.Errorf("invalid block number: %s", msg.BlockNumber)
+	}
+
+	key := new(big.Int)
+	if _, ok := key.SetString(msg.Key, 10); !ok {
+		return nil, fmt.Errorf("invalid key: %s", msg.Key)
+	}
+
+	// 设置timestamp
+	timestamp := new(big.Int).SetInt64(time.Now().Unix())
+
+	return &types.TaskResponse{
+		TaskID:        msg.TaskId,
+		OperatorAddr:  msg.OperatorAddr,
+		SigningKey:    msg.SigningKey,
+		Signature:     msg.Signature,
+		Value:         value,
+		BlockNumber:   blockNumber,
+		ChainID:       uint64(msg.ChainId),
+		TargetAddress: msg.TargetAddress,
+		Key:          key,
+		Epoch:        msg.Epoch,
+		Timestamp:    timestamp,
+		CreatedAt:    time.Now(),
+	}, nil
+}
+
+// storeConsensus stores a consensus response in the database
+func (tp *TaskProcessor) storeConsensus(ctx context.Context, consensus consensus_responses.CreateConsensusResponseParams) error {
+	_, err := tp.consensusDB.CreateConsensusResponse(ctx, consensus)
+	return err
 } 

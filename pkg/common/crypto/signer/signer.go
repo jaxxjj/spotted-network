@@ -34,7 +34,7 @@ type Signer interface {
 	// SignTaskResponse signs a task response
 	SignTaskResponse(params TaskSignParams) ([]byte, error)
 	// VerifyTaskResponse verifies a task response signature
-	VerifyTaskResponse(taskID string, value *big.Int, blockNumber *big.Int, signature []byte, signerAddr string) error
+	VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error
 	// Address returns the signer's address as string
 	Address() string
 }
@@ -129,16 +129,21 @@ func (s *LocalSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
 }
 
 // VerifyTaskResponse verifies a task response signature
-func (s *LocalSigner) VerifyTaskResponse(taskID string, value *big.Int, blockNumber *big.Int, signature []byte, signerAddr string) error {
-	// Create message hash
-	msg := crypto.Keccak256(
-		[]byte(taskID),
-		common.BigToHash(value).Bytes(),
-		common.BigToHash(blockNumber).Bytes(),
-	)
+func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error {
+	// Pack parameters into bytes in the same order as SignTaskResponse
+	msg := []byte{}
+	msg = append(msg, params.User.Bytes()...)
+	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
+	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
+	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.Timestamp)).Bytes(), 32)...)
+	msg = append(msg, common.LeftPadBytes(params.Key.Bytes(), 32)...)
+	msg = append(msg, common.LeftPadBytes(params.Value.Bytes(), 32)...)
+
+	// Hash the message
+	hash := crypto.Keccak256(msg)
 
 	// Recover public key
-	pubKey, err := crypto.SigToPub(msg, signature)
+	pubKey, err := crypto.SigToPub(hash, signature)
 	if err != nil {
 		return fmt.Errorf("failed to recover public key: %w", err)
 	}

@@ -21,7 +21,7 @@ INSERT INTO consensus_responses (
     consensus_reached_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6
-) RETURNING id, task_id, epoch, status, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at
+) RETURNING id, task_id, epoch, status, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at
 `
 
 type CreateConsensusResponseParams struct {
@@ -48,8 +48,14 @@ func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsens
 		&i.TaskID,
 		&i.Epoch,
 		&i.Status,
+		&i.Value,
+		&i.BlockNumber,
+		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
 		&i.AggregatedSignatures,
 		&i.OperatorSignatures,
+		&i.TotalWeight,
 		&i.ConsensusReachedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -68,7 +74,7 @@ func (q *Queries) DeleteConsensusResponse(ctx context.Context, taskID string) er
 }
 
 const getConsensusResponse = `-- name: GetConsensusResponse :one
-SELECT id, task_id, epoch, status, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
+SELECT id, task_id, epoch, status, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at FROM consensus_responses
 WHERE task_id = $1 LIMIT 1
 `
 
@@ -80,8 +86,14 @@ func (q *Queries) GetConsensusResponse(ctx context.Context, taskID string) (Cons
 		&i.TaskID,
 		&i.Epoch,
 		&i.Status,
+		&i.Value,
+		&i.BlockNumber,
+		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
 		&i.AggregatedSignatures,
 		&i.OperatorSignatures,
+		&i.TotalWeight,
 		&i.ConsensusReachedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -90,7 +102,7 @@ func (q *Queries) GetConsensusResponse(ctx context.Context, taskID string) (Cons
 }
 
 const listPendingConsensus = `-- name: ListPendingConsensus :many
-SELECT id, task_id, epoch, status, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
+SELECT id, task_id, epoch, status, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at FROM consensus_responses
 WHERE status = 'pending'
 ORDER BY created_at DESC
 `
@@ -109,8 +121,14 @@ func (q *Queries) ListPendingConsensus(ctx context.Context) ([]ConsensusResponse
 			&i.TaskID,
 			&i.Epoch,
 			&i.Status,
+			&i.Value,
+			&i.BlockNumber,
+			&i.ChainID,
+			&i.TargetAddress,
+			&i.Key,
 			&i.AggregatedSignatures,
 			&i.OperatorSignatures,
+			&i.TotalWeight,
 			&i.ConsensusReachedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -132,7 +150,7 @@ SET status = $2,
     aggregated_signatures = $4,
     operator_signatures = $5
 WHERE task_id = $1
-RETURNING id, task_id, epoch, status, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at
+RETURNING id, task_id, epoch, status, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at
 `
 
 type UpdateConsensusStatusParams struct {
@@ -157,8 +175,14 @@ func (q *Queries) UpdateConsensusStatus(ctx context.Context, arg UpdateConsensus
 		&i.TaskID,
 		&i.Epoch,
 		&i.Status,
+		&i.Value,
+		&i.BlockNumber,
+		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
 		&i.AggregatedSignatures,
 		&i.OperatorSignatures,
+		&i.TotalWeight,
 		&i.ConsensusReachedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,

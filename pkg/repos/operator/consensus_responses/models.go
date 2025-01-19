@@ -13,8 +13,14 @@ type ConsensusResponse struct {
 	TaskID               string           `json:"task_id"`
 	Epoch                int32            `json:"epoch"`
 	Status               string           `json:"status"`
+	Value                pgtype.Numeric   `json:"value"`
+	BlockNumber          pgtype.Numeric   `json:"block_number"`
+	ChainID              int32            `json:"chain_id"`
+	TargetAddress        string           `json:"target_address"`
+	Key                  pgtype.Numeric   `json:"key"`
 	AggregatedSignatures []byte           `json:"aggregated_signatures"`
 	OperatorSignatures   []byte           `json:"operator_signatures"`
+	TotalWeight          pgtype.Numeric   `json:"total_weight"`
 	ConsensusReachedAt   pgtype.Timestamp `json:"consensus_reached_at"`
 	CreatedAt            pgtype.Timestamp `json:"created_at"`
 	UpdatedAt            pgtype.Timestamp `json:"updated_at"`

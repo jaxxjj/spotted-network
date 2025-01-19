@@ -15,6 +15,7 @@ const createTaskResponse = `-- name: CreateTaskResponse :one
 INSERT INTO task_responses (
     task_id,
     operator_address,
+    signing_key,
     signature,
     epoch,
     chain_id,
@@ -22,16 +23,16 @@ INSERT INTO task_responses (
     key,
     value,
     block_number,
-    timestamp,
-    status
+    timestamp
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-) RETURNING id, task_id, operator_address, signature, epoch, chain_id, target_address, key, value, block_number, timestamp, submitted_at, status
+) RETURNING id, task_id, operator_address, signing_key, signature, epoch, chain_id, target_address, key, value, block_number, timestamp, submitted_at
 `
 
 type CreateTaskResponseParams struct {
 	TaskID          string         `json:"task_id"`
 	OperatorAddress string         `json:"operator_address"`
+	SigningKey      string         `json:"signing_key"`
 	Signature       []byte         `json:"signature"`
 	Epoch           int32          `json:"epoch"`
 	ChainID         int32          `json:"chain_id"`
@@ -40,13 +41,13 @@ type CreateTaskResponseParams struct {
 	Value           pgtype.Numeric `json:"value"`
 	BlockNumber     pgtype.Numeric `json:"block_number"`
 	Timestamp       pgtype.Numeric `json:"timestamp"`
-	Status          string         `json:"status"`
 }
 
 func (q *Queries) CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams) (TaskResponse, error) {
 	row := q.db.QueryRow(ctx, createTaskResponse,
 		arg.TaskID,
 		arg.OperatorAddress,
+		arg.SigningKey,
 		arg.Signature,
 		arg.Epoch,
 		arg.ChainID,
@@ -55,13 +56,13 @@ func (q *Queries) CreateTaskResponse(ctx context.Context, arg CreateTaskResponse
 		arg.Value,
 		arg.BlockNumber,
 		arg.Timestamp,
-		arg.Status,
 	)
 	var i TaskResponse
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
 		&i.OperatorAddress,
+		&i.SigningKey,
 		&i.Signature,
 		&i.Epoch,
 		&i.ChainID,
@@ -71,29 +72,43 @@ func (q *Queries) CreateTaskResponse(ctx context.Context, arg CreateTaskResponse
 		&i.BlockNumber,
 		&i.Timestamp,
 		&i.SubmittedAt,
-		&i.Status,
 	)
 	return i, err
 }
 
-const getOperatorResponse = `-- name: GetOperatorResponse :one
-SELECT id, task_id, operator_address, signature, epoch, chain_id, target_address, key, value, block_number, timestamp, submitted_at, status FROM task_responses
+const deleteTaskResponse = `-- name: DeleteTaskResponse :exec
+DELETE FROM task_responses
 WHERE task_id = $1 AND operator_address = $2
 `
 
-type GetOperatorResponseParams struct {
+type DeleteTaskResponseParams struct {
 	TaskID          string `json:"task_id"`
 	OperatorAddress string `json:"operator_address"`
 }
 
-// Get specific operator's response for a task
-func (q *Queries) GetOperatorResponse(ctx context.Context, arg GetOperatorResponseParams) (TaskResponse, error) {
-	row := q.db.QueryRow(ctx, getOperatorResponse, arg.TaskID, arg.OperatorAddress)
+func (q *Queries) DeleteTaskResponse(ctx context.Context, arg DeleteTaskResponseParams) error {
+	_, err := q.db.Exec(ctx, deleteTaskResponse, arg.TaskID, arg.OperatorAddress)
+	return err
+}
+
+const getTaskResponse = `-- name: GetTaskResponse :one
+SELECT id, task_id, operator_address, signing_key, signature, epoch, chain_id, target_address, key, value, block_number, timestamp, submitted_at FROM task_responses
+WHERE task_id = $1 AND operator_address = $2
+`
+
+type GetTaskResponseParams struct {
+	TaskID          string `json:"task_id"`
+	OperatorAddress string `json:"operator_address"`
+}
+
+func (q *Queries) GetTaskResponse(ctx context.Context, arg GetTaskResponseParams) (TaskResponse, error) {
+	row := q.db.QueryRow(ctx, getTaskResponse, arg.TaskID, arg.OperatorAddress)
 	var i TaskResponse
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
 		&i.OperatorAddress,
+		&i.SigningKey,
 		&i.Signature,
 		&i.Epoch,
 		&i.ChainID,
@@ -103,37 +118,63 @@ func (q *Queries) GetOperatorResponse(ctx context.Context, arg GetOperatorRespon
 		&i.BlockNumber,
 		&i.Timestamp,
 		&i.SubmittedAt,
-		&i.Status,
 	)
 	return i, err
 }
 
-const getResponseCount = `-- name: GetResponseCount :one
-SELECT COUNT(*) FROM task_responses
-WHERE task_id = $1 AND status = $2
+const listOperatorResponses = `-- name: ListOperatorResponses :many
+SELECT id, task_id, operator_address, signing_key, signature, epoch, chain_id, target_address, key, value, block_number, timestamp, submitted_at FROM task_responses
+WHERE operator_address = $1
+ORDER BY submitted_at DESC
+LIMIT $2
 `
 
-type GetResponseCountParams struct {
-	TaskID string `json:"task_id"`
-	Status string `json:"status"`
+type ListOperatorResponsesParams struct {
+	OperatorAddress string `json:"operator_address"`
+	Limit           int32  `json:"limit"`
 }
 
-// Get count of responses for a task
-func (q *Queries) GetResponseCount(ctx context.Context, arg GetResponseCountParams) (int64, error) {
-	row := q.db.QueryRow(ctx, getResponseCount, arg.TaskID, arg.Status)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+func (q *Queries) ListOperatorResponses(ctx context.Context, arg ListOperatorResponsesParams) ([]TaskResponse, error) {
+	rows, err := q.db.Query(ctx, listOperatorResponses, arg.OperatorAddress, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TaskResponse{}
+	for rows.Next() {
+		var i TaskResponse
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.OperatorAddress,
+			&i.SigningKey,
+			&i.Signature,
+			&i.Epoch,
+			&i.ChainID,
+			&i.TargetAddress,
+			&i.Key,
+			&i.Value,
+			&i.BlockNumber,
+			&i.Timestamp,
+			&i.SubmittedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-const getTaskResponses = `-- name: GetTaskResponses :many
-SELECT id, task_id, operator_address, signature, epoch, chain_id, target_address, key, value, block_number, timestamp, submitted_at, status FROM task_responses
+const listTaskResponses = `-- name: ListTaskResponses :many
+SELECT id, task_id, operator_address, signing_key, signature, epoch, chain_id, target_address, key, value, block_number, timestamp, submitted_at FROM task_responses
 WHERE task_id = $1
 `
 
-// Get all responses for a specific task
-func (q *Queries) GetTaskResponses(ctx context.Context, taskID string) ([]TaskResponse, error) {
-	rows, err := q.db.Query(ctx, getTaskResponses, taskID)
+func (q *Queries) ListTaskResponses(ctx context.Context, taskID string) ([]TaskResponse, error) {
+	rows, err := q.db.Query(ctx, listTaskResponses, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +186,7 @@ func (q *Queries) GetTaskResponses(ctx context.Context, taskID string) ([]TaskRe
 			&i.ID,
 			&i.TaskID,
 			&i.OperatorAddress,
+			&i.SigningKey,
 			&i.Signature,
 			&i.Epoch,
 			&i.ChainID,
@@ -154,7 +196,6 @@ func (q *Queries) GetTaskResponses(ctx context.Context, taskID string) ([]TaskRe
 			&i.BlockNumber,
 			&i.Timestamp,
 			&i.SubmittedAt,
-			&i.Status,
 		); err != nil {
 			return nil, err
 		}
@@ -164,84 +205,4 @@ func (q *Queries) GetTaskResponses(ctx context.Context, taskID string) ([]TaskRe
 		return nil, err
 	}
 	return items, nil
-}
-
-const getTaskResponsesByStatus = `-- name: GetTaskResponsesByStatus :many
-SELECT id, task_id, operator_address, signature, epoch, chain_id, target_address, key, value, block_number, timestamp, submitted_at, status FROM task_responses
-WHERE task_id = $1 AND status = $2
-`
-
-type GetTaskResponsesByStatusParams struct {
-	TaskID string `json:"task_id"`
-	Status string `json:"status"`
-}
-
-// Get all responses for a task with specific status
-func (q *Queries) GetTaskResponsesByStatus(ctx context.Context, arg GetTaskResponsesByStatusParams) ([]TaskResponse, error) {
-	rows, err := q.db.Query(ctx, getTaskResponsesByStatus, arg.TaskID, arg.Status)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []TaskResponse{}
-	for rows.Next() {
-		var i TaskResponse
-		if err := rows.Scan(
-			&i.ID,
-			&i.TaskID,
-			&i.OperatorAddress,
-			&i.Signature,
-			&i.Epoch,
-			&i.ChainID,
-			&i.TargetAddress,
-			&i.Key,
-			&i.Value,
-			&i.BlockNumber,
-			&i.Timestamp,
-			&i.SubmittedAt,
-			&i.Status,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const updateResponseStatus = `-- name: UpdateResponseStatus :one
-UPDATE task_responses
-SET status = $3
-WHERE task_id = $1 AND operator_address = $2
-RETURNING id, task_id, operator_address, signature, epoch, chain_id, target_address, key, value, block_number, timestamp, submitted_at, status
-`
-
-type UpdateResponseStatusParams struct {
-	TaskID          string `json:"task_id"`
-	OperatorAddress string `json:"operator_address"`
-	Status          string `json:"status"`
-}
-
-// Update response status
-func (q *Queries) UpdateResponseStatus(ctx context.Context, arg UpdateResponseStatusParams) (TaskResponse, error) {
-	row := q.db.QueryRow(ctx, updateResponseStatus, arg.TaskID, arg.OperatorAddress, arg.Status)
-	var i TaskResponse
-	err := row.Scan(
-		&i.ID,
-		&i.TaskID,
-		&i.OperatorAddress,
-		&i.Signature,
-		&i.Epoch,
-		&i.ChainID,
-		&i.TargetAddress,
-		&i.Key,
-		&i.Value,
-		&i.BlockNumber,
-		&i.Timestamp,
-		&i.SubmittedAt,
-		&i.Status,
-	)
-	return i, err
 }

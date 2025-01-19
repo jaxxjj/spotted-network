@@ -8,13 +8,14 @@ option go_package = "github.com/galxe/spotted-network/proto";
 message TaskResponseMessage {
     string task_id = 1;
     string operator_addr = 2;
-    bytes signature = 3;
-    string value = 4;
-    string block_number = 5;
-    int32 chain_id = 6;
-    string target_address = 7;
-    string key = 8;
-    uint32 epoch = 9;
+    string signing_key = 3;
+    bytes signature = 4;
+    string value = 5;
+    string block_number = 6;
+    int32 chain_id = 7;
+    string target_address = 8;
+    string key = 9;
+    uint32 epoch = 10;
 }
 
 // TaskMessage represents a task message

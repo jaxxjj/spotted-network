@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -262,20 +263,63 @@ func (h *Handler) GetTaskConsensus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get task details
+	task, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get task: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert numeric values
+	var value, blockNumber, key string
+	if err := task.Value.Scan(&value); err != nil {
+		value = "0"
+	}
+	if err := task.BlockNumber.Scan(&blockNumber); err != nil {
+		blockNumber = "0"
+	}
+	if err := task.Key.Scan(&key); err != nil {
+		key = "0"
+	}
+
+	// Parse operator signatures to calculate total weight
+	var operatorSigs map[string]map[string]interface{}
+	totalWeight := big.NewInt(0)
+	if err := json.Unmarshal(consensus.OperatorSignatures, &operatorSigs); err == nil {
+		for _, sigData := range operatorSigs {
+			if weightStr, ok := sigData["weight"].(string); ok {
+				weight := new(big.Int)
+				if _, ok := weight.SetString(weightStr, 10); ok {
+					totalWeight.Add(totalWeight, weight)
+				}
+			}
+		}
+	}
+
 	// Format response
 	response := struct {
 		TaskID              string          `json:"task_id"`
 		Epoch              int32           `json:"epoch"`
 		Status             string          `json:"status"`
+		Value              string          `json:"value"`
+		BlockNumber        string          `json:"block_number"`
+		ChainID            int32           `json:"chain_id"`
+		TargetAddress      string          `json:"target_address"`
+		Key                string          `json:"key"`
 		OperatorSignatures json.RawMessage `json:"operator_signatures"`
-		AggregatedSignatures []byte        `json:"aggregated_signatures"`
+		TotalWeight        string          `json:"total_weight"`
 		ConsensusReachedAt *time.Time     `json:"consensus_reached_at,omitempty"`
 	}{
 		TaskID:              consensus.TaskID,
 		Epoch:              consensus.Epoch,
 		Status:             consensus.Status,
+		Value:              value,
+		BlockNumber:        blockNumber,
+		ChainID:           task.ChainID,
+		TargetAddress:     task.TargetAddress,
+		Key:               key,
 		OperatorSignatures: consensus.OperatorSignatures,
-		AggregatedSignatures: consensus.AggregatedSignatures,
+		TotalWeight:       totalWeight.String(),
 		ConsensusReachedAt: &consensus.ConsensusReachedAt.Time,
 	}
 
@@ -286,6 +330,7 @@ func (h *Handler) GetTaskConsensus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetTaskFinalResponse returns the final response for a task
 func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
 	
@@ -296,39 +341,52 @@ func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get task information
+	// Get task details
 	task, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get task: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Convert numeric values to strings
-	var blockNum uint64
-	var chainID uint64
+	// Convert numeric values
 	var value, key string
-
-	if err := task.BlockNumber.Scan(&blockNum); err != nil {
-		blockNum = 0
-	}
-	chainID = uint64(task.ChainID)
+	var blockNumber uint64
 	if err := task.Value.Scan(&value); err != nil {
 		value = "0"
+	}
+	if err := task.BlockNumber.Scan(&blockNumber); err != nil {
+		blockNumber = 0
 	}
 	if err := task.Key.Scan(&key); err != nil {
 		key = "0"
 	}
 
-	// Calculate total weight
-	totalWeight := "0"
-	if h.node != nil {
-		totalWeight = h.node.CalculateTotalWeight(consensus.OperatorSignatures)
+	// Parse operator signatures and calculate total weight
+	var operatorSigs map[string]map[string]interface{}
+	totalWeight := big.NewInt(0)
+	if err := json.Unmarshal(consensus.OperatorSignatures, &operatorSigs); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse operator signatures: %v", err), http.StatusInternalServerError)
+		return
 	}
 
-	// Parse operator signatures
-	var operatorSigs map[string][]byte
-	if err := json.Unmarshal(consensus.OperatorSignatures, &operatorSigs); err != nil {
-		operatorSigs = make(map[string][]byte)
+	// Convert signatures and calculate total weight
+	finalOperatorSigs := make(map[string][]byte)
+	for addr, sigData := range operatorSigs {
+		// Add weight to total
+		if weightStr, ok := sigData["weight"].(string); ok {
+			weight := new(big.Int)
+			if _, ok := weight.SetString(weightStr, 10); ok {
+				totalWeight.Add(totalWeight, weight)
+			}
+		}
+		// Convert signature
+		if sigStr, ok := sigData["signature"].(string); ok {
+			sig, err := hex.DecodeString(sigStr)
+			if err != nil {
+				continue
+			}
+			finalOperatorSigs[addr] = sig
+		}
 	}
 
 	// Build response
@@ -337,12 +395,12 @@ func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 		Epoch:             uint32(consensus.Epoch),
 		Status:            consensus.Status,
 		Value:             value,
-		BlockNumber:       blockNum,
-		ChainID:          chainID,
+		BlockNumber:       blockNumber,
+		ChainID:          uint64(task.ChainID),
 		TargetAddress:     task.TargetAddress,
 		Key:              key,
-		OperatorSignatures: operatorSigs,
-		TotalWeight:       totalWeight,
+		OperatorSignatures: finalOperatorSigs,
+		TotalWeight:       totalWeight.String(),
 		ConsensusReachedAt: consensus.ConsensusReachedAt.Time,
 	}
 

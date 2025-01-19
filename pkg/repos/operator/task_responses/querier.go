@@ -10,16 +10,10 @@ import (
 
 type Querier interface {
 	CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams) (TaskResponse, error)
-	// Get specific operator's response for a task
-	GetOperatorResponse(ctx context.Context, arg GetOperatorResponseParams) (TaskResponse, error)
-	// Get count of responses for a task
-	GetResponseCount(ctx context.Context, arg GetResponseCountParams) (int64, error)
-	// Get all responses for a specific task
-	GetTaskResponses(ctx context.Context, taskID string) ([]TaskResponse, error)
-	// Get all responses for a task with specific status
-	GetTaskResponsesByStatus(ctx context.Context, arg GetTaskResponsesByStatusParams) ([]TaskResponse, error)
-	// Update response status
-	UpdateResponseStatus(ctx context.Context, arg UpdateResponseStatusParams) (TaskResponse, error)
+	DeleteTaskResponse(ctx context.Context, arg DeleteTaskResponseParams) error
+	GetTaskResponse(ctx context.Context, arg GetTaskResponseParams) (TaskResponse, error)
+	ListOperatorResponses(ctx context.Context, arg ListOperatorResponsesParams) ([]TaskResponse, error)
+	ListTaskResponses(ctx context.Context, taskID string) ([]TaskResponse, error)
 }
 
 var _ Querier = (*Queries)(nil)

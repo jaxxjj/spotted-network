@@ -5,9 +5,11 @@ import (
 	"time"
 )
 
+// TaskResponse represents a response from an operator for a task
 type TaskResponse struct {
 	TaskID        string
 	OperatorAddr  string
+	SigningKey    string
 	Signature     []byte
 	Value         *big.Int
 	BlockNumber   *big.Int
@@ -15,6 +17,6 @@ type TaskResponse struct {
 	TargetAddress string
 	Key           *big.Int
 	Epoch         uint32
-	CreatedAt     time.Time
 	Timestamp     *big.Int
-} 
+	CreatedAt     time.Time
+}
