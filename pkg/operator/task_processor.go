@@ -907,32 +907,32 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 	// Get state client for the chain
 	stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
 	if err != nil {
-		return fmt.Errorf("failed to get state client for chain %d: %w", task.ChainID, err)
+		return fmt.Errorf("[TaskProcessor]failed to get state client for chain %d: %w", task.ChainID, err)
 	}
 
 	// Convert block number to big.Int
 	blockNumNumeric := task.BlockNumber
 	if !blockNumNumeric.Valid {
-		return fmt.Errorf("block number is null")
+		return fmt.Errorf("[TaskProcessor] block number is null")
 	}
 	blockNum := new(big.Int)
 	if blockNumNumeric.Int == nil {
-		return fmt.Errorf("block number Int value is null")
+		return fmt.Errorf("[TaskProcessor] block number Int value is null")
 	}
 	if _, ok := blockNum.SetString(blockNumNumeric.Int.String(), 10); !ok {
-		return fmt.Errorf("failed to parse block number: %s", blockNumNumeric.Int.String())
+		return fmt.Errorf("[TaskProcessor] failed to parse block number: %s", blockNumNumeric.Int.String())
 	}
 
 	// Convert key to big.Int
 	if !task.Key.Valid {
-		return fmt.Errorf("key is null")
+		return fmt.Errorf("[TaskProcessor] key is null")
 	}
 	keyBig := new(big.Int)
 	if task.Key.Int == nil {
-		return fmt.Errorf("key Int value is null") 
+		return fmt.Errorf("[TaskProcessor] key Int value is null") 
 	}
 	if _, ok := keyBig.SetString(task.Key.Int.String(), 10); !ok {
-		return fmt.Errorf("failed to parse key: %s", task.Key.Int.String())
+		return fmt.Errorf("[TaskProcessor] failed to parse key: %s", task.Key.Int.String())
 	}
 
 	// Get state at block
@@ -942,7 +942,7 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 		keyBig,
 		blockUint64)
 	if err != nil {
-		return fmt.Errorf("failed to get state at block: %w", err)
+		return fmt.Errorf("[TaskProcessor] failed to get state at block: %w", err)
 	}
 
 	// Create types.Task
@@ -971,7 +971,7 @@ func (tp *TaskProcessor) ProcessNewTask(ctx context.Context, task *tasks.Task) e
 	// Get current confirmations
 	var currentConfirmations int32
 	if err := task.CurrentConfirmations.Scan(&currentConfirmations); err != nil {
-		return fmt.Errorf("failed to scan current confirmations: %w", err)
+		return fmt.Errorf("[TaskProcessor] failed to scan current confirmations: %w", err)
 	}
 
 	// Get required confirmations

@@ -110,18 +110,8 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 	// Create ping service
 	pingService := ping.NewPingService(host)
 
-	// Initialize API handler and server
-	apiHandler := api.NewHandler(taskQueries, chainClients, consensusQueries)
-	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
-	
-	// Start API server
-	go func() {
-		if err := apiServer.Start(); err != nil && err != http.ErrServerClosed {
-			log.Printf("API server error: %v", err)
-		}
-	}()
-
-	return &Node{
+	// Create initial Node instance without taskProcessor
+	node := &Node{
 		host:           host,
 		registryID:     addrInfo.ID,
 		registryAddr:   registryAddr,
@@ -137,9 +127,32 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		responseQueries: responseQueries,
 		consensusQueries: consensusQueries,
 		chainClient:   chainClients,
-		apiServer:     apiServer,
 		PubSub:        ps,
-	}, nil
+	}
+
+	// Initialize task processor
+	taskProcessor, err := NewTaskProcessor(node, taskQueries, responseQueries, consensusQueries)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create task processor: %w", err)
+	}
+	log.Printf("[Node] Task processor initialized")
+
+	// Initialize API handler and server
+	apiHandler := api.NewHandler(taskQueries, chainClients, consensusQueries, taskProcessor)
+	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
+	
+	// Start API server
+	go func() {
+		if err := apiServer.Start(); err != nil && err != http.ErrServerClosed {
+			log.Printf("API server error: %v", err)
+		}
+	}()
+
+	// Set remaining fields
+	node.taskProcessor = taskProcessor
+	node.apiServer = apiServer
+
+	return node, nil
 }
 
 func (n *Node) Start() error {
@@ -212,13 +225,6 @@ func (n *Node) Start() error {
 		addrs := n.host.Network().Peerstore().Addrs(peer)
 		log.Printf("[Node] - Peer %s at %v", peer.String(), addrs)
 	}
-
-	// Initialize and start task processor after P2P connections are established
-	n.taskProcessor, err = NewTaskProcessor(n, n.taskQueries, n.responseQueries, n.consensusQueries)
-	if err != nil {
-		return fmt.Errorf("failed to create task processor: %w", err)
-	}
-	log.Printf("[Node] Task processor initialized")
 
 	// Start message handler and health check
 	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)

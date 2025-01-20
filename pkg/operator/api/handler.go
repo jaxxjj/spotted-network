@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"log"
 
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
+	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 )
@@ -42,14 +44,22 @@ type Handler struct {
 	node        interface {
 		CalculateTotalWeight(sigs []byte) string
 	}
+	taskProcessor interface {
+		ProcessTask(ctx context.Context, task *types.Task) error
+		ProcessPendingTask(ctx context.Context, task *tasks.Task) error
+	}
 }
 
 // NewHandler creates a new handler
-func NewHandler(taskQueries *tasks.Queries, chainClient *ethereum.ChainClients, consensusDB *consensus_responses.Queries) *Handler {
+func NewHandler(taskQueries *tasks.Queries, chainClient *ethereum.ChainClients, consensusDB *consensus_responses.Queries, taskProcessor interface {
+	ProcessTask(ctx context.Context, task *types.Task) error
+	ProcessPendingTask(ctx context.Context, task *tasks.Task) error
+}) *Handler {
 	return &Handler{
 		taskQueries: taskQueries,
 		chainClient: chainClient,
 		consensusDB: consensusDB,
+		taskProcessor: taskProcessor,
 	}
 }
 
@@ -198,6 +208,15 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[API] Created new task %s with status %s", task.TaskID, task.Status)
 	if task.Status == "confirming" {
 		log.Printf("[API] Task %s requires %d block confirmations", task.TaskID, requiredConfirmations)
+	} else if task.Status == "pending" {
+		// If task is pending, process it immediately
+		log.Printf("[API] Task %s is pending, processing immediately", task.TaskID)
+		
+		// Use ProcessPendingTask directly with task pointer
+		if err := h.taskProcessor.ProcessPendingTask(r.Context(), &task); err != nil {
+			log.Printf("[API] Failed to process pending task %s: %v", task.TaskID, err)
+			// Don't return error here, as the task is already created
+		}
 	}
 
 	// Return response
