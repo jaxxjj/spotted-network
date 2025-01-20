@@ -9,8 +9,10 @@ function create_operator_schema() {
     
     # Create tasks table
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$database" <<-EOSQL
+        -- Tasks table to store task information
         CREATE TABLE IF NOT EXISTS tasks (
-            task_id TEXT PRIMARY KEY,
+            id BIGSERIAL PRIMARY KEY,
+            task_id TEXT NOT NULL UNIQUE,
             target_address TEXT NOT NULL,
             chain_id INT NOT NULL,
             block_number NUMERIC(78),
@@ -31,37 +33,50 @@ function create_operator_schema() {
         CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
         CREATE INDEX IF NOT EXISTS idx_tasks_confirming ON tasks(status, current_confirmations) WHERE status = 'confirming';
 
+        -- Task responses table to store individual operator responses
         CREATE TABLE IF NOT EXISTS task_responses (
             id BIGSERIAL PRIMARY KEY,
-            task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+            task_id TEXT NOT NULL,
             operator_address TEXT NOT NULL,
             signing_key TEXT NOT NULL,
             signature BYTEA NOT NULL,
-            epoch INT NOT NULL,
-            chain_id INT NOT NULL,
+            epoch INTEGER NOT NULL,
+            chain_id INTEGER NOT NULL,
             target_address TEXT NOT NULL,
-            key NUMERIC(78) NOT NULL,
-            value NUMERIC(78) NOT NULL,
-            block_number NUMERIC(78) NOT NULL,
-            timestamp NUMERIC(78) NOT NULL,
+            key NUMERIC NOT NULL,
+            value NUMERIC NOT NULL,
+            block_number NUMERIC NOT NULL,
+            timestamp NUMERIC NOT NULL,
             submitted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
             UNIQUE(task_id, operator_address)
         );
 
+        -- Index for querying responses by task
         CREATE INDEX IF NOT EXISTS idx_task_responses_task_id ON task_responses(task_id);
+
+        -- Index for querying responses by operator
         CREATE INDEX IF NOT EXISTS idx_task_responses_operator ON task_responses(operator_address);
 
+        -- Consensus responses table to store consensus results
         CREATE TABLE IF NOT EXISTS consensus_responses (
-            task_id TEXT PRIMARY KEY,
-            epoch INT NOT NULL,
+            id BIGSERIAL PRIMARY KEY,
+            task_id TEXT NOT NULL UNIQUE,
+            epoch INTEGER NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),
+            value NUMERIC NOT NULL,
+            block_number NUMERIC NOT NULL,
+            chain_id INTEGER NOT NULL,
+            target_address TEXT NOT NULL,
+            key NUMERIC NOT NULL,
             aggregated_signatures BYTEA,
             operator_signatures JSONB,
-            consensus_reached_at TIMESTAMP,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            total_weight NUMERIC NOT NULL,
+            consensus_reached_at TIMESTAMP WITH TIME ZONE,
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
         );
 
+        -- Index for querying consensus responses
         CREATE INDEX IF NOT EXISTS idx_consensus_responses_task_id ON consensus_responses(task_id);
         CREATE INDEX IF NOT EXISTS idx_consensus_responses_status ON consensus_responses(status);
 EOSQL

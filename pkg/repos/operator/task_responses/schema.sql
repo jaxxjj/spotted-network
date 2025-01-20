@@ -21,6 +21,3 @@ CREATE INDEX IF NOT EXISTS idx_task_responses_task_id ON task_responses(task_id)
 
 -- Index for querying responses by operator
 CREATE INDEX IF NOT EXISTS idx_task_responses_operator ON task_responses(operator_address);
-
--- Index for querying by status
-CREATE INDEX idx_task_responses_status ON task_responses(status);

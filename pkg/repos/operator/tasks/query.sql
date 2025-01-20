@@ -65,3 +65,6 @@ WHERE task_id = $1;
 UPDATE tasks 
 SET status = 'pending', updated_at = NOW()
 WHERE task_id = $1;
+
+-- name: ListAllTasks :many
+SELECT * FROM tasks ORDER BY created_at DESC;

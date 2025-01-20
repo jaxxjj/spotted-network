@@ -7,9 +7,38 @@ generate-keys:
 	@echo "Keys generated successfully in ./keys directory"
 
 # Check operator1 tasks
-check-tasks:
+check-tasks-operator1:
 	@echo "Querying tasks from operator1 database..."
 	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM tasks;"
+check-tasks-operator2:
+	@echo "Querying tasks from operator2 database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5434 -U spotted -d operator2 -c "SELECT * FROM tasks;"
+check-tasks-operator3:
+	@echo "Querying tasks from operator3 database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5435 -U spotted -d operator3 -c "SELECT * FROM tasks;"
+
+check-task-responses-operator1:
+	@echo "Querying task responses from operator1 database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM task_responses;"
+
+check-task-responses-operator2:
+	@echo "Querying task responses from operator2 database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5434 -U spotted -d operator2 -c "SELECT * FROM task_responses;"
+
+check-task-responses-operator3:
+	@echo "Querying task responses from operator3 database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5435 -U spotted -d operator3 -c "SELECT * FROM task_responses;"
+check-consensus-operator1:
+	@echo "Querying consensus responses from operator1 database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM consensus_responses;"
+
+check-consensus-operator2:
+	@echo "Querying consensus responses from operator2 database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5434 -U spotted -d operator2 -c "SELECT * FROM consensus_responses;"
+
+check-consensus-operator3:
+	@echo "Querying consensus responses from operator3 database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5435 -U spotted -d operator3 -c "SELECT * FROM consensus_responses;"
 
 # Create new task
 create-task:
@@ -67,6 +96,10 @@ run-all: build
 	@osascript -e 'tell app "Terminal" to do script "cd $(PWD) && make run-registry"'
 	@sleep 2
 	@osascript -e 'tell app "Terminal" to do script "cd $(PWD) && make run-operator"'
+
+# docker clean
+docker-clean:
+	@rm -rf ~/Library/Containers/com.docker.docker/Data/*
 
 # Stop all running nodes
 stop:

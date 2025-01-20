@@ -112,6 +112,45 @@ func (q *Queries) GetTaskByID(ctx context.Context, taskID string) (Task, error) 
 	return i, err
 }
 
+const listAllTasks = `-- name: ListAllTasks :many
+SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, current_confirmations, last_checked_block, created_at, updated_at FROM tasks ORDER BY created_at DESC
+`
+
+func (q *Queries) ListAllTasks(ctx context.Context) ([]Task, error) {
+	rows, err := q.db.Query(ctx, listAllTasks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Task{}
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.ChainID,
+			&i.TargetAddress,
+			&i.Key,
+			&i.BlockNumber,
+			&i.Timestamp,
+			&i.Value,
+			&i.Epoch,
+			&i.Status,
+			&i.RequiredConfirmations,
+			&i.CurrentConfirmations,
+			&i.LastCheckedBlock,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConfirmingTasks = `-- name: ListConfirmingTasks :many
 SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, current_confirmations, last_checked_block, created_at, updated_at FROM tasks 
 WHERE status = 'confirming'

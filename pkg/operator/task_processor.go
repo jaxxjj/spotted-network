@@ -295,6 +295,7 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			tp.logger.Printf("[Response] Failed to get next response message: %v", err)
 			continue
 		}
+		tp.logger.Printf("[Response] Received new message from peer: %s", msg.ReceivedFrom.String())
 
 		// Parse protobuf message
 		var pbMsg pb.TaskResponseMessage
@@ -302,11 +303,17 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			tp.logger.Printf("[Response] Failed to unmarshal message: %v", err)
 			continue
 		}
+		tp.logger.Printf("[Response] Received task response for task %s from operator %s", pbMsg.TaskId, pbMsg.OperatorAddr)
 
-		// Skip messages from self (使用 operator address 和 signing key 判断)
-		if pbMsg.OperatorAddr == tp.signer.Address() && pbMsg.SigningKey == tp.signer.GetSigningKey() {
-			tp.logger.Printf("[Response] Skipping message from self (operator: %s, signing key: %s)", 
-				pbMsg.OperatorAddr, pbMsg.SigningKey)
+		// Skip messages from self (检查operator address)
+		if strings.EqualFold(pbMsg.OperatorAddr, tp.signer.Address()) {
+			tp.logger.Printf("[Response] Skipping message from self operator: %s", pbMsg.OperatorAddr)
+			continue
+		}
+
+		// Skip messages with our signing key
+		if strings.EqualFold(pbMsg.SigningKey, tp.signer.GetSigningKey()) {
+			tp.logger.Printf("[Response] Skipping message with self signing key: %s", pbMsg.SigningKey)
 			continue
 		}
 
@@ -316,6 +323,7 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			tp.logger.Printf("[Response] Failed to convert message: %v", err)
 			continue
 		}
+		tp.logger.Printf("[Response] Successfully converted task response for task %s", response.TaskID)
 
 		// Get operator weight
 		weight, err := tp.getOperatorWeight(response.OperatorAddr)
@@ -323,12 +331,14 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			tp.logger.Printf("[Response] Invalid operator %s: %v", response.OperatorAddr, err)
 			continue
 		}
+		tp.logger.Printf("[Response] Got operator weight for %s: %s", response.OperatorAddr, weight.String())
 
 		// Verify response
 		if err := tp.verifyResponse(response); err != nil {
 			tp.logger.Printf("[Response] Invalid response from %s: %v", response.OperatorAddr, err)
 			continue
 		}
+		tp.logger.Printf("[Response] Verified response signature from operator %s", response.OperatorAddr)
 
 		// Store response in local map
 		tp.responsesMutex.Lock()
@@ -337,6 +347,7 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		}
 		tp.responses[response.TaskID][response.OperatorAddr] = response
 		tp.responsesMutex.Unlock()
+		tp.logger.Printf("[Response] Stored response in memory for task %s from operator %s", response.TaskID, response.OperatorAddr)
 
 		// Store weight in local map
 		tp.weightsMutex.Lock()
@@ -345,20 +356,25 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		}
 		tp.taskWeights[response.TaskID][response.OperatorAddr] = weight
 		tp.weightsMutex.Unlock()
+		tp.logger.Printf("[Response] Stored weight in memory for task %s from operator %s", response.TaskID, response.OperatorAddr)
 
 		// Store in database
 		if err := tp.storeResponse(context.Background(), response); err != nil {
 			if !strings.Contains(err.Error(), "duplicate key value") {
 				tp.logger.Printf("[Response] Failed to store response: %v", err)
+			} else {
+				tp.logger.Printf("[Response] Response already exists in database for task %s from operator %s", response.TaskID, response.OperatorAddr)
 			}
 			continue
 		}
+		tp.logger.Printf("[Response] Successfully stored response in database for task %s from operator %s", response.TaskID, response.OperatorAddr)
 
 		// Check consensus
 		if err := tp.checkConsensus(response.TaskID); err != nil {
 			tp.logger.Printf("[Response] Failed to check consensus: %v", err)
 			continue
 		}
+		tp.logger.Printf("[Response] Completed consensus check for task %s", response.TaskID)
 	}
 }
 
@@ -411,7 +427,23 @@ func (tp *TaskProcessor) aggregateSignatures(sigs map[string][]byte) []byte {
 
 // checkConsensus checks if consensus has been reached for a task
 func (tp *TaskProcessor) checkConsensus(taskID string) error {
-	// Get responses and weights
+	tp.logger.Printf("[Consensus] Starting consensus check for task %s", taskID)
+
+	// Try to get task status, but it's normal if not found for non-creator operators
+	task, err := tp.taskQueries.GetTaskByID(context.Background(), taskID)
+	if err != nil {
+		if !strings.Contains(err.Error(), "no rows in result set") {
+			tp.logger.Printf("[Consensus] Error checking task %s: %v", taskID, err)
+		} else {
+			tp.logger.Printf("[Consensus] Task %s not found locally - this is normal for non-creator operators", taskID)
+		}
+		// Continue processing - we don't need the task record for consensus
+	} else if task.Status == "completed" || task.Status == "failed" {
+		tp.logger.Printf("[Consensus] Task %s is already in %s status, skipping consensus check", taskID, task.Status)
+		return nil
+	}
+	
+	// Get responses and weights from memory maps
 	tp.responsesMutex.RLock()
 	responses := tp.responses[taskID]
 	tp.responsesMutex.RUnlock()
@@ -420,15 +452,11 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	weights := tp.taskWeights[taskID]
 	tp.weightsMutex.RUnlock()
 
-	if len(responses) == 0 {
-		return nil
-	}
+	tp.logger.Printf("[Consensus] Found %d responses and %d weights for task %s", len(responses), len(weights), taskID)
 
-	// Get a sample response for task details
-	var sampleResp *types.TaskResponse
-	for _, resp := range responses {
-		sampleResp = resp
-		break
+	if len(responses) == 0 {
+		tp.logger.Printf("[Consensus] No responses found for task %s", taskID)
+		return nil
 	}
 
 	// Calculate total weight and collect signatures
@@ -438,6 +466,7 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	for addr, resp := range responses {
 		weight := weights[addr]
 		if weight == nil {
+			tp.logger.Printf("[Consensus] No weight found for operator %s", addr)
 			continue
 		}
 
@@ -446,11 +475,23 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 			"signature": hex.EncodeToString(resp.Signature),
 			"weight":   weight.String(),
 		}
+		tp.logger.Printf("[Consensus] Added weight %s from operator %s, total weight now: %s", weight.String(), addr, totalWeight.String())
 	}
 
 	// Check if threshold is reached
+	tp.logger.Printf("[Consensus] Checking if total weight %s reaches threshold %s", totalWeight.String(), tp.threshold.String())
 	if totalWeight.Cmp(tp.threshold) < 0 {
+		tp.logger.Printf("[Consensus] Threshold not reached for task %s (total weight: %s, threshold: %s)", taskID, totalWeight.String(), tp.threshold.String())
 		return nil
+	}
+
+	tp.logger.Printf("[Consensus] Threshold reached for task %s! Creating consensus response", taskID)
+
+	// Get a sample response for task details
+	var sampleResp *types.TaskResponse
+	for _, resp := range responses {
+		sampleResp = resp
+		break
 	}
 
 	// Convert operator signatures to JSONB
@@ -464,8 +505,14 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 		TaskID:              taskID,
 		Epoch:              int32(sampleResp.Epoch),
 		Status:             "completed",
+		Value:              types.NumericFromBigInt(sampleResp.Value),
+		BlockNumber:        types.NumericFromBigInt(sampleResp.BlockNumber),
+		ChainID:           int32(sampleResp.ChainID),
+		TargetAddress:     sampleResp.TargetAddress,
+		Key:               types.NumericFromBigInt(sampleResp.Key),
 		AggregatedSignatures: []byte{}, // TODO: Implement signature aggregation if needed
 		OperatorSignatures:  operatorSigsJSON,
+		TotalWeight:        types.NumericFromBigInt(totalWeight),
 		ConsensusReachedAt:  pgtype.Timestamp{Time: time.Now(), Valid: true},
 	}
 
@@ -473,9 +520,11 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	if err := tp.storeConsensus(context.Background(), consensus); err != nil {
 		return fmt.Errorf("failed to store consensus: %w", err)
 	}
+	tp.logger.Printf("[Consensus] Successfully stored consensus response for task %s", taskID)
 
 	// Clean up local maps
 	tp.cleanupTask(taskID)
+	tp.logger.Printf("[Consensus] Cleaned up local maps for task %s", taskID)
 
 	return nil
 }
@@ -507,50 +556,68 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			tp.responsesMutex.Lock()
-			for taskID := range tp.responses {
-				// Get task details to check status
-				task, err := tp.taskQueries.GetTaskByID(ctx, taskID)
-				if err != nil {
-					log.Printf("Failed to get task details: %v", err)
-					continue
-				}
+			// Get all tasks that might have timed out
+			tasks, err := tp.taskQueries.ListAllTasks(ctx)
+			if err != nil {
+				tp.logger.Printf("[Timeout] Failed to list tasks: %v", err)
+				continue
+			}
 
+			for _, task := range tasks {
 				// Different timeout durations based on status
 				var timeoutDuration time.Duration
 				if task.Status == "confirming" {
 					timeoutDuration = 15 * time.Minute
 				} else {
-					timeoutDuration = 15 * time.Second
+					timeoutDuration = 5 * time.Minute  // 增加到5分钟
 				}
 
 				// Check if task has timed out based on last update
 				if time.Since(task.UpdatedAt.Time) > timeoutDuration {
+					tp.logger.Printf("[Timeout] Task %s has timed out (status: %s)", task.TaskID, task.Status)
+					
 					// Create failed consensus response
 					consensusResp := consensus_responses.CreateConsensusResponseParams{
-						TaskID: taskID,
+						TaskID: task.TaskID,
 						Epoch:  task.Epoch,
 						Status: "failed",
+						Value:  task.Value,
+						BlockNumber: task.BlockNumber,
+						ChainID: task.ChainID,
+						TargetAddress: task.TargetAddress,
+						Key: task.Key,
+						AggregatedSignatures: []byte{},
+						OperatorSignatures: []byte("{}"),
+						TotalWeight: pgtype.Numeric{Int: big.NewInt(0), Valid: true},
+						ConsensusReachedAt: pgtype.Timestamp{Time: time.Now(), Valid: true},
 					}
 					
 					if _, err := tp.consensusDB.CreateConsensusResponse(ctx, consensusResp); err != nil {
-						log.Printf("Failed to store failed consensus: %v", err)
+						tp.logger.Printf("[Timeout] Failed to store failed consensus: %v", err)
 					}
 
 					// Update task status to failed
-					_, err = tp.taskQueries.UpdateTaskStatus(ctx, tasks.UpdateTaskStatusParams{
-						TaskID: taskID,
+					_, err = tp.taskQueries.UpdateTaskStatus(ctx, struct {
+						TaskID string `json:"task_id"`
+						Status string `json:"status"`
+					}{
+						TaskID: task.TaskID,
 						Status: "failed",
 					})
 					if err != nil {
-						log.Printf("Failed to update task status to failed: %v", err)
+						tp.logger.Printf("[Timeout] Failed to update task status to failed: %v", err)
 					}
 
-					// Clean up memory
-					delete(tp.responses, taskID)
+					// Clean up memory if exists
+					tp.responsesMutex.Lock()
+					delete(tp.responses, task.TaskID)
+					tp.responsesMutex.Unlock()
+
+					tp.weightsMutex.Lock()
+					delete(tp.taskWeights, task.TaskID)
+					tp.weightsMutex.Unlock()
 				}
 			}
-			tp.responsesMutex.Unlock()
 		}
 	}
 }

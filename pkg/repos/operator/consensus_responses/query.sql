@@ -3,11 +3,17 @@ INSERT INTO consensus_responses (
     task_id,
     epoch,
     status,
+    value,
+    block_number,
+    chain_id,
+    target_address,
+    key,
     aggregated_signatures,
     operator_signatures,
+    total_weight,
     consensus_reached_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 ) RETURNING *;
 
 -- name: GetConsensusResponse :one

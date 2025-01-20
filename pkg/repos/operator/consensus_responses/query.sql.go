@@ -16,11 +16,17 @@ INSERT INTO consensus_responses (
     task_id,
     epoch,
     status,
+    value,
+    block_number,
+    chain_id,
+    target_address,
+    key,
     aggregated_signatures,
     operator_signatures,
+    total_weight,
     consensus_reached_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 ) RETURNING id, task_id, epoch, status, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at
 `
 
@@ -28,8 +34,14 @@ type CreateConsensusResponseParams struct {
 	TaskID               string           `json:"task_id"`
 	Epoch                int32            `json:"epoch"`
 	Status               string           `json:"status"`
+	Value                pgtype.Numeric   `json:"value"`
+	BlockNumber          pgtype.Numeric   `json:"block_number"`
+	ChainID              int32            `json:"chain_id"`
+	TargetAddress        string           `json:"target_address"`
+	Key                  pgtype.Numeric   `json:"key"`
 	AggregatedSignatures []byte           `json:"aggregated_signatures"`
 	OperatorSignatures   []byte           `json:"operator_signatures"`
+	TotalWeight          pgtype.Numeric   `json:"total_weight"`
 	ConsensusReachedAt   pgtype.Timestamp `json:"consensus_reached_at"`
 }
 
@@ -38,8 +50,14 @@ func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsens
 		arg.TaskID,
 		arg.Epoch,
 		arg.Status,
+		arg.Value,
+		arg.BlockNumber,
+		arg.ChainID,
+		arg.TargetAddress,
+		arg.Key,
 		arg.AggregatedSignatures,
 		arg.OperatorSignatures,
+		arg.TotalWeight,
 		arg.ConsensusReachedAt,
 	)
 	var i ConsensusResponse
