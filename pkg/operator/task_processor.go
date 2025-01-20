@@ -223,6 +223,19 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	tp.responses[task.ID][tp.signer.Address()] = response
 	tp.responsesMutex.Unlock()
 
+	// Get and store our own weight
+	weight, err := tp.getOperatorWeight(tp.signer.Address())
+	if err != nil {
+		return fmt.Errorf("failed to get own weight: %w", err)
+	}
+	tp.weightsMutex.Lock()
+	if _, exists := tp.taskWeights[task.ID]; !exists {
+		tp.taskWeights[task.ID] = make(map[string]*big.Int)
+	}
+	tp.taskWeights[task.ID][tp.signer.Address()] = weight
+	tp.weightsMutex.Unlock()
+	tp.logger.Printf("[ProcessTask] Stored own weight %s for task %s", weight.String(), task.ID)
+
 	// Broadcast response
 	if err := tp.broadcastResponse(response); err != nil {
 		return fmt.Errorf("failed to broadcast response: %w", err)
@@ -304,6 +317,15 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			continue
 		}
 		tp.logger.Printf("[Response] Received task response for task %s from operator %s", pbMsg.TaskId, pbMsg.OperatorAddr)
+
+		// Check if consensus already exists for this task
+		_, err = tp.consensusDB.GetConsensusResponse(context.Background(), pbMsg.TaskId)
+		if err == nil {
+			// Consensus already exists, skip this response
+			tp.logger.Printf("[Response] Consensus already exists for task %s, skipping response from %s", 
+				pbMsg.TaskId, pbMsg.OperatorAddr)
+			continue
+		}
 
 		// Skip messages from self (检查operator address)
 		if strings.EqualFold(pbMsg.OperatorAddr, tp.signer.Address()) {
