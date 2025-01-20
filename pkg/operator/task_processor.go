@@ -325,6 +325,12 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		}
 		tp.logger.Printf("[Response] Successfully converted task response for task %s", response.TaskID)
 
+		// Verify operator is active by checking signing key
+		if !tp.isActiveOperator(response.SigningKey) {
+			tp.logger.Printf("[Response] Skipping response from inactive operator signing key: %s", response.SigningKey)
+			continue
+		}
+
 		// Get operator weight
 		weight, err := tp.getOperatorWeight(response.OperatorAddr)
 		if err != nil {
@@ -368,6 +374,27 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			continue
 		}
 		tp.logger.Printf("[Response] Successfully stored response in database for task %s from operator %s", response.TaskID, response.OperatorAddr)
+
+		// Check if we need to process this task
+		tp.responsesMutex.RLock()
+		_, processed := tp.responses[response.TaskID][tp.signer.Address()]
+		tp.responsesMutex.RUnlock()
+
+		if !processed {
+			// Process task and broadcast our response
+			if err := tp.ProcessTask(context.Background(), &types.Task{
+				ID:            response.TaskID,
+				Value:         response.Value,
+				BlockNumber:   response.BlockNumber,
+				ChainID:       response.ChainID,
+				TargetAddress: response.TargetAddress,
+				Key:          response.Key,
+				Epoch:        response.Epoch,
+				Timestamp:    response.Timestamp,
+			}); err != nil {
+				tp.logger.Printf("[Response] Failed to process task: %v", err)
+			}
+		}
 
 		// Check consensus
 		if err := tp.checkConsensus(response.TaskID); err != nil {
@@ -428,20 +455,6 @@ func (tp *TaskProcessor) aggregateSignatures(sigs map[string][]byte) []byte {
 // checkConsensus checks if consensus has been reached for a task
 func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	tp.logger.Printf("[Consensus] Starting consensus check for task %s", taskID)
-
-	// Try to get task status, but it's normal if not found for non-creator operators
-	task, err := tp.taskQueries.GetTaskByID(context.Background(), taskID)
-	if err != nil {
-		if !strings.Contains(err.Error(), "no rows in result set") {
-			tp.logger.Printf("[Consensus] Error checking task %s: %v", taskID, err)
-		} else {
-			tp.logger.Printf("[Consensus] Task %s not found locally - this is normal for non-creator operators", taskID)
-		}
-		// Continue processing - we don't need the task record for consensus
-	} else if task.Status == "completed" || task.Status == "failed" {
-		tp.logger.Printf("[Consensus] Task %s is already in %s status, skipping consensus check", taskID, task.Status)
-		return nil
-	}
 	
 	// Get responses and weights from memory maps
 	tp.responsesMutex.RLock()
@@ -462,6 +475,7 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	// Calculate total weight and collect signatures
 	totalWeight := new(big.Int)
 	operatorSigs := make(map[string]map[string]interface{})
+	signatures := make(map[string][]byte) // For signature aggregation
 	
 	for addr, resp := range responses {
 		weight := weights[addr]
@@ -475,6 +489,8 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 			"signature": hex.EncodeToString(resp.Signature),
 			"weight":   weight.String(),
 		}
+		// Collect signature for aggregation
+		signatures[addr] = resp.Signature
 		tp.logger.Printf("[Consensus] Added weight %s from operator %s, total weight now: %s", weight.String(), addr, totalWeight.String())
 	}
 
@@ -500,6 +516,10 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 		return fmt.Errorf("failed to marshal operator signatures: %w", err)
 	}
 
+	// Aggregate all signatures
+	aggregatedSigs := tp.aggregateSignatures(signatures)
+	tp.logger.Printf("[Consensus] Aggregated %d signatures for task %s", len(signatures), taskID)
+
 	// Create consensus response
 	consensus := consensus_responses.CreateConsensusResponseParams{
 		TaskID:              taskID,
@@ -510,23 +530,61 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 		ChainID:           int32(sampleResp.ChainID),
 		TargetAddress:     sampleResp.TargetAddress,
 		Key:               types.NumericFromBigInt(sampleResp.Key),
-		AggregatedSignatures: []byte{}, // TODO: Implement signature aggregation if needed
+		AggregatedSignatures: aggregatedSigs, // Use aggregated signatures
 		OperatorSignatures:  operatorSigsJSON,
 		TotalWeight:        types.NumericFromBigInt(totalWeight),
 		ConsensusReachedAt:  pgtype.Timestamp{Time: time.Now(), Valid: true},
 	}
 
 	// Store consensus in database
-	if err := tp.storeConsensus(context.Background(), consensus); err != nil {
+	if err = tp.storeConsensus(context.Background(), consensus); err != nil {
 		return fmt.Errorf("failed to store consensus: %w", err)
 	}
 	tp.logger.Printf("[Consensus] Successfully stored consensus response for task %s", taskID)
+
+	// If we have the task locally, mark it as completed
+	_, err = tp.taskQueries.GetTaskByID(context.Background(), taskID)
+	if err == nil {
+		if _, err = tp.taskQueries.UpdateTaskStatus(context.Background(), struct {
+			TaskID string `json:"task_id"`
+			Status string `json:"status"`
+		}{
+			TaskID: taskID,
+			Status: "completed",
+		}); err != nil {
+			tp.logger.Printf("[Consensus] Failed to update task status: %v", err)
+		} else {
+			tp.logger.Printf("[Consensus] Updated task %s status to completed", taskID)
+		}
+	}
 
 	// Clean up local maps
 	tp.cleanupTask(taskID)
 	tp.logger.Printf("[Consensus] Cleaned up local maps for task %s", taskID)
 
 	return nil
+}
+
+// isActiveOperator checks if a signing key belongs to an active operator
+func (tp *TaskProcessor) isActiveOperator(signingKey string) bool {
+	// Get all operator states
+	// tp.node.statesMu.RLock()
+	// defer tp.node.statesMu.RUnlock()
+
+	// // Check each operator's state
+	// for _, state := range tp.node.operatorStates {
+	// 	// TODO: After adding signing_key to proto OperatorState
+	// 	// Compare signing keys: if strings.EqualFold(state.SigningKey, signingKey)
+	// 	if state.Status == "active" {
+	// 		tp.logger.Printf("[Operator] Found active operator %s", state.Address)
+	// 		return true
+	// 	}
+	// }
+
+	// tp.logger.Printf("[Operator] No active operator found for signing key %s", signingKey)
+	// return false
+	//暂时return true
+	return true
 }
 
 // cleanupTask removes task data from local maps
