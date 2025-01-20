@@ -740,97 +740,63 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 				}
 				tp.logger.Printf("[Confirmation] Latest block: %d", latestBlock)
 
-				// Use LastCheckedBlock directly since it's already pgtype.Numeric
-				if !task.LastCheckedBlock.Valid {
-					tp.logger.Printf("[Confirmation] Last checked block is not valid")
+				// Get target block number
+				if !task.BlockNumber.Valid || task.BlockNumber.Int == nil {
+					tp.logger.Printf("[Confirmation] Invalid block number for task %s", task.TaskID)
 					continue
 				}
-
-				// Calculate new confirmations
-				var targetBlock uint64
-				if err := task.BlockNumber.Scan(&targetBlock); err != nil {
-					tp.logger.Printf("[Confirmation] Failed to scan target block: %v", err)
-					continue
-				}
+				targetBlock := task.BlockNumber.Int.Uint64()
 				tp.logger.Printf("[Confirmation] Target block: %d", targetBlock)
 
-				newConfirmations := int32(latestBlock - targetBlock)
-				if newConfirmations < 0 {
-					newConfirmations = 0
-				}
-				tp.logger.Printf("[Confirmation] New confirmations: %d", newConfirmations)
-
-				// Convert current confirmations to int32
-				var currentConfirmations pgtype.Int4
-				if err := task.CurrentConfirmations.Scan(&currentConfirmations); err != nil {
-					tp.logger.Printf("[Confirmation] Failed to scan current confirmations: %v", err)
+				// Get required confirmations
+				if !task.RequiredConfirmations.Valid {
+					tp.logger.Printf("[Confirmation] Invalid required confirmations for task %s", task.TaskID)
 					continue
 				}
+				requiredConfirmations := task.RequiredConfirmations.Int32
+				tp.logger.Printf("[Confirmation] Required confirmations: %d", requiredConfirmations)
 
-				var currentValue int32
-				if err := currentConfirmations.Scan(&currentValue); err != nil {
-					tp.logger.Printf("[Confirmation] Failed to scan current confirmations value: %v", err)
-					continue
-				}
-				tp.logger.Printf("[Confirmation] Current confirmations: %d", currentValue)
-
-				// Update task confirmations
-				if newConfirmations > currentValue {
-					tp.logger.Printf("[Confirmation] Updating confirmations for task %s from %d to %d", task.TaskID, currentValue, newConfirmations)
+				// Check if we have enough confirmations
+				if latestBlock >= targetBlock + uint64(requiredConfirmations) {
+					tp.logger.Printf("[Confirmation] Task %s has reached required confirmations (latest: %d >= target: %d + required: %d), changing status to pending", 
+						task.TaskID, latestBlock, targetBlock, requiredConfirmations)
 					
-					// Create numeric type for last checked block
+					// Change task status to pending
+					err = tp.taskQueries.UpdateTaskToPending(ctx, task.TaskID)
+					if err != nil {
+						tp.logger.Printf("[Confirmation] Failed to update task status to pending: %v", err)
+						continue
+					}
+					tp.logger.Printf("[Confirmation] Successfully changed task %s status to pending", task.TaskID)
+
+					// Process task immediately
+					if err := tp.ProcessPendingTask(ctx, &task); err != nil {
+						tp.logger.Printf("[Confirmation] Failed to process task immediately: %v", err)
+						continue
+					}
+					tp.logger.Printf("[Confirmation] Successfully processed task %s immediately", task.TaskID)
+				} else {
+					// Update last checked block
 					lastCheckedBlockNumeric := pgtype.Numeric{
 						Int:   new(big.Int).SetUint64(latestBlock),
 						Valid: true,
 					}
 
-					var newConfirmationsNumeric pgtype.Int4
-					if err := newConfirmationsNumeric.Scan(newConfirmations); err != nil {
-						tp.logger.Printf("[Confirmation] Failed to scan new confirmations: %v", err)
-						continue
-					}
-
-					// Update task confirmations directly using struct literal
 					err = tp.taskQueries.UpdateTaskConfirmations(ctx, struct {
 						CurrentConfirmations pgtype.Int4    `json:"current_confirmations"`
 						LastCheckedBlock     pgtype.Numeric `json:"last_checked_block"`
 						TaskID               string         `json:"task_id"`
 					}{
 						TaskID:               task.TaskID,
-						CurrentConfirmations: pgtype.Int4{Int32: newConfirmations, Valid: true},
+						CurrentConfirmations: pgtype.Int4{Int32: int32(latestBlock - targetBlock), Valid: true},
 						LastCheckedBlock:     lastCheckedBlockNumeric,
 					})
 					if err != nil {
 						tp.logger.Printf("[Confirmation] Failed to update task confirmations: %v", err)
 						continue
 					}
-					tp.logger.Printf("[Confirmation] Successfully updated confirmations for task %s", task.TaskID)
-
-					var requiredConfirmations int32
-					if err := task.RequiredConfirmations.Scan(&requiredConfirmations); err != nil {
-						tp.logger.Printf("[Confirmation] Failed to scan required confirmations: %v", err)
-						continue
-					}
-					tp.logger.Printf("[Confirmation] Required confirmations: %d", requiredConfirmations)
-
-					if newConfirmations >= requiredConfirmations {
-						tp.logger.Printf("[Confirmation] Task %s has reached required confirmations (%d >= %d), changing status to pending", task.TaskID, newConfirmations, requiredConfirmations)
-						
-						// Change task status to pending
-						err = tp.taskQueries.UpdateTaskToPending(ctx, task.TaskID)
-						if err != nil {
-							tp.logger.Printf("[Confirmation] Failed to update task status to pending: %v", err)
-							continue
-						}
-						tp.logger.Printf("[Confirmation] Successfully changed task %s status to pending", task.TaskID)
-
-						// Process task immediately
-						if err := tp.ProcessPendingTask(ctx, &task); err != nil {
-							tp.logger.Printf("[Confirmation] Failed to process task immediately: %v", err)
-							continue
-						}
-						tp.logger.Printf("[Confirmation] Successfully processed task %s immediately", task.TaskID)
-					}
+					tp.logger.Printf("[Confirmation] Task %s needs more confirmations (latest: %d, target: %d, required: %d)", 
+						task.TaskID, latestBlock, targetBlock, requiredConfirmations)
 				}
 			}
 		}
