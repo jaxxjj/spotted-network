@@ -1,4 +1,4 @@
-.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task
 
 # Generate operator keys
 generate-keys:
@@ -106,4 +106,8 @@ stop:
 	@echo "Stopping all nodes..."
 	@pkill -f "./registry" || true
 	@pkill -f "./operator" || true
-	@echo "All nodes stopped" 
+	@echo "All nodes stopped"
+
+# Get final task
+get-final-task:
+	@curl -X GET "http://localhost:8001/api/v1/task/827c41edd51a9ad4da0ce4218eb42c7f62c09563d74123214493a069655934fb/final" 
