@@ -3,7 +3,7 @@
 //   sqlc v1.27.0
 // source: query.sql
 
-package registry
+package operators
 
 import (
 	"context"
@@ -21,15 +21,15 @@ INSERT INTO operators (
     status,
     weight
 ) VALUES ($1, $2, $3, $4, $5, 'waitingJoin', $6)
-RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, missing, successful_response_count, created_at, updated_at
+RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at
 `
 
 type CreateOperatorParams struct {
 	Address                 string         `json:"address"`
 	SigningKey              string         `json:"signing_key"`
-	RegisteredAtBlockNumber pgtype.Numeric `json:"registered_at_block_number"`
-	RegisteredAtTimestamp   pgtype.Numeric `json:"registered_at_timestamp"`
-	ActiveEpoch             int32          `json:"active_epoch"`
+	RegisteredAtBlockNumber uint64         `json:"registered_at_block_number"`
+	RegisteredAtTimestamp   uint64         `json:"registered_at_timestamp"`
+	ActiveEpoch             uint32         `json:"active_epoch"`
 	Weight                  pgtype.Numeric `json:"weight"`
 }
 
@@ -53,8 +53,6 @@ func (q *Queries) CreateOperator(ctx context.Context, arg CreateOperatorParams) 
 		&i.ExitEpoch,
 		&i.Status,
 		&i.Weight,
-		&i.Missing,
-		&i.SuccessfulResponseCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -62,7 +60,7 @@ func (q *Queries) CreateOperator(ctx context.Context, arg CreateOperatorParams) 
 }
 
 const getOperatorByAddress = `-- name: GetOperatorByAddress :one
-SELECT address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, missing, successful_response_count, created_at, updated_at FROM operators
+SELECT address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at FROM operators
 WHERE address = $1
 `
 
@@ -79,8 +77,6 @@ func (q *Queries) GetOperatorByAddress(ctx context.Context, address string) (Ope
 		&i.ExitEpoch,
 		&i.Status,
 		&i.Weight,
-		&i.Missing,
-		&i.SuccessfulResponseCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -88,7 +84,7 @@ func (q *Queries) GetOperatorByAddress(ctx context.Context, address string) (Ope
 }
 
 const listAllOperators = `-- name: ListAllOperators :many
-SELECT address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, missing, successful_response_count, created_at, updated_at FROM operators
+SELECT address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at FROM operators
 ORDER BY created_at DESC
 `
 
@@ -111,8 +107,6 @@ func (q *Queries) ListAllOperators(ctx context.Context) ([]Operators, error) {
 			&i.ExitEpoch,
 			&i.Status,
 			&i.Weight,
-			&i.Missing,
-			&i.SuccessfulResponseCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -127,7 +121,7 @@ func (q *Queries) ListAllOperators(ctx context.Context) ([]Operators, error) {
 }
 
 const listOperatorsByStatus = `-- name: ListOperatorsByStatus :many
-SELECT address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, missing, successful_response_count, created_at, updated_at FROM operators
+SELECT address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at FROM operators
 WHERE status = $1
 ORDER BY created_at DESC
 `
@@ -151,8 +145,6 @@ func (q *Queries) ListOperatorsByStatus(ctx context.Context, status string) ([]O
 			&i.ExitEpoch,
 			&i.Status,
 			&i.Weight,
-			&i.Missing,
-			&i.SuccessfulResponseCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -166,12 +158,46 @@ func (q *Queries) ListOperatorsByStatus(ctx context.Context, status string) ([]O
 	return items, nil
 }
 
+const updateOperatorState = `-- name: UpdateOperatorState :one
+UPDATE operators
+SET status = $2,
+    weight = $3,
+    updated_at = NOW()
+WHERE address = $1
+RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at
+`
+
+type UpdateOperatorStateParams struct {
+	Address string         `json:"address"`
+	Status  string         `json:"status"`
+	Weight  pgtype.Numeric `json:"weight"`
+}
+
+// Update operator status and weight
+func (q *Queries) UpdateOperatorState(ctx context.Context, arg UpdateOperatorStateParams) (Operators, error) {
+	row := q.db.QueryRow(ctx, updateOperatorState, arg.Address, arg.Status, arg.Weight)
+	var i Operators
+	err := row.Scan(
+		&i.Address,
+		&i.SigningKey,
+		&i.RegisteredAtBlockNumber,
+		&i.RegisteredAtTimestamp,
+		&i.ActiveEpoch,
+		&i.ExitEpoch,
+		&i.Status,
+		&i.Weight,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateOperatorStatus = `-- name: UpdateOperatorStatus :one
 UPDATE operators
 SET status = $2,
     updated_at = NOW()
 WHERE address = $1
-RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, missing, successful_response_count, created_at, updated_at
+RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at
 `
 
 type UpdateOperatorStatusParams struct {
@@ -192,8 +218,6 @@ func (q *Queries) UpdateOperatorStatus(ctx context.Context, arg UpdateOperatorSt
 		&i.ExitEpoch,
 		&i.Status,
 		&i.Weight,
-		&i.Missing,
-		&i.SuccessfulResponseCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

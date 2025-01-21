@@ -145,7 +145,7 @@ func main() {
 		log.Fatal("Failed to create node:", err)
 	}
 
-	if err := n.Start(); err != nil {
+	if err := n.Start(context.Background()); err != nil {
 		log.Fatal("Failed to start node:", err)
 	}
 

@@ -14,7 +14,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/p2p"
 	registrynode "github.com/galxe/spotted-network/pkg/registry"
-	"github.com/galxe/spotted-network/pkg/repos/registry"
+	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -127,7 +127,7 @@ func main() {
 	defer dbConn.Close()
 
 	// Create database queries
-	queries := registry.New(dbConn)
+	queries := operators.New(dbConn)
 
 	// Load chain configuration
 	chainConfig := &config.Config{

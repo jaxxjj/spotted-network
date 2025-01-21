@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v1.27.0
 
-package registry
+package operators
 
 import (
 	"context"
@@ -17,6 +17,8 @@ type Querier interface {
 	ListAllOperators(ctx context.Context) ([]Operators, error)
 	// Get all operators with a specific status
 	ListOperatorsByStatus(ctx context.Context, status string) ([]Operators, error)
+	// Update operator status and weight
+	UpdateOperatorState(ctx context.Context, arg UpdateOperatorStateParams) (Operators, error)
 	// Update operator status
 	UpdateOperatorStatus(ctx context.Context, arg UpdateOperatorStatusParams) (Operators, error)
 	// Verify operator status and signing key for join request

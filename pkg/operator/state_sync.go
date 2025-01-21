@@ -5,11 +5,20 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"strings"
+	"time"
 
+	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
 	pb "github.com/galxe/spotted-network/proto"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/network"
 	"google.golang.org/protobuf/proto"
+)
+
+const (
+	GenesisBlock = 0
+	EpochPeriod  = 12
 )
 
 func (node *Node) subscribeToStateUpdates() error {
@@ -278,4 +287,105 @@ func (node *Node) GetOperatorCount() int {
 	node.statesMu.RLock()
 	defer node.statesMu.RUnlock()
 	return len(node.operatorStates)
+}
+
+func (n *Node) calculateEpochNumber(blockNumber uint64) uint32 {
+	return uint32((blockNumber - GenesisBlock) / EpochPeriod)
+}
+
+func (n *Node) updateEpochState(ctx context.Context, blockNumber uint64) error {
+	epochNumber := n.calculateEpochNumber(blockNumber)
+	
+	// Get mainnet client
+	mainnetClient := n.chainClient.GetMainnetClient()
+	
+	// Get epoch state from contract
+	minimumStake, err := mainnetClient.GetMinimumStake(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get minimum stake: %w", err)
+	}
+	
+	totalWeight, err := mainnetClient.GetTotalWeight(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get total stake: %w", err)
+	}
+	
+	thresholdStake, err := mainnetClient.GetThresholdStake(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get threshold stake: %w", err)
+	}
+
+	// Update epoch state in database
+	now := time.Now()
+	epochNum := uint32(epochNumber)
+	
+	updatedAt := pgtype.Timestamptz{}
+	updatedAt.Scan(now)
+	
+	_, err = n.epochStates.UpsertEpochState(ctx, epoch_states.UpsertEpochStateParams{
+		EpochNumber: epochNum,
+		BlockNumber: pgtype.Numeric{
+			Int:    big.NewInt(int64(blockNumber)),
+			Valid:  true,
+			Exp:    0,
+		},
+		MinimumWeight: pgtype.Numeric{
+			Int:    minimumStake,
+			Valid:  true,
+			Exp:    0,
+		},
+		TotalWeight: pgtype.Numeric{
+			Int:    totalWeight,
+			Valid:  true,
+			Exp:    0,
+		},
+		ThresholdWeight: pgtype.Numeric{
+			Int:    thresholdStake,
+			Valid:  true,
+			Exp:    0,
+		},
+		UpdatedAt: updatedAt,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update epoch state: %w", err)
+	}
+
+	log.Printf("[Epoch] Updated epoch %d state at block %d (minimum stake: %s, total weight: %s, threshold stake: %s)", 
+		epochNumber, blockNumber, minimumStake.String(), totalWeight.String(), thresholdStake.String())
+	return nil
+}
+
+func (n *Node) monitorEpochUpdates(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	var lastProcessedEpoch uint32
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Get latest block number
+			mainnetClient := n.chainClient.GetMainnetClient()
+			blockNumber, err := mainnetClient.GetLatestBlockNumber(ctx)
+			if err != nil {
+				log.Printf("[Epoch] Failed to get latest block number: %v", err)
+				continue
+			}
+
+			// Calculate current epoch
+			currentEpoch := n.calculateEpochNumber(blockNumber)
+
+			// If we're in a new epoch, update the state
+			if currentEpoch > lastProcessedEpoch {
+				epochStartBlock := uint64(currentEpoch * EpochPeriod)
+				if err := n.updateEpochState(ctx, epochStartBlock); err != nil {
+					log.Printf("[Epoch] Failed to update epoch state: %v", err)
+					continue
+				}
+				lastProcessedEpoch = currentEpoch
+			}
+		}
+	}
 } 

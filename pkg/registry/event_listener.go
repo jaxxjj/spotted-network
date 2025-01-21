@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"strconv"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/galxe/spotted-network/pkg/common/contracts"
 	eth "github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	"github.com/galxe/spotted-network/pkg/repos/registry"
+	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -31,11 +32,11 @@ func getStartBlock() uint64 {
 }
 
 type EventListener struct {
-	chainClients *eth.ChainClients  // Chain clients manager
-	db          *registry.Queries   // Database queries
+	chainClients *eth.ChainClients     // Chain clients manager
+	db          *operators.Queries     // Database queries
 }
 
-func NewEventListener(chainClients *eth.ChainClients, db *registry.Queries) *EventListener {
+func NewEventListener(chainClients *eth.ChainClients, db *operators.Queries) *EventListener {
 	log.Printf("Creating new EventListener instance")
 	return &EventListener{
 		chainClients: chainClients,
@@ -119,36 +120,18 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *co
 	}
 	log.Printf("Got active epoch: %d", activeEpoch)
 
-	// Create numeric values for database
-	blockNumber := pgtype.Numeric{}
-	if err := blockNumber.Scan(event.BlockNumber.String()); err != nil {
-		log.Printf("Failed to convert block number: %v", err)
-		return fmt.Errorf("failed to convert block number: %w", err)
-	}
-	log.Printf("Converted block number to numeric: %s", event.BlockNumber.String())
-
-	timestamp := pgtype.Numeric{}
-	if err := timestamp.Scan(event.Timestamp.String()); err != nil {
-		log.Printf("Failed to convert timestamp: %v", err)
-		return fmt.Errorf("failed to convert timestamp: %w", err)
-	}
-	log.Printf("Converted timestamp to numeric: %s", event.Timestamp.String())
-
-	weight := pgtype.Numeric{}
-	if err := weight.Scan("0"); err != nil {
-		log.Printf("Failed to convert weight: %v", err)
-		return fmt.Errorf("failed to convert weight: %w", err)
-	}
-	log.Printf("Set initial weight to 0")
-
 	// Create operator record with waitingJoin status (status is set in SQL)
-	params := registry.CreateOperatorParams{
+	params := operators.CreateOperatorParams{
 		Address:                 event.Operator.Hex(),
 		SigningKey:             event.SigningKey.Hex(),
-		RegisteredAtBlockNumber: blockNumber,
-		RegisteredAtTimestamp:   timestamp,
-		ActiveEpoch:            int32(activeEpoch),
-		Weight:                 weight,
+		RegisteredAtBlockNumber: event.BlockNumber.Uint64(),
+		RegisteredAtTimestamp:   event.Timestamp.Uint64(),
+		ActiveEpoch:            uint32(activeEpoch),
+		Weight: pgtype.Numeric{
+			Int:    new(big.Int),  // Initialize with 0
+			Valid:  true,          // This is a valid (non-NULL) value
+			Exp:    0,             // No decimal places
+		},
 	}
 	log.Printf("Created operator params: %+v", params)
 

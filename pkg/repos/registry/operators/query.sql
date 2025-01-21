@@ -39,4 +39,13 @@ ORDER BY created_at DESC;
 -- name: ListAllOperators :many
 -- Get all operators regardless of status
 SELECT * FROM operators
-ORDER BY created_at DESC; 
+ORDER BY created_at DESC;
+
+-- name: UpdateOperatorState :one
+-- Update operator status and weight
+UPDATE operators
+SET status = $2,
+    weight = $3,
+    updated_at = NOW()
+WHERE address = $1
+RETURNING *; 

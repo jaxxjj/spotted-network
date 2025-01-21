@@ -9,7 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/p2p"
-	"github.com/galxe/spotted-network/pkg/repos/registry"
+	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"google.golang.org/protobuf/proto"
@@ -138,7 +138,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Update status to waitingActive
 	log.Printf("Updating status to waitingActive for operator %s", req.Address)
-	updatedOp, err := n.db.UpdateOperatorStatus(ctx, registry.UpdateOperatorStatusParams{
+	updatedOp, err := n.db.UpdateOperatorStatus(ctx, operators.UpdateOperatorStatusParams{
 		Address: req.Address,
 		Status:  string(OperatorStatusWaitingActive),
 	})
@@ -151,8 +151,8 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 	// Broadcast state update
 	log.Printf("Broadcasting state update for operator %s", req.Address)
 	var exitEpoch *int32
-	if updatedOp.ExitEpoch.Valid {
-		val := updatedOp.ExitEpoch.Int32
+	if updatedOp.ExitEpoch != 4294967295 { // Check if not default max value
+		val := int32(updatedOp.ExitEpoch)
 		exitEpoch = &val
 	}
 
@@ -160,14 +160,12 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 		{
 			Address:                 updatedOp.Address,
 			SigningKey:             updatedOp.SigningKey,
-			RegisteredAtBlockNumber: updatedOp.RegisteredAtBlockNumber.Int.Int64(),
-			RegisteredAtTimestamp:   updatedOp.RegisteredAtTimestamp.Int.Int64(),
+			RegisteredAtBlockNumber: int64(updatedOp.RegisteredAtBlockNumber),
+			RegisteredAtTimestamp:   int64(updatedOp.RegisteredAtTimestamp),
 			ActiveEpoch:            int32(updatedOp.ActiveEpoch),
 			ExitEpoch:              exitEpoch,
 			Status:                 updatedOp.Status,
 			Weight:                 updatedOp.Weight.Int.String(),
-			Missing:                int32(updatedOp.Missing.Int32),
-			SuccessfulResponseCount: int32(updatedOp.SuccessfulResponseCount.Int32),
 		},
 	}
 	n.BroadcastStateUpdate(stateUpdate, "DELTA")
@@ -270,8 +268,8 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 	protoOperators := make([]*pb.OperatorState, 0, len(operators))
 	for _, op := range operators {
 		var exitEpoch *int32
-		if op.ExitEpoch.Valid {
-			val := op.ExitEpoch.Int32
+		if op.ExitEpoch != 4294967295 { // Check if not default max value
+			val := int32(op.ExitEpoch)
 			exitEpoch = &val
 		}
 
@@ -282,14 +280,14 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 		protoOperators = append(protoOperators, &pb.OperatorState{
 			Address:                 op.Address,
 			SigningKey:             op.SigningKey,
-			RegisteredAtBlockNumber: op.RegisteredAtBlockNumber.Int.Int64(),
-			RegisteredAtTimestamp:   op.RegisteredAtTimestamp.Int.Int64(),
+			RegisteredAtBlockNumber: int64(op.RegisteredAtBlockNumber),
+			RegisteredAtTimestamp:   int64(op.RegisteredAtTimestamp),
 			ActiveEpoch:            int32(op.ActiveEpoch),
 			ExitEpoch:              exitEpoch,
 			Status:                 op.Status,
 			Weight:                 op.Weight.Int.String(),
-			Missing:                int32(op.Missing.Int32),
-			SuccessfulResponseCount: int32(op.SuccessfulResponseCount.Int32),
+			Missing:                0, // These fields are no longer in the table
+			SuccessfulResponseCount: 0, // These fields are no longer in the table
 		})
 		log.Printf("Added operator to response for peer %s - Address: %s, Status: %s", remotePeer, op.Address, op.Status)
 	}

@@ -2,10 +2,10 @@ package registry
 
 import (
 	"context"
-	stdsync "sync"
+	"sync"
 	"time"
 
-	"github.com/galxe/spotted-network/pkg/repos/registry"
+	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -16,14 +16,14 @@ import (
 // StateSyncService handles operator state synchronization
 type StateSyncService struct {
 	host host.Host
-	db   *registry.Queries
+	db   *operators.Queries
 	
 	// Subscribers for state updates
 	subscribers   map[peer.ID]chan *pb.OperatorStateUpdate
-	subscribersMu stdsync.RWMutex
+	subscribersMu sync.RWMutex
 }
 
-func NewStateSyncService(h host.Host, db *registry.Queries) *StateSyncService {
+func NewStateSyncService(h host.Host, db *operators.Queries) *StateSyncService {
 	return &StateSyncService{
 		host:        h,
 		db:          db,
@@ -140,27 +140,22 @@ func (s *StateSyncService) broadcastStateUpdates(ctx context.Context) {
 
 // Helper functions
 
-func convertToProtoOperator(op registry.Operators) *pb.OperatorState {
-	// Convert numeric types
-	var blockNum, timestamp int64
-	var weight string
-	
-	// Handle potential scan errors gracefully
-	_ = op.RegisteredAtBlockNumber.Scan(&blockNum)
-	_ = op.RegisteredAtTimestamp.Scan(&timestamp)
-	_ = op.Weight.Scan(&weight)
-	
+func convertToProtoOperator(op operators.Operators) *pb.OperatorState {
+	var exitEpoch *int32
+	if op.ExitEpoch != 4294967295 { // Check if not default max value
+		val := int32(op.ExitEpoch)
+		exitEpoch = &val
+	}
+
 	return &pb.OperatorState{
 		Address:                op.Address,
 		SigningKey:            op.SigningKey,
-		RegisteredAtBlockNumber: blockNum,
-		RegisteredAtTimestamp:   timestamp,
-		ActiveEpoch:           op.ActiveEpoch,
-		ExitEpoch:            &op.ExitEpoch.Int32,
+		RegisteredAtBlockNumber: int64(op.RegisteredAtBlockNumber),
+		RegisteredAtTimestamp:   int64(op.RegisteredAtTimestamp),
+		ActiveEpoch:           int32(op.ActiveEpoch),
+		ExitEpoch:            exitEpoch,
 		Status:               op.Status,
-		Weight:               weight,
-		Missing:              op.Missing.Int32,
-		SuccessfulResponseCount: op.SuccessfulResponseCount.Int32,
+		Weight:               op.Weight.Int.String(),
 	}
 }
 
@@ -180,4 +175,4 @@ func writeProtoMessage(stream network.Stream, msg proto.Message) error {
 	}
 	_, err = stream.Write(data)
 	return err
-} 
+}

@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v1.27.0
 
-package registry
+package epoch_states
 
 import (
 	"context"

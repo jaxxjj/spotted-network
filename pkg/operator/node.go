@@ -21,6 +21,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/operator/api"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pb "github.com/galxe/spotted-network/proto"
@@ -46,6 +47,7 @@ type Node struct {
 	taskQueries *tasks.Queries
 	responseQueries *task_responses.Queries
 	consensusQueries *consensus_responses.Queries
+	epochStates *epoch_states.Queries
 	
 	// Chain clients
 	chainClient *ethereum.ChainClients
@@ -106,6 +108,7 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 	taskQueries := tasks.New(db)
 	responseQueries := task_responses.New(db)
 	consensusQueries := consensus_responses.New(db)
+	epochStates := epoch_states.New(db)
 
 	// Create ping service
 	pingService := ping.NewPingService(host)
@@ -128,6 +131,7 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		consensusQueries: consensusQueries,
 		chainClient:   chainClients,
 		PubSub:        ps,
+		epochStates:   epochStates,
 	}
 
 	// Initialize task processor
@@ -152,7 +156,7 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 	return node, nil
 }
 
-func (n *Node) Start() error {
+func (n *Node) Start(ctx context.Context) error {
 	log.Printf("[Node] Starting operator node with ID: %s", n.host.ID())
 	log.Printf("[Node] Listening addresses: %v", n.host.Addrs())
 
@@ -227,6 +231,9 @@ func (n *Node) Start() error {
 	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
 	go n.healthCheck()
 	log.Printf("[Node] Message handler and health check started")
+
+	// Start epoch monitoring
+	go n.monitorEpochUpdates(ctx)
 
 	return nil
 }

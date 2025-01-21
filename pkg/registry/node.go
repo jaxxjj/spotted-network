@@ -7,14 +7,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/p2p"
-	"github.com/galxe/spotted-network/pkg/repos/registry"
+	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 )
 
@@ -29,7 +29,7 @@ type Node struct {
 	healthCheckInterval time.Duration
 
 	// Database connection
-	db *registry.Queries
+	db *operators.Queries
 
 	// Event listener
 	eventListener *EventListener
@@ -42,14 +42,7 @@ type Node struct {
 	subscribersMu sync.RWMutex
 }
 
-type OperatorInfo struct {
-	ID peer.ID
-	Addrs []multiaddr.Multiaddr
-	LastSeen time.Time
-	Status string
-}
-
-func NewNode(ctx context.Context, cfg *p2p.Config, db *registry.Queries, chainClients *ethereum.ChainClients) (*Node, error) {
+func NewNode(ctx context.Context, cfg *p2p.Config, db *operators.Queries, chainClients *ethereum.ChainClients) (*Node, error) {
 	host, err := p2p.NewHost(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -130,4 +123,137 @@ func (n *Node) GetOperatorInfo(id peer.ID) *OperatorInfo {
 	n.operatorsMu.RLock()
 	defer n.operatorsMu.RUnlock()
 	return n.operators[id]
+}
+
+func (n *Node) GetConnectedOperators() []peer.ID {
+	n.operatorsMu.RLock()
+	defer n.operatorsMu.RUnlock()
+
+	operators := make([]peer.ID, 0, len(n.operators))
+	for id := range n.operators {
+		operators = append(operators, id)
+	}
+	return operators
+}
+
+// GetHostID returns the node's libp2p host ID
+func (n *Node) GetHostID() string {
+	return n.host.ID().String()
+}
+
+func (n *Node) Start(ctx context.Context) error {
+	// Start epoch monitoring
+	go n.monitorEpochUpdates(ctx)
+
+	return nil
+}
+
+// GetOperatorByAddress gets operator info from database
+func (n *Node) GetOperatorByAddress(ctx context.Context, address string) (operators.Operators, error) {
+	return n.db.GetOperatorByAddress(ctx, address)
+}
+
+// UpdateOperatorStatus updates operator status in database
+func (n *Node) UpdateOperatorStatus(ctx context.Context, address string, status string) error {
+	_, err := n.db.UpdateOperatorStatus(ctx, operators.UpdateOperatorStatusParams{
+		Address: address,
+		Status:  status,
+	})
+	return err
+}
+
+func (n *Node) calculateEpochNumber(blockNumber uint64) uint32 {
+	return uint32((blockNumber - GenesisBlock) / EpochPeriod)
+}
+
+func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) error {
+	// Get all operators in waitingActive state
+	waitingActiveOps, err := n.db.ListOperatorsByStatus(ctx, "waitingActive")
+	if err != nil {
+		return fmt.Errorf("failed to get waiting active operators: %w", err)
+	}
+
+	// Process waiting active operators
+	for _, op := range waitingActiveOps {
+		if op.ActiveEpoch == currentEpoch {
+			// Get operator weight from contract
+			mainnetClient := n.chainClients.GetMainnetClient()
+			weight, err := mainnetClient.GetOperatorWeight(ctx, common.HexToAddress(op.Address))
+			if err != nil {
+				log.Printf("[Registry] Failed to get weight for operator %s: %v", op.Address, err)
+				continue
+			}
+
+			// Update operator state to active
+			_, err = n.db.UpdateOperatorStatus(ctx, operators.UpdateOperatorStatusParams{
+				Address: op.Address,
+				Status: "active",
+			})
+			if err != nil {
+				log.Printf("[Registry] Failed to update operator %s state: %v", op.Address, err)
+				continue
+			}
+
+			log.Printf("[Registry] Activated operator %s with weight %s", op.Address, weight.String())
+		}
+	}
+
+	// Get all operators in waitingExit state
+	waitingExitOps, err := n.db.ListOperatorsByStatus(ctx, "waitingExit")
+	if err != nil {
+		return fmt.Errorf("failed to get waiting exit operators: %w", err)
+	}
+
+	// Process waiting exit operators
+	for _, op := range waitingExitOps {
+		if op.ExitEpoch == currentEpoch {
+			// Update operator state to inactive
+			_, err = n.db.UpdateOperatorStatus(ctx, operators.UpdateOperatorStatusParams{
+				Address: op.Address,
+				Status: "inactive",
+			})
+			if err != nil {
+				log.Printf("[Registry] Failed to update operator %s state: %v", op.Address, err)
+				continue
+			}
+
+			log.Printf("[Registry] Deactivated operator %s", op.Address)
+		}
+	}
+
+	return nil
+}
+
+func (n *Node) monitorEpochUpdates(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	var lastProcessedEpoch uint32
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Get latest block number
+			mainnetClient := n.chainClients.GetMainnetClient()
+			blockNumber, err := mainnetClient.GetLatestBlockNumber(ctx)
+			if err != nil {
+				log.Printf("[Registry] Failed to get latest block number: %v", err)
+				continue
+			}
+
+			// Calculate current epoch
+			currentEpoch := n.calculateEpochNumber(blockNumber)
+
+			// If we're in a new epoch, update operator states
+			if currentEpoch > lastProcessedEpoch {
+				if err := n.updateOperatorStates(ctx, currentEpoch); err != nil {
+					log.Printf("[Registry] Failed to update operator states: %v", err)
+					continue
+				}
+				lastProcessedEpoch = currentEpoch
+			}
+		}
+	}
 }
