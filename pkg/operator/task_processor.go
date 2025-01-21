@@ -16,6 +16,7 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/galxe/spotted-network/pkg/common/contracts"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
@@ -745,8 +746,9 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 					tp.logger.Printf("[Confirmation] Invalid block number for task %s", task.TaskID)
 					continue
 				}
+				tp.logger.Printf("[Confirmation] Raw block number from task: %v", task.BlockNumber)
 				targetBlock := task.BlockNumber.Int.Uint64()
-				tp.logger.Printf("[Confirmation] Target block: %d", targetBlock)
+				tp.logger.Printf("[Confirmation] Target block: %d (from user request)", targetBlock)
 
 				// Get required confirmations
 				if !task.RequiredConfirmations.Valid {
@@ -757,9 +759,9 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 				tp.logger.Printf("[Confirmation] Required confirmations: %d", requiredConfirmations)
 
 				// Check if we have enough confirmations
-				if latestBlock >= targetBlock + uint64(requiredConfirmations) {
-					tp.logger.Printf("[Confirmation] Task %s has reached required confirmations (latest: %d >= target: %d + required: %d), changing status to pending", 
-						task.TaskID, latestBlock, targetBlock, requiredConfirmations)
+				if latestBlock >= targetBlock {
+					tp.logger.Printf("[Confirmation] Task %s has reached required confirmations (latest: %d >= target: %d), changing status to pending", 
+						task.TaskID, latestBlock, targetBlock)
 					
 					// Change task status to pending
 					err = tp.taskQueries.UpdateTaskToPending(ctx, task.TaskID)
@@ -795,8 +797,8 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 						tp.logger.Printf("[Confirmation] Failed to update task confirmations: %v", err)
 						continue
 					}
-					tp.logger.Printf("[Confirmation] Task %s needs more confirmations (latest: %d, target: %d, required: %d)", 
-						task.TaskID, latestBlock, targetBlock, requiredConfirmations)
+					tp.logger.Printf("[Confirmation] Task %s needs more confirmations (latest: %d, target: %d)", 
+						task.TaskID, latestBlock, targetBlock)
 				}
 			}
 		}
@@ -866,6 +868,50 @@ func (tp *TaskProcessor) checkP2PStatus() {
 	}
 }
 
+// getStateWithRetries attempts to get state with retries
+func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, stateClient contracts.StateClient, target common.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
+	maxRetries := 3
+	retryDelay := time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		// Get latest block for validation
+		latestBlock, err := stateClient.GetLatestBlockNumber(ctx)
+		if err != nil {
+			tp.logger.Printf("[StateCheck] Failed to get latest block: %v", err)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		// Validate block number
+		if blockNumber > latestBlock {
+			return nil, fmt.Errorf("block number %d is in the future (latest: %d)", blockNumber, latestBlock)
+		}
+
+		// Attempt to get state
+		state, err := stateClient.GetStateAtBlock(ctx, target, key, blockNumber)
+		if err != nil {
+			// Check for specific contract errors
+			if strings.Contains(err.Error(), "0x7c44ec9a") { // StateManager__BlockNotFound
+				return nil, fmt.Errorf("block %d not found in state history", blockNumber)
+			}
+			if strings.Contains(err.Error(), "StateManager__KeyNotFound") {
+				return nil, fmt.Errorf("key %s not found for address %s", key.String(), target.Hex())
+			}
+			if strings.Contains(err.Error(), "StateManager__NoHistoryFound") {
+				return nil, fmt.Errorf("no state history found for block %d and key %s", blockNumber, key.String())
+			}
+
+			tp.logger.Printf("[StateCheck] Attempt %d failed: %v", i+1, err)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		return state, nil
+	}
+
+	return nil, fmt.Errorf("failed to get state after %d retries", maxRetries)
+}
+
 // ProcessPendingTask processes a single pending task immediately
 func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Task) error {
 	tp.logger.Printf("[TaskProcessor] Processing pending task %s immediately", task.TaskID)
@@ -888,6 +934,7 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 	if _, ok := blockNum.SetString(blockNumNumeric.Int.String(), 10); !ok {
 		return fmt.Errorf("[TaskProcessor] failed to parse block number: %s", blockNumNumeric.Int.String())
 	}
+	tp.logger.Printf("[TaskProcessor] Using block number: %s", blockNum.String())
 
 	// Convert key to big.Int
 	if !task.Key.Valid {
@@ -900,16 +947,18 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 	if _, ok := keyBig.SetString(task.Key.Int.String(), 10); !ok {
 		return fmt.Errorf("[TaskProcessor] failed to parse key: %s", task.Key.Int.String())
 	}
+	tp.logger.Printf("[TaskProcessor] Using key: %s", keyBig.String())
 
-	// Get state at block
+	// Get state at block with retries
 	blockUint64 := blockNum.Uint64()
-	state, err := stateClient.GetStateAtBlock(ctx,
-		common.HexToAddress(task.TargetAddress),
-		keyBig,
-		blockUint64)
+	targetAddr := common.HexToAddress(task.TargetAddress)
+	tp.logger.Printf("[TaskProcessor] Getting state for address %s at block %d", targetAddr.Hex(), blockUint64)
+	
+	state, err := tp.getStateWithRetries(ctx, stateClient, targetAddr, keyBig, blockUint64)
 	if err != nil {
-		return fmt.Errorf("[TaskProcessor] failed to get state at block: %w", err)
+		return fmt.Errorf("[TaskProcessor] failed to get state: %w", err)
 	}
+	tp.logger.Printf("[TaskProcessor] Successfully retrieved state value: %s", state.String())
 
 	// Create types.Task
 	typesTask := &types.Task{

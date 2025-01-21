@@ -110,7 +110,7 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 	// Create ping service
 	pingService := ping.NewPingService(host)
 
-	// Create initial Node instance without taskProcessor
+	// Create the node instance first
 	node := &Node{
 		host:           host,
 		registryID:     addrInfo.ID,
@@ -135,11 +135,12 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task processor: %w", err)
 	}
-	log.Printf("[Node] Task processor initialized")
+	node.taskProcessor = taskProcessor
 
-	// Initialize API handler and server
+	// Initialize API handler and server with task processor
 	apiHandler := api.NewHandler(taskQueries, chainClients, consensusQueries, taskProcessor)
 	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
+	node.apiServer = apiServer
 	
 	// Start API server
 	go func() {
@@ -147,10 +148,6 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 			log.Printf("API server error: %v", err)
 		}
 	}()
-
-	// Set remaining fields
-	node.taskProcessor = taskProcessor
-	node.apiServer = apiServer
 
 	return node, nil
 }
