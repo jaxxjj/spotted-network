@@ -120,17 +120,34 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *co
 	}
 	log.Printf("Got active epoch: %d", activeEpoch)
 
+	blockNumber := event.BlockNumber.Uint64()
+	timestamp := event.Timestamp.Uint64()
+	log.Printf("Debug values - Block Number: %d (type: %T), Timestamp: %d (type: %T)", 
+		blockNumber, blockNumber, timestamp, timestamp)
+
 	// Create operator record with waitingJoin status (status is set in SQL)
 	params := operators.CreateOperatorParams{
-		Address:                 event.Operator.Hex(),
-		SigningKey:             event.SigningKey.Hex(),
-		RegisteredAtBlockNumber: event.BlockNumber.Uint64(),
-		RegisteredAtTimestamp:   event.Timestamp.Uint64(),
-		ActiveEpoch:            uint32(activeEpoch),
+		Address:     event.Operator.Hex(),
+		SigningKey:  event.SigningKey.Hex(),
+		RegisteredAtBlockNumber: pgtype.Numeric{
+			Int:    new(big.Int).SetUint64(blockNumber),
+			Exp:    0,
+			Valid:  true,
+		},
+		RegisteredAtTimestamp: pgtype.Numeric{
+			Int:    new(big.Int).SetUint64(timestamp),
+			Exp:    0,
+			Valid:  true,
+		},
+		ActiveEpoch: pgtype.Numeric{
+			Int:    new(big.Int).SetInt64(int64(activeEpoch)),
+			Exp:    0,
+			Valid:  true,
+		},
 		Weight: pgtype.Numeric{
-			Int:    new(big.Int),  // Initialize with 0
-			Valid:  true,          // This is a valid (non-NULL) value
-			Exp:    0,             // No decimal places
+			Int:    new(big.Int).SetInt64(0),
+			Exp:    0,
+			Valid:  true,
 		},
 	}
 	log.Printf("Created operator params: %+v", params)

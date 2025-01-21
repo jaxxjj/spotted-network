@@ -1,10 +1,10 @@
 CREATE TABLE IF NOT EXISTS operators (
     address TEXT PRIMARY KEY,
     signing_key TEXT NOT NULL,
-    registered_at_block_number BIGINT NOT NULL,
-    registered_at_timestamp BIGINT NOT NULL,
-    active_epoch INT4 NOT NULL,
-    exit_epoch INT4 NOT NULL DEFAULT 4294967295,
+    registered_at_block_number NUMERIC(78) NOT NULL,
+    registered_at_timestamp NUMERIC(78) NOT NULL,
+    active_epoch NUMERIC(78) NOT NULL,
+    exit_epoch NUMERIC(78) NOT NULL DEFAULT 4294967295,
     status TEXT NOT NULL CHECK (status IN ('waitingJoin', 'waitingActive', 'active', 'waitingExit', 'inactive', 'suspended')),
     weight NUMERIC(78),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -13,4 +13,4 @@ CREATE TABLE IF NOT EXISTS operators (
 
 -- Create indexes for frequently accessed fields
 CREATE INDEX idx_operators_status ON operators(status);
-CREATE INDEX idx_operators_active_epoch ON operators(active_epoch); 
+CREATE INDEX idx_operators_active_epoch ON operators(active_epoch);

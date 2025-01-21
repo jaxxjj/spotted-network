@@ -2,11 +2,14 @@ package registry
 
 import (
 	"context"
+	"log"
+	"math/big"
 	"sync"
 	"time"
 
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -24,6 +27,7 @@ type StateSyncService struct {
 }
 
 func NewStateSyncService(h host.Host, db *operators.Queries) *StateSyncService {
+	log.Printf("[StateSync] Initializing state sync service")
 	return &StateSyncService{
 		host:        h,
 		db:          db,
@@ -39,6 +43,7 @@ func (s *StateSyncService) Start(ctx context.Context) error {
 	// Start broadcasting state updates
 	go s.broadcastStateUpdates(ctx)
 	
+	log.Printf("[StateSync] Service started successfully")
 	return nil
 }
 
@@ -46,15 +51,20 @@ func (s *StateSyncService) Start(ctx context.Context) error {
 func (s *StateSyncService) handleStateSync(stream network.Stream) {
 	defer stream.Close()
 	
+	peer := stream.Conn().RemotePeer()
+	log.Printf("[StateSync] Received state sync request from peer %s", peer.String())
+	
 	// Read request
 	var req pb.GetFullStateRequest
 	if err := readProtoMessage(stream, &req); err != nil {
+		log.Printf("[StateSync] Failed to read request from peer %s: %v", peer.String(), err)
 		return
 	}
 	
 	// Get all operators from database
 	operators, err := s.db.ListOperatorsByStatus(context.Background(), "active")
 	if err != nil {
+		log.Printf("[StateSync] Failed to get operators from database: %v", err)
 		return
 	}
 	
@@ -68,8 +78,11 @@ func (s *StateSyncService) handleStateSync(stream network.Stream) {
 	
 	// Send response
 	if err := writeProtoMessage(stream, resp); err != nil {
+		log.Printf("[StateSync] Failed to send response to peer %s: %v", peer.String(), err)
 		return
 	}
+	
+	log.Printf("[StateSync] Successfully sent state response to peer %s with %d operators", peer.String(), len(operators))
 }
 
 // Subscribe adds a new subscriber for state updates
@@ -79,6 +92,7 @@ func (s *StateSyncService) Subscribe(peerID peer.ID) chan *pb.OperatorStateUpdat
 	
 	ch := make(chan *pb.OperatorStateUpdate, 100)
 	s.subscribers[peerID] = ch
+	log.Printf("[StateSync] Peer %s subscribed to state updates. Total subscribers: %d", peerID.String(), len(s.subscribers))
 	return ch
 }
 
@@ -90,6 +104,7 @@ func (s *StateSyncService) Unsubscribe(peerID peer.ID) {
 	if ch, ok := s.subscribers[peerID]; ok {
 		close(ch)
 		delete(s.subscribers, peerID)
+		log.Printf("[StateSync] Peer %s unsubscribed from state updates. Remaining subscribers: %d", peerID.String(), len(s.subscribers))
 	}
 }
 
@@ -98,13 +113,17 @@ func (s *StateSyncService) BroadcastUpdate(update *pb.OperatorStateUpdate) {
 	s.subscribersMu.RLock()
 	defer s.subscribersMu.RUnlock()
 	
-	for _, ch := range s.subscribers {
+	successCount := 0
+	for peerID, ch := range s.subscribers {
 		select {
 		case ch <- update:
+			successCount++
 		default:
-			// Skip if channel is full
+			log.Printf("[StateSync] Failed to send update to peer %s: channel full", peerID.String())
 		}
 	}
+	
+	log.Printf("[StateSync] Broadcasted state update type %s to %d/%d subscribers", update.Type, successCount, len(s.subscribers))
 }
 
 // broadcastStateUpdates periodically broadcasts full state
@@ -112,16 +131,22 @@ func (s *StateSyncService) broadcastStateUpdates(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	
+	log.Printf("[StateSync] Starting periodic state broadcast (interval: 5m)")
+	
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("[StateSync] Stopping periodic state broadcast")
 			return
 		case <-ticker.C:
 			// Get all operators
 			operators, err := s.db.ListOperatorsByStatus(ctx, "active")
 			if err != nil {
+				log.Printf("[StateSync] Failed to get operators for periodic broadcast: %v", err)
 				continue
 			}
+			
+			log.Printf("[StateSync] Preparing periodic state broadcast with %d operators", len(operators))
 			
 			// Create update message
 			update := &pb.OperatorStateUpdate{
@@ -142,17 +167,22 @@ func (s *StateSyncService) broadcastStateUpdates(ctx context.Context) {
 
 func convertToProtoOperator(op operators.Operators) *pb.OperatorState {
 	var exitEpoch *int32
-	if op.ExitEpoch != 4294967295 { // Check if not default max value
-		val := int32(op.ExitEpoch)
+	defaultExitEpoch := pgtype.Numeric{
+		Int:    new(big.Int).SetUint64(4294967295),
+		Exp:    0,
+		Valid:  true,
+	}
+	if op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if not default max value
+		val := int32(op.ExitEpoch.Int.Int64())
 		exitEpoch = &val
 	}
 
 	return &pb.OperatorState{
 		Address:                op.Address,
 		SigningKey:            op.SigningKey,
-		RegisteredAtBlockNumber: int64(op.RegisteredAtBlockNumber),
-		RegisteredAtTimestamp:   int64(op.RegisteredAtTimestamp),
-		ActiveEpoch:           int32(op.ActiveEpoch),
+		RegisteredAtBlockNumber: op.RegisteredAtBlockNumber.Int.Int64(),
+		RegisteredAtTimestamp:   op.RegisteredAtTimestamp.Int.Int64(),
+		ActiveEpoch:           int32(op.ActiveEpoch.Int.Int64()),
 		ExitEpoch:            exitEpoch,
 		Status:               op.Status,
 		Weight:               op.Weight.Int.String(),

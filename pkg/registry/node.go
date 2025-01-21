@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/big"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/p2p"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Node struct {
@@ -175,7 +177,12 @@ func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) er
 
 	// Process waiting active operators
 	for _, op := range waitingActiveOps {
-		if op.ActiveEpoch == currentEpoch {
+		currentEpochNumeric := pgtype.Numeric{
+			Int:    new(big.Int).SetInt64(int64(currentEpoch)),
+			Exp:    0,
+			Valid:  true,
+		}
+		if op.ActiveEpoch.Int.Cmp(currentEpochNumeric.Int) == 0 {
 			// Get operator weight from contract
 			mainnetClient := n.chainClients.GetMainnetClient()
 			weight, err := mainnetClient.GetOperatorWeight(ctx, common.HexToAddress(op.Address))
@@ -206,7 +213,12 @@ func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) er
 
 	// Process waiting exit operators
 	for _, op := range waitingExitOps {
-		if op.ExitEpoch == currentEpoch {
+		currentEpochNumeric := pgtype.Numeric{
+			Int:    new(big.Int).SetInt64(int64(currentEpoch)),
+			Exp:    0,
+			Valid:  true,
+		}
+		if op.ExitEpoch.Int.Cmp(currentEpochNumeric.Int) == 0 {
 			// Update operator state to inactive
 			_, err = n.db.UpdateOperatorStatus(ctx, operators.UpdateOperatorStatusParams{
 				Address: op.Address,

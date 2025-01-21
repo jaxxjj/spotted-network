@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/p2p"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/network"
 	"google.golang.org/protobuf/proto"
 )
@@ -151,8 +153,13 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 	// Broadcast state update
 	log.Printf("Broadcasting state update for operator %s", req.Address)
 	var exitEpoch *int32
-	if updatedOp.ExitEpoch != 4294967295 { // Check if not default max value
-		val := int32(updatedOp.ExitEpoch)
+	defaultExitEpoch := pgtype.Numeric{
+		Int:    new(big.Int).SetUint64(4294967295),
+		Valid:  true,
+		Exp:    0,
+	}
+	if updatedOp.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if not default max value
+		val := int32(updatedOp.ExitEpoch.Int.Int64())
 		exitEpoch = &val
 	}
 
@@ -160,9 +167,9 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 		{
 			Address:                 updatedOp.Address,
 			SigningKey:             updatedOp.SigningKey,
-			RegisteredAtBlockNumber: int64(updatedOp.RegisteredAtBlockNumber),
-			RegisteredAtTimestamp:   int64(updatedOp.RegisteredAtTimestamp),
-			ActiveEpoch:            int32(updatedOp.ActiveEpoch),
+			RegisteredAtBlockNumber: updatedOp.RegisteredAtBlockNumber.Int.Int64(),
+			RegisteredAtTimestamp:   updatedOp.RegisteredAtTimestamp.Int.Int64(),
+			ActiveEpoch:            int32(updatedOp.ActiveEpoch.Int.Int64()),
 			ExitEpoch:              exitEpoch,
 			Status:                 updatedOp.Status,
 			Weight:                 updatedOp.Weight.Int.String(),
@@ -268,8 +275,13 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 	protoOperators := make([]*pb.OperatorState, 0, len(operators))
 	for _, op := range operators {
 		var exitEpoch *int32
-		if op.ExitEpoch != 4294967295 { // Check if not default max value
-			val := int32(op.ExitEpoch)
+		defaultExitEpoch := pgtype.Numeric{
+			Int:    new(big.Int).SetUint64(4294967295),
+			Valid:  true,
+			Exp:    0,
+		}
+		if op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if not default max value
+			val := int32(op.ExitEpoch.Int.Int64())
 			exitEpoch = &val
 		}
 
@@ -280,9 +292,9 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 		protoOperators = append(protoOperators, &pb.OperatorState{
 			Address:                 op.Address,
 			SigningKey:             op.SigningKey,
-			RegisteredAtBlockNumber: int64(op.RegisteredAtBlockNumber),
-			RegisteredAtTimestamp:   int64(op.RegisteredAtTimestamp),
-			ActiveEpoch:            int32(op.ActiveEpoch),
+			RegisteredAtBlockNumber: op.RegisteredAtBlockNumber.Int.Int64(),
+			RegisteredAtTimestamp:   op.RegisteredAtTimestamp.Int.Int64(),
+			ActiveEpoch:            int32(op.ActiveEpoch.Int.Int64()),
 			ExitEpoch:              exitEpoch,
 			Status:                 op.Status,
 			Weight:                 op.Weight.Int.String(),

@@ -27,9 +27,9 @@ RETURNING address, signing_key, registered_at_block_number, registered_at_timest
 type CreateOperatorParams struct {
 	Address                 string         `json:"address"`
 	SigningKey              string         `json:"signing_key"`
-	RegisteredAtBlockNumber uint64         `json:"registered_at_block_number"`
-	RegisteredAtTimestamp   uint64         `json:"registered_at_timestamp"`
-	ActiveEpoch             uint32         `json:"active_epoch"`
+	RegisteredAtBlockNumber pgtype.Numeric `json:"registered_at_block_number"`
+	RegisteredAtTimestamp   pgtype.Numeric `json:"registered_at_timestamp"`
+	ActiveEpoch             pgtype.Numeric `json:"active_epoch"`
 	Weight                  pgtype.Numeric `json:"weight"`
 }
 
