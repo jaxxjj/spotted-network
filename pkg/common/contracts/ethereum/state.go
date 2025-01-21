@@ -7,18 +7,21 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/galxe/spotted-network/pkg/common/contracts/bindings"
 )
 
 // StateClient implements the contracts.StateClient interface
 type StateClient struct {
 	contract *bindings.StateManager
+	ethClient *ethclient.Client
 }
 
 // creates a new state client instance
-func NewStateClient(contract *bindings.StateManager) *StateClient {
+func NewStateClient(contract *bindings.StateManager, ethClient *ethclient.Client) *StateClient {
 	return &StateClient{
 		contract: contract,
+		ethClient: ethClient,
 	}
 }
 
@@ -50,6 +53,15 @@ func (c *StateClient) GetStateAtTimestamp(ctx context.Context, target common.Add
 func (c *StateClient) GetLatestState(ctx context.Context, target common.Address, key *big.Int) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	return c.contract.GetCurrentValue(opts, target, key)
+}
+
+// gets the latest block number
+func (c *StateClient) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
+	blockNumber, err := c.ethClient.BlockNumber(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get latest block number: %w", err)
+	}
+	return blockNumber, nil
 }
 
 // Close closes the client connection

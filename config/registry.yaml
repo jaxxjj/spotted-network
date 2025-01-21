@@ -8,14 +8,12 @@ chains:
       registry: ${REGISTRY_ADDRESS}
       epochManager: ${EPOCH_MANAGER_ADDRESS}
       stateManager: ${STATE_MANAGER_ADDRESS}
-
-# Chain Configuration
-chain:
-  id: 31337  # Anvil chain ID
-  rpc_url: ${CHAIN_RPC_URL}
-  registry_address: ${REGISTRY_ADDRESS}
-  start_block: ${START_BLOCK}
-
+  "31337":  # Chain ID config
+    rpc: "http://host.docker.internal:8545"  # Default to local Anvil
+    contracts:
+      registry: ${REGISTRY_ADDRESS}
+      epochManager: ${EPOCH_MANAGER_ADDRESS}
+      stateManager: ${STATE_MANAGER_ADDRESS}
 # Database Configuration
 database:
   url: ${DATABASE_URL}

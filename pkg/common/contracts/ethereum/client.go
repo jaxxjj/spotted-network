@@ -61,7 +61,7 @@ func NewClient(cfg *Config) (contracts.Client, error) {
 		ethClient:  ethClient,
 		epoch:      epochClient,
 		registry:   NewRegistryClient(registry, epochClient),
-		state:      NewStateClient(stateManager),
+		state:      NewStateClient(stateManager, ethClient),
 	}
 
 	return client, nil
@@ -156,6 +156,11 @@ func (c *Client) GetStateAtBlock(ctx context.Context, target common.Address, key
 // GetStateAtTimestamp returns the state at a specific timestamp
 func (c *Client) GetStateAtTimestamp(ctx context.Context, target common.Address, key *big.Int, timestamp uint64) (*big.Int, error) {
 	return c.state.GetStateAtTimestamp(ctx, target, key, timestamp)
+}
+
+// GetLatestBlockNumber returns the latest block number from the chain
+func (c *Client) GetLatestBlockNumber(ctx context.Context) (uint64, error) {
+	return c.state.GetLatestBlockNumber(ctx)
 }
 
 // GetEffectiveEpochForBlock returns the effective epoch for a specific block number

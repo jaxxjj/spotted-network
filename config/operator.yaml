@@ -1,15 +1,6 @@
-# Operator Node Configuration
-
-# Chain Configuration
-chain:
-  id: 31337  # Anvil chain ID
-  rpc_url: "http://host.docker.internal:8545"  # Default to local Anvil
-  registry_address: ${REGISTRY_ADDRESS}
-  start_block: 0  # Default to 0 for testing
-
 # Chains Configuration (multiple chain support)
 chains:
-  ethereum:  # This is the mainnet config but using anvil
+  ethereum:  # mainnet config but using anvil
     rpc: "http://host.docker.internal:8545"  # Default to local Anvil
     contracts:
       registry: ${REGISTRY_ADDRESS}
@@ -22,7 +13,7 @@ chains:
       epochManager: ${EPOCH_MANAGER_ADDRESS}
       stateManager: ${STATE_MANAGER_ADDRESS}
 
-# Database Configuration
+# Database Config
 database:
   url: "postgresql://spotted:spotted@localhost:5432/operator1?sslmode=disable"
   max_open_conns: 20

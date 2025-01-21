@@ -27,9 +27,9 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RegistryClient interface {
-	// 获取注册中心ID
+	// get registry id
 	GetRegistryID(ctx context.Context, in *GetRegistryIDRequest, opts ...grpc.CallOption) (*GetRegistryIDResponse, error)
-	// 处理节点加入请求
+	// handle node join request
 	Join(ctx context.Context, in *JoinRequest, opts ...grpc.CallOption) (*JoinResponse, error)
 }
 
@@ -65,9 +65,9 @@ func (c *registryClient) Join(ctx context.Context, in *JoinRequest, opts ...grpc
 // All implementations must embed UnimplementedRegistryServer
 // for forward compatibility.
 type RegistryServer interface {
-	// 获取注册中心ID
+	// get registry id
 	GetRegistryID(context.Context, *GetRegistryIDRequest) (*GetRegistryIDResponse, error)
-	// 处理节点加入请求
+	// handle node join request
 	Join(context.Context, *JoinRequest) (*JoinResponse, error)
 	mustEmbedUnimplementedRegistryServer()
 }

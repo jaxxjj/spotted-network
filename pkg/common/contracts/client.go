@@ -77,6 +77,9 @@ type StateClient interface {
 	// Get latest state
 	GetLatestState(ctx context.Context, target common.Address, key *big.Int) (*big.Int, error)
 
+	// Get latest block number
+	GetLatestBlockNumber(ctx context.Context) (uint64, error)
+
 	// Close closes the client connection
 	Close() error
 }

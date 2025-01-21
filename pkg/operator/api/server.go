@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type Server struct {
@@ -13,14 +15,14 @@ type Server struct {
 }
 
 func NewServer(handler *Handler, port int) *Server {
-	mux := http.NewServeMux()
+	r := chi.NewRouter()
 	
 	// Register routes
-	mux.HandleFunc("/api/v1/task", handler.SendRequest)
+	handler.RegisterRoutes(r)
 
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: mux,
+		Handler: r,
 	}
 
 	return &Server{

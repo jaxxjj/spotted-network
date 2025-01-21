@@ -2,12 +2,16 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
@@ -16,6 +20,8 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/operator/api"
+	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,6 +33,7 @@ type Node struct {
 	registryAddr   string
 	signer         signer.Signer
 	knownOperators map[peer.ID]*peer.AddrInfo
+	operators      map[peer.ID]*OperatorInfo
 	operatorsMu    sync.RWMutex
 	pingService    *ping.PingService
 	
@@ -37,12 +44,20 @@ type Node struct {
 	// Database connection
 	db          *pgxpool.Pool
 	taskQueries *tasks.Queries
+	responseQueries *task_responses.Queries
+	consensusQueries *consensus_responses.Queries
 	
 	// Chain clients
 	chainClient *ethereum.ChainClients
 	
 	// API server
 	apiServer *api.Server
+
+	// P2P pubsub
+	PubSub *pubsub.PubSub
+
+	// Task processor
+	taskProcessor *TaskProcessor
 }
 
 func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *ethereum.ChainClients) (*Node, error) {
@@ -81,15 +96,51 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
-	// Create queries
+	// Initialize pubsub
+	ps, err := pubsub.NewGossipSub(context.Background(), host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pubsub: %w", err)
+	}
+
+	// Initialize database queries
 	taskQueries := tasks.New(db)
+	responseQueries := task_responses.New(db)
+	consensusQueries := consensus_responses.New(db)
 
 	// Create ping service
 	pingService := ping.NewPingService(host)
 
-	// Initialize API handler and server
-	apiHandler := api.NewHandler(taskQueries, chainClients)
+	// Create the node instance first
+	node := &Node{
+		host:           host,
+		registryID:     addrInfo.ID,
+		registryAddr:   registryAddr,
+		signer:         s,
+		knownOperators: make(map[peer.ID]*peer.AddrInfo),
+		operators:      make(map[peer.ID]*OperatorInfo),
+		operatorsMu:    sync.RWMutex{},
+		pingService:    pingService,
+		operatorStates: make(map[string]*pb.OperatorState),
+		statesMu:       sync.RWMutex{},
+		db:            db,
+		taskQueries:   taskQueries,
+		responseQueries: responseQueries,
+		consensusQueries: consensusQueries,
+		chainClient:   chainClients,
+		PubSub:        ps,
+	}
+
+	// Initialize task processor
+	taskProcessor, err := NewTaskProcessor(node, taskQueries, responseQueries, consensusQueries)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create task processor: %w", err)
+	}
+	node.taskProcessor = taskProcessor
+
+	// Initialize API handler and server with task processor
+	apiHandler := api.NewHandler(taskQueries, chainClients, consensusQueries, taskProcessor)
 	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
+	node.apiServer = apiServer
 	
 	// Start API server
 	go func() {
@@ -98,55 +149,84 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		}
 	}()
 
-	return &Node{
-		host:           host,
-		registryID:     addrInfo.ID,
-		registryAddr:   registryAddr,
-		signer:         s,
-		knownOperators: make(map[peer.ID]*peer.AddrInfo),
-		operatorsMu:    sync.RWMutex{},
-		pingService:    pingService,
-		operatorStates: make(map[string]*pb.OperatorState),
-		statesMu:       sync.RWMutex{},
-		db:            db,
-		taskQueries:   taskQueries,
-		chainClient:   chainClients,
-		apiServer:     apiServer,
-	}, nil
+	return node, nil
 }
 
 func (n *Node) Start() error {
-	log.Printf("Operator node started with ID: %s", n.host.ID())
+	log.Printf("[Node] Starting operator node with ID: %s", n.host.ID())
+	log.Printf("[Node] Listening addresses: %v", n.host.Addrs())
 
-	log.Printf("Connecting to registry...")
+	log.Printf("[Node] Connecting to registry...")
 	if err := n.connectToRegistry(); err != nil {
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
-	log.Printf("Successfully connected to registry")
+	log.Printf("[Node] Successfully connected to registry")
 
-	// Start message handler and health check
-	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
-	go n.healthCheck()
-	log.Printf("Message handler and health check started")
-
-	// Subscribe to state updates
+	// Subscribe to state updates first
 	if err := n.subscribeToStateUpdates(); err != nil {
 		return fmt.Errorf("failed to subscribe to state updates: %w", err)
 	}
-	log.Printf("Subscribed to state updates")
+	log.Printf("[Node] Subscribed to state updates")
 
 	// Get initial state
 	if err := n.getFullState(); err != nil {
 		return fmt.Errorf("failed to get initial state: %w", err)
 	}
-	log.Printf("Got initial state")
+	log.Printf("[Node] Got initial state")
 
-	// Announce to registry
-	log.Printf("Announcing to registry...")
-	if err := n.announceToRegistry(); err != nil {
+	// Announce to registry and get active operators
+	log.Printf("[Node] Announcing to registry...")
+	activeOperators, err := n.announceToRegistry()
+	if err != nil {
 		return fmt.Errorf("failed to announce to registry: %w", err)
 	}
-	log.Printf("Successfully announced to registry")
+	log.Printf("[Node] Successfully announced to registry and received %d active operators", len(activeOperators))
+
+	// Store active operators
+	n.operatorsMu.Lock()
+	for _, addrInfo := range activeOperators {
+		if addrInfo.ID == n.host.ID() {
+			log.Printf("[Node] Skipping self in active operators list")
+			continue
+		}
+		n.knownOperators[addrInfo.ID] = addrInfo
+		log.Printf("[Node] Added operator %s with addresses %v", addrInfo.ID, addrInfo.Addrs)
+	}
+	n.operatorsMu.Unlock()
+
+	// Wait for a short time to allow other operators to be discovered
+	log.Printf("[Node] Waiting for other operators to be discovered...")
+	time.Sleep(5 * time.Second)
+
+	// Connect to known operators
+	n.operatorsMu.RLock()
+	log.Printf("[Node] Found %d known operators", len(n.knownOperators))
+	for _, addrInfo := range n.knownOperators {
+		if addrInfo.ID == n.host.ID() {
+			log.Printf("[Node] Skipping self connection")
+			continue // Skip self
+		}
+		log.Printf("[Node] Connecting to operator %s at %v", addrInfo.ID, addrInfo.Addrs)
+		if err := n.host.Connect(context.Background(), *addrInfo); err != nil {
+			log.Printf("[Node] Failed to connect to operator %s: %v", addrInfo.ID, err)
+			continue
+		}
+		log.Printf("[Node] Successfully connected to operator %s", addrInfo.ID)
+	}
+	n.operatorsMu.RUnlock()
+
+	// Print connected peers
+	peers := n.host.Network().Peers()
+	log.Printf("[Node] Connected to %d peers:", len(peers))
+	for _, peer := range peers {
+		addrs := n.host.Network().Peerstore().Addrs(peer)
+		log.Printf("[Node] - Peer %s at %v", peer.String(), addrs)
+	}
+
+	// Start message handler and health check
+	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
+	go n.healthCheck()
+	log.Printf("[Node] Message handler and health check started")
 
 	return nil
 }
@@ -163,6 +243,11 @@ func (n *Node) Stop() error {
 	// Close chain clients
 	if err := n.chainClient.Close(); err != nil {
 		log.Printf("Error closing chain clients: %v", err)
+	}
+
+	// Clean up task processor resources
+	if n.taskProcessor != nil {
+		n.taskProcessor.Stop()
 	}
 	
 	return n.host.Close()
@@ -196,30 +281,65 @@ func (n *Node) connectToRegistry() error {
 }
 
 func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
-	// Create tasks table
-	_, err := db.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS tasks (
-			task_id TEXT PRIMARY KEY,
-			target_address TEXT NOT NULL,
-			chain_id INT NOT NULL,
-			block_number NUMERIC(78),
-			timestamp NUMERIC(78),
-			epoch INT NOT NULL,
-			key NUMERIC(78) NOT NULL,
-			value NUMERIC(78),
-			expire_time TIMESTAMP NOT NULL,
-			retries INT DEFAULT 0,
-			status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'expired', 'failed')),
-			created_at TIMESTAMP NOT NULL DEFAULT NOW()
-		);
+	// Check if database is accessible
+	if err := db.Ping(ctx); err != nil {
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+	log.Printf("Successfully connected to database")
+	return nil
+}
 
-		CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-		CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
-		CREATE INDEX IF NOT EXISTS idx_tasks_expire_time ON tasks(expire_time);
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to create tasks table: %w", err)
+// getOperatorWeight returns the weight of an operator
+func (n *Node) getOperatorWeight(addr string) *big.Int {
+	n.statesMu.RLock()
+	defer n.statesMu.RUnlock()
+	
+	if state, exists := n.operatorStates[addr]; exists {
+		weight := new(big.Int)
+		weight.SetString(state.Weight, 10)
+		return weight
+	}
+	return big.NewInt(0)
+}
+
+// getConsensusThreshold returns the required weight threshold for consensus
+func (n *Node) getConsensusThreshold() *big.Int {
+	n.statesMu.RLock()
+	defer n.statesMu.RUnlock()
+	
+	// Calculate total weight
+	totalWeight := big.NewInt(0)
+	for _, state := range n.operatorStates {
+		weight := new(big.Int)
+		weight.SetString(state.Weight, 10)
+		totalWeight.Add(totalWeight, weight)
+	}
+	
+	// Threshold is 2/3 of total weight
+	threshold := new(big.Int).Mul(totalWeight, big.NewInt(2))
+	threshold.Div(threshold, big.NewInt(3))
+	
+	return threshold
+}
+
+// CalculateTotalWeight calculates the total weight of operator signatures
+func (n *Node) CalculateTotalWeight(sigs []byte) string {
+	var operatorSigs map[string][]byte
+	if err := json.Unmarshal(sigs, &operatorSigs); err != nil {
+		return "0"
 	}
 
-	return nil
+	totalWeight := new(big.Int)
+	n.statesMu.RLock()
+	defer n.statesMu.RUnlock()
+
+	for addr := range operatorSigs {
+		if state, ok := n.operatorStates[addr]; ok {
+			weight := new(big.Int)
+			weight.SetString(state.Weight, 10)
+			totalWeight.Add(totalWeight, weight)
+		}
+	}
+
+	return totalWeight.String()
 } 

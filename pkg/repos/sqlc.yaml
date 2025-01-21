@@ -28,4 +28,29 @@ sql:
         emit_empty_slices: true
         overrides:
           - db_type: "pg_catalog.numeric"
-            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric" 
+            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric"
+  - schema: "operator/task_responses/schema.sql"
+    queries: "operator/task_responses/query.sql"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "task_responses"
+        out: "operator/task_responses"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "pg_catalog.numeric"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric"
+  - schema: "operator/consensus_responses/schema.sql"
+    queries: "operator/consensus_responses/query.sql"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "consensus_responses"
+        out: "operator/consensus_responses"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true 

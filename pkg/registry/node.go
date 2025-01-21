@@ -123,4 +123,11 @@ func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType st
 				peer, updateType, len(operators))
 		}
 	}
-} 
+}
+
+// GetOperatorInfo returns information about a connected operator
+func (n *Node) GetOperatorInfo(id peer.ID) *OperatorInfo {
+	n.operatorsMu.RLock()
+	defer n.operatorsMu.RUnlock()
+	return n.operators[id]
+}

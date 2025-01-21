@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -9,20 +11,55 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"log"
+
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
+	"github.com/galxe/spotted-network/pkg/common/types"
+	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 )
 
+type TaskFinalResponse struct {
+	TaskID              string            `json:"task_id"`
+	Epoch               uint32            `json:"epoch"`
+	Status             string            `json:"status"`
+	Value              string            `json:"value"`
+	BlockNumber        uint64            `json:"block_number"`
+	ChainID            uint64            `json:"chain_id"`
+	TargetAddress      string            `json:"target_address"`
+	Key                string            `json:"key"`
+	OperatorSignatures map[string][]byte `json:"operator_signatures"`
+	TotalWeight        string            `json:"total_weight"`
+	ConsensusReachedAt time.Time         `json:"consensus_reached_at"`
+}
+
+// Handler handles HTTP requests
 type Handler struct {
 	taskQueries *tasks.Queries
 	chainClient *ethereum.ChainClients
+	consensusDB *consensus_responses.Queries
+	node        interface {
+		CalculateTotalWeight(sigs []byte) string
+	}
+	taskProcessor interface {
+		ProcessTask(ctx context.Context, task *types.Task) error
+		ProcessPendingTask(ctx context.Context, task *tasks.Task) error
+	}
 }
 
-func NewHandler(taskQueries *tasks.Queries, chainClient *ethereum.ChainClients) *Handler {
+// NewHandler creates a new handler
+func NewHandler(taskQueries *tasks.Queries, chainClient *ethereum.ChainClients, consensusDB *consensus_responses.Queries, taskProcessor interface {
+	ProcessTask(ctx context.Context, task *types.Task) error
+	ProcessPendingTask(ctx context.Context, task *tasks.Task) error
+}) *Handler {
 	return &Handler{
 		taskQueries: taskQueries,
 		chainClient: chainClient,
+		consensusDB: consensusDB,
+		taskProcessor: taskProcessor,
 	}
 }
 
@@ -32,6 +69,7 @@ type SendRequestParams struct {
 	Key           string `json:"key"`
 	BlockNumber   *int64 `json:"block_number,omitempty"`
 	Timestamp     *int64 `json:"timestamp,omitempty"`
+	WaitFinality  bool   `json:"wait_finality"`
 }
 
 type SendRequestResponse struct {
@@ -73,56 +111,77 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get latest block number
+	latestBlock, err := stateClient.GetLatestBlockNumber(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get latest block: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Create task params
+	var blockNumber pgtype.Numeric
+	var timestamp pgtype.Numeric
+	if params.BlockNumber != nil {
+		blockNumber = pgtype.Numeric{
+			Int:   new(big.Int).SetInt64(*params.BlockNumber),
+			Valid: true,
+			Exp:   0, // Ensure no scale is applied
+		}
+	}
+	if params.Timestamp != nil {
+		timestamp = pgtype.Numeric{
+			Int:   new(big.Int).SetInt64(*params.Timestamp),
+			Valid: true,
+		}
+	}
+
 	// Convert key to big.Int
 	keyBig := new(big.Int)
 	keyBig.SetString(params.Key, 0)
 
-	// Query state based on block number or timestamp
-	var value *big.Int
-	if params.BlockNumber != nil {
-		value, err = stateClient.GetStateAtBlock(r.Context(), common.HexToAddress(params.TargetAddress), keyBig, uint64(*params.BlockNumber))
-	} else {
-		value, err = stateClient.GetStateAtTimestamp(r.Context(), common.HexToAddress(params.TargetAddress), keyBig, uint64(*params.Timestamp))
-	}
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to query state: %v", err), http.StatusInternalServerError)
-		return
+	// Convert to pgtype.Numeric
+	keyNum := pgtype.Numeric{
+		Int:   keyBig,
+		Valid: true,
 	}
 
-	// Generate task ID
-	taskID := h.generateTaskID(&params, int64(currentEpoch), value.String())
+	// Generate task ID first
+	taskID := h.generateTaskID(&params, int64(currentEpoch), "0")
 
-	// Convert numeric values
-	var blockNumber, timestamp pgtype.Numeric
-	if params.BlockNumber != nil {
-		if err := blockNumber.Scan(fmt.Sprintf("%d", *params.BlockNumber)); err != nil {
-			http.Error(w, "Invalid block number", http.StatusBadRequest)
-			return
+	// Check if task already exists
+	existingTask, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
+	if err == nil {
+		// Task exists, return its current status
+		response := struct {
+			TaskID string `json:"task_id"`
+			Status string `json:"status"`
+			CurrentConfirmations int32 `json:"current_confirmations,omitempty"`
+			RequiredConfirmations int32 `json:"required_confirmations,omitempty"`
+		}{
+			TaskID: existingTask.TaskID,
+			Status: existingTask.Status,
+			CurrentConfirmations: existingTask.CurrentConfirmations.Int32,
+			RequiredConfirmations: existingTask.RequiredConfirmations.Int32,
 		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
 	}
-	if params.Timestamp != nil {
-		if err := timestamp.Scan(fmt.Sprintf("%d", *params.Timestamp)); err != nil {
-			http.Error(w, "Invalid timestamp", http.StatusBadRequest)
-			return
+
+	// Determine required confirmations
+	requiredConfirmations := h.getRequiredConfirmations(params.ChainID)
+
+	// Determine initial status based on block confirmations
+	status := "pending"
+	if params.BlockNumber != nil {
+		// Calculate current confirmations
+		currentConfirmations := int32(latestBlock - uint64(*params.BlockNumber))
+		if currentConfirmations < int32(requiredConfirmations) {
+			status = "confirming"
+			log.Printf("[API] Task requires %d confirmations, current confirmations: %d", requiredConfirmations, currentConfirmations)
+		} else {
+			log.Printf("[API] Task already has sufficient confirmations: %d/%d", currentConfirmations, requiredConfirmations)
 		}
-	}
-
-	// Convert key and value to Numeric
-	var keyNum, valueNum pgtype.Numeric
-	if err := keyNum.Scan(keyBig.String()); err != nil {
-		http.Error(w, "Invalid key value", http.StatusInternalServerError)
-		return
-	}
-	if err := valueNum.Scan(value.String()); err != nil {
-		http.Error(w, "Invalid state value", http.StatusInternalServerError)
-		return
-	}
-
-	// Convert expiration time
-	var expireTime pgtype.Timestamp
-	if err := expireTime.Scan(time.Now().Add(15 * time.Second)); err != nil {
-		http.Error(w, "Failed to set expiration time", http.StatusInternalServerError)
-		return
 	}
 
 	// Create task
@@ -134,20 +193,41 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		Timestamp:     timestamp,
 		Epoch:        int32(currentEpoch),
 		Key:          keyNum,
-		Value:        valueNum,
-		ExpireTime:   expireTime,
-		Status:       "pending",
+		Status:       status,
+		RequiredConfirmations: pgtype.Int4{Int32: int32(requiredConfirmations), Valid: true},
+		Value:        pgtype.Numeric{}, // Empty value for now
 	})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create task: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	log.Printf("[API] Created new task %s with status %s", task.TaskID, task.Status)
+	if task.Status == "confirming" {
+		log.Printf("[API] Task %s requires %d block confirmations", task.TaskID, requiredConfirmations)
+	} else if task.Status == "pending" {
+		// If task is pending, process it immediately
+		log.Printf("[API] Task %s is pending, processing immediately", task.TaskID)
+		
+		// Use ProcessPendingTask directly with task pointer
+		if err := h.taskProcessor.ProcessPendingTask(r.Context(), &task); err != nil {
+			log.Printf("[API] Failed to process pending task %s: %v", task.TaskID, err)
+			// Don't return error here, as the task is already created
+		}
+	}
+
 	// Return response
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(SendRequestResponse{
+	response := struct {
+		TaskID string `json:"task_id"`
+		Status string `json:"status"`
+		RequiredConfirmations int32 `json:"required_confirmations,omitempty"`
+	}{
 		TaskID: task.TaskID,
-	})
+		Status: task.Status,
+		RequiredConfirmations: task.RequiredConfirmations.Int32,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func (h *Handler) validateRequest(params *SendRequestParams) error {
@@ -187,4 +267,177 @@ func (h *Handler) generateTaskID(params *SendRequestParams, epoch int64, value s
 
 	hash := crypto.Keccak256(data)
 	return common.Bytes2Hex(hash)
+}
+
+// GetTaskConsensus returns the consensus result for a task
+func (h *Handler) GetTaskConsensus(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "taskID")
+	
+	consensus, err := h.consensusDB.GetConsensusResponse(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get consensus: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Get task details
+	task, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get task: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert numeric values
+	var value, blockNumber, key string
+	if err := task.Value.Scan(&value); err != nil {
+		value = "0"
+	}
+	if err := task.BlockNumber.Scan(&blockNumber); err != nil {
+		blockNumber = "0"
+	}
+	if err := task.Key.Scan(&key); err != nil {
+		key = "0"
+	}
+
+	// Parse operator signatures to calculate total weight
+	var operatorSigs map[string]map[string]interface{}
+	totalWeight := big.NewInt(0)
+	if err := json.Unmarshal(consensus.OperatorSignatures, &operatorSigs); err == nil {
+		for _, sigData := range operatorSigs {
+			if weightStr, ok := sigData["weight"].(string); ok {
+				weight := new(big.Int)
+				if _, ok := weight.SetString(weightStr, 10); ok {
+					totalWeight.Add(totalWeight, weight)
+				}
+			}
+		}
+	}
+
+	// Format response
+	response := struct {
+		TaskID              string          `json:"task_id"`
+		Epoch              int32           `json:"epoch"`
+		Status             string          `json:"status"`
+		Value              string          `json:"value"`
+		BlockNumber        string          `json:"block_number"`
+		ChainID            int32           `json:"chain_id"`
+		TargetAddress      string          `json:"target_address"`
+		Key                string          `json:"key"`
+		OperatorSignatures json.RawMessage `json:"operator_signatures"`
+		TotalWeight        string          `json:"total_weight"`
+		ConsensusReachedAt *time.Time     `json:"consensus_reached_at,omitempty"`
+	}{
+		TaskID:              consensus.TaskID,
+		Epoch:              consensus.Epoch,
+		Status:             consensus.Status,
+		Value:              value,
+		BlockNumber:        blockNumber,
+		ChainID:           task.ChainID,
+		TargetAddress:     task.TargetAddress,
+		Key:               key,
+		OperatorSignatures: consensus.OperatorSignatures,
+		TotalWeight:       totalWeight.String(),
+		ConsensusReachedAt: &consensus.ConsensusReachedAt.Time,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf("failed to encode response: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// GetTaskFinalResponse returns the final response for a task
+func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
+	taskID := chi.URLParam(r, "taskID")
+	
+	// Get consensus response
+	consensus, err := h.consensusDB.GetConsensusResponse(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get consensus: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Get task details
+	task, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get task: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert numeric values
+	var value, key string
+	var blockNumber uint64
+	if err := task.Value.Scan(&value); err != nil {
+		value = "0"
+	}
+	if err := task.BlockNumber.Scan(&blockNumber); err != nil {
+		blockNumber = 0
+	}
+	if err := task.Key.Scan(&key); err != nil {
+		key = "0"
+	}
+
+	// Parse operator signatures and calculate total weight
+	var operatorSigs map[string]map[string]interface{}
+	totalWeight := big.NewInt(0)
+	if err := json.Unmarshal(consensus.OperatorSignatures, &operatorSigs); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to parse operator signatures: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert signatures and calculate total weight
+	finalOperatorSigs := make(map[string][]byte)
+	for addr, sigData := range operatorSigs {
+		// Add weight to total
+		if weightStr, ok := sigData["weight"].(string); ok {
+			weight := new(big.Int)
+			if _, ok := weight.SetString(weightStr, 10); ok {
+				totalWeight.Add(totalWeight, weight)
+			}
+		}
+		// Convert signature
+		if sigStr, ok := sigData["signature"].(string); ok {
+			sig, err := hex.DecodeString(sigStr)
+			if err != nil {
+				continue
+			}
+			finalOperatorSigs[addr] = sig
+		}
+	}
+
+	// Build response
+	response := &TaskFinalResponse{
+		TaskID:             taskID,
+		Epoch:             uint32(consensus.Epoch),
+		Status:            consensus.Status,
+		Value:             value,
+		BlockNumber:       blockNumber,
+		ChainID:          uint64(task.ChainID),
+		TargetAddress:     task.TargetAddress,
+		Key:              key,
+		OperatorSignatures: finalOperatorSigs,
+		TotalWeight:       totalWeight.String(),
+		ConsensusReachedAt: consensus.ConsensusReachedAt.Time,
+	}
+
+	// Return JSON response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to encode response: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// getRequiredConfirmations returns the required confirmations for a chain
+func (h *Handler) getRequiredConfirmations(chainID int64) int32 {
+	switch chainID {
+	case 1: // Ethereum mainnet
+		return 12
+	case 137: // Polygon
+		return 256
+	case 56: // BSC
+		return 15
+	default:
+		return 12
+	}
 } 
