@@ -927,13 +927,22 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 	if !blockNumNumeric.Valid {
 		return fmt.Errorf("[TaskProcessor] block number is null")
 	}
-	blockNum := new(big.Int)
 	if blockNumNumeric.Int == nil {
 		return fmt.Errorf("[TaskProcessor] block number Int value is null")
 	}
-	if _, ok := blockNum.SetString(blockNumNumeric.Int.String(), 10); !ok {
-		return fmt.Errorf("[TaskProcessor] failed to parse block number: %s", blockNumNumeric.Int.String())
+
+	// Handle numeric scale properly
+	blockNum := new(big.Int).Set(blockNumNumeric.Int)
+	if blockNumNumeric.Exp > 0 {
+		// If scale is positive, multiply by 10^scale
+		multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(blockNumNumeric.Exp)), nil)
+		blockNum.Mul(blockNum, multiplier)
+	} else if blockNumNumeric.Exp < 0 {
+		// If scale is negative, divide by 10^(-scale)
+		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(-blockNumNumeric.Exp)), nil)
+		blockNum.Div(blockNum, divisor)
 	}
+
 	tp.logger.Printf("[TaskProcessor] Using block number: %s", blockNum.String())
 
 	// Convert key to big.Int

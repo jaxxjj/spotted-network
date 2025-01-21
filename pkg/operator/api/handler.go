@@ -111,9 +111,39 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get latest block number
+	latestBlock, err := stateClient.GetLatestBlockNumber(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get latest block: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Create task params
+	var blockNumber pgtype.Numeric
+	var timestamp pgtype.Numeric
+	if params.BlockNumber != nil {
+		blockNumber = pgtype.Numeric{
+			Int:   new(big.Int).SetInt64(*params.BlockNumber),
+			Valid: true,
+			Exp:   0, // Ensure no scale is applied
+		}
+	}
+	if params.Timestamp != nil {
+		timestamp = pgtype.Numeric{
+			Int:   new(big.Int).SetInt64(*params.Timestamp),
+			Valid: true,
+		}
+	}
+
 	// Convert key to big.Int
 	keyBig := new(big.Int)
 	keyBig.SetString(params.Key, 0)
+
+	// Convert to pgtype.Numeric
+	keyNum := pgtype.Numeric{
+		Int:   keyBig,
+		Valid: true,
+	}
 
 	// Generate task ID first
 	taskID := h.generateTaskID(&params, int64(currentEpoch), "0")
@@ -138,41 +168,8 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get latest block number
-	latestBlock, err := stateClient.GetLatestBlockNumber(r.Context())
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get latest block: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	// Determine required confirmations
 	requiredConfirmations := h.getRequiredConfirmations(params.ChainID)
-
-	// Convert numeric values
-	var blockNumber, timestamp, lastCheckedBlock pgtype.Numeric
-	if params.BlockNumber != nil {
-		if err := blockNumber.Scan(fmt.Sprintf("%d", *params.BlockNumber)); err != nil {
-			http.Error(w, "Invalid block number", http.StatusBadRequest)
-			return
-		}
-		if err := lastCheckedBlock.Scan(fmt.Sprintf("%d", latestBlock)); err != nil {
-			http.Error(w, "Invalid block number", http.StatusBadRequest)
-			return
-		}
-	}
-	if params.Timestamp != nil {
-		if err := timestamp.Scan(fmt.Sprintf("%d", *params.Timestamp)); err != nil {
-			http.Error(w, "Invalid timestamp", http.StatusBadRequest)
-			return
-		}
-	}
-
-	// Convert key to Numeric
-	var keyNum pgtype.Numeric
-	if err := keyNum.Scan(keyBig.String()); err != nil {
-		http.Error(w, "Invalid key value", http.StatusBadRequest)
-		return
-	}
 
 	// Determine initial status based on block confirmations
 	status := "pending"
