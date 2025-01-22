@@ -65,18 +65,18 @@ func (c *RegistryClient) GetMinimumStake(ctx context.Context) (*big.Int, error) 
 	return stake, nil
 }
 
-// GetThresholdStake gets the threshold stake required
-func (c *RegistryClient) GetThresholdStake(ctx context.Context) (*big.Int, error) {
+// GetThresholdWeight gets the threshold weight required
+func (c *RegistryClient) GetThresholdWeight(ctx context.Context) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.epochManager.GetCurrentEpoch(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current epoch: %w", err)
 	}
-	stake, err := c.contract.GetTotalWeightAtEpoch(opts, epoch)
+	weight, err := c.contract.GetThresholdWeightAtEpoch(opts, epoch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get threshold stake: %w", err)
+		return nil, fmt.Errorf("failed to get threshold weight: %w", err)
 	}
-	return stake, nil
+	return weight, nil
 }
 
 // IsOperatorRegistered checks if an operator is registered

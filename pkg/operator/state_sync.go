@@ -310,9 +310,9 @@ func (n *Node) updateEpochState(ctx context.Context, blockNumber uint64) error {
 		return fmt.Errorf("failed to get total stake: %w", err)
 	}
 	
-	thresholdStake, err := mainnetClient.GetThresholdStake(ctx)
+	thresholdWeight, err := mainnetClient.GetThresholdWeight(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get threshold stake: %w", err)
+		return fmt.Errorf("failed to get threshold weight: %w", err)
 	}
 
 	// Update epoch state in database
@@ -340,7 +340,7 @@ func (n *Node) updateEpochState(ctx context.Context, blockNumber uint64) error {
 			Exp:    0,
 		},
 		ThresholdWeight: pgtype.Numeric{
-			Int:    thresholdStake,
+			Int:    thresholdWeight,
 			Valid:  true,
 			Exp:    0,
 		},
@@ -350,8 +350,8 @@ func (n *Node) updateEpochState(ctx context.Context, blockNumber uint64) error {
 		return fmt.Errorf("failed to update epoch state: %w", err)
 	}
 
-	log.Printf("[Epoch] Updated epoch %d state at block %d (minimum stake: %s, total weight: %s, threshold stake: %s)", 
-		epochNumber, blockNumber, minimumStake.String(), totalWeight.String(), thresholdStake.String())
+	log.Printf("[Epoch] Updated epoch %d state at block %d (minimum stake: %s, total weight: %s, threshold weight: %s)", 
+		epochNumber, blockNumber, minimumStake.String(), totalWeight.String(), thresholdWeight.String())
 	return nil
 }
 
@@ -385,8 +385,8 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 					continue
 				}
 				lastProcessedEpoch = currentEpoch
-			}
-			log.Printf("[Epoch] successfully updated epoch")
+				log.Printf("[Epoch] successfully updated epoch")
+			}	
 		}
 	}
 } 

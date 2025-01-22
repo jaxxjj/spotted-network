@@ -57,7 +57,7 @@ type RegistryClient interface {
 	GetMinimumStake(ctx context.Context) (*big.Int, error)
 	
 	// Get threshold stake required
-	GetThresholdStake(ctx context.Context) (*big.Int, error)
+	GetThresholdWeight(ctx context.Context) (*big.Int, error)
 	
 	// Check if operator is registered
 	IsOperatorRegistered(ctx context.Context, operator common.Address) (bool, error)

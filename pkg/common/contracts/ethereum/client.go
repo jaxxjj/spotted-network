@@ -134,8 +134,8 @@ func (c *Client) GetTotalWeight(ctx context.Context) (*big.Int, error) {
 }
 
 // GetThresholdStake returns the threshold stake required
-func (c *Client) GetThresholdStake(ctx context.Context) (*big.Int, error) {
-	return c.registry.GetThresholdStake(ctx)
+func (c *Client) GetThresholdWeight(ctx context.Context) (*big.Int, error) {
+	return c.registry.GetThresholdWeight(ctx)
 }
 
 // IsOperatorRegistered checks if an operator is registered

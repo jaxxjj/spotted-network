@@ -32,14 +32,43 @@ contract MockRegistry {
 
     // Mock function to get operator weight
     function getOperatorWeight(address operator) external pure returns (uint256) {
-        return 100; // Return fixed weight for testing
+        if (operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
+            return 300; // Return fixed weight for testing
+        }
+        if (operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
+            return 400;
+        }
+        if (operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
+            return 500;
+        }
+        return 0;
     }
 
     // Mock function to get total weight
-    function getTotalWeight() external pure returns (uint256) {
-        return 1000; // Return fixed total weight for testing
+    function getTotalWeightAtEpoch(
+        uint32 _epochNumber
+    ) external pure returns (uint256) {
+        return 1200;
     }
 
+    function getThresholdWeightAtEpoch(
+        uint32 _epochNumber
+    ) external view returns (uint256) {
+        if (_epochNumber == 0) {
+            return 0;
+        }
+        if (_epochNumber == 1) {
+            return 600;
+        }
+    
+        if (_epochNumber == 2) {
+            return 900;
+        }
+        if (_epochNumber == 3) {
+            return 1200;
+        }
+        return 0;
+    }
     // Mock function to get minimum weight
     function minimumWeight() external pure returns (uint256) {
         return 10; // Return fixed minimum weight for testing
