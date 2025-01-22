@@ -42,8 +42,6 @@ type TaskProcessor struct {
 	responses      map[string]map[string]*types.TaskResponse // taskID -> operatorAddr -> response
 	weightsMutex   sync.RWMutex
 	taskWeights    map[string]map[string]*big.Int  // taskID -> operatorAddr -> weight
-	threshold      *big.Int
-	totalWeight    *big.Int  // 总权重
 	logger         *log.Logger
 }
 
@@ -56,10 +54,6 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 	}
 	log.Printf("[TaskProcessor] Joined response topic: %s", TaskResponseTopic)
 
-	// 设置硬编码的权重和阈值
-	threshold := big.NewInt(2)  // 阈值设为2
-	totalWeight := big.NewInt(3)  // 总权重设为3
-
 	tp := &TaskProcessor{
 		node:          node,
 		signer:        node.signer,
@@ -69,8 +63,6 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 		responseTopic: responseTopic,
 		responses:     make(map[string]map[string]*types.TaskResponse),
 		taskWeights:   make(map[string]map[string]*big.Int),
-		threshold:     threshold,
-		totalWeight:   totalWeight,
 		logger:        log.Default(),
 	}
 
@@ -482,9 +474,6 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	// Get responses and weights from memory maps
 	tp.responsesMutex.RLock()
 	responses := tp.responses[taskID]
-	tp.responsesMutex.RUnlock()
-
-	tp.weightsMutex.RLock()
 	weights := tp.taskWeights[taskID]
 	tp.weightsMutex.RUnlock()
 
@@ -518,9 +507,14 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	}
 
 	// Check if threshold is reached
-	tp.logger.Printf("[Consensus] Checking if total weight %s reaches threshold %s", totalWeight.String(), tp.threshold.String())
-	if totalWeight.Cmp(tp.threshold) < 0 {
-		tp.logger.Printf("[Consensus] Threshold not reached for task %s (total weight: %s, threshold: %s)", taskID, totalWeight.String(), tp.threshold.String())
+	threshold, err := tp.node.getConsensusThreshold(context.Background())
+	if err != nil {
+		tp.logger.Printf("[Consensus] Failed to get consensus threshold: %v", err)
+		return err
+	}
+	tp.logger.Printf("[Consensus] Checking if total weight %s reaches threshold %s", totalWeight.String(), threshold.String())
+	if totalWeight.Cmp(threshold) < 0 {
+		tp.logger.Printf("[Consensus] Threshold not reached for task %s (total weight: %s, threshold: %s)", taskID, totalWeight.String(), threshold.String())
 		return nil
 	}
 
@@ -591,23 +585,19 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 // isActiveOperator checks if a signing key belongs to an active operator
 func (tp *TaskProcessor) isActiveOperator(signingKey string) bool {
 	// Get all operator states
-	// tp.node.statesMu.RLock()
-	// defer tp.node.statesMu.RUnlock()
+	tp.node.statesMu.RLock()
+	defer tp.node.statesMu.RUnlock()
 
-	// // Check each operator's state
-	// for _, state := range tp.node.operatorStates {
-	// 	// TODO: After adding signing_key to proto OperatorState
-	// 	// Compare signing keys: if strings.EqualFold(state.SigningKey, signingKey)
-	// 	if state.Status == "active" {
-	// 		tp.logger.Printf("[Operator] Found active operator %s", state.Address)
-	// 		return true
-	// 	}
-	// }
+	// Check each operator's state
+	for _, state := range tp.node.operatorStates {
+		if state.Status == "active" {
+			tp.logger.Printf("[Operator] Found active operator %s", state.Address)
+			return true
+		}
+	}
 
-	// tp.logger.Printf("[Operator] No active operator found for signing key %s", signingKey)
-	// return false
-	//暂时return true
-	return true
+	tp.logger.Printf("[Operator] No active operator found for signing key %s", signingKey)
+	return false
 }
 
 // cleanupTask removes task data from local maps
@@ -623,8 +613,15 @@ func (tp *TaskProcessor) cleanupTask(taskID string) {
 
 // getOperatorWeight returns the weight of an operator
 func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error) {
-	// TODO: 后续从链上获取operator权重
-	return big.NewInt(1), nil
+	tp.node.statesMu.RLock()
+	defer tp.node.statesMu.RUnlock()
+	
+	if state, exists := tp.node.operatorStates[operatorAddr]; exists {
+		weight := new(big.Int)
+		weight.SetString(state.Weight, 10)
+		return weight, nil
+	}
+	return big.NewInt(0), fmt.Errorf("[TaskProcessor] operator %s not found", operatorAddr)
 }
 
 // checkTimeouts periodically checks for timed out tasks
@@ -705,7 +702,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 
 // checkConfirmations periodically checks block confirmations for tasks in confirming status
 func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	for {

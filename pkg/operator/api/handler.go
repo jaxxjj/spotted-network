@@ -41,9 +41,6 @@ type Handler struct {
 	taskQueries *tasks.Queries
 	chainClient *ethereum.ChainClients
 	consensusDB *consensus_responses.Queries
-	node        interface {
-		CalculateTotalWeight(sigs []byte) string
-	}
 	taskProcessor interface {
 		ProcessTask(ctx context.Context, task *types.Task) error
 		ProcessPendingTask(ctx context.Context, task *tasks.Task) error

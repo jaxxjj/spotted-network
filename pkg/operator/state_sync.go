@@ -385,7 +385,7 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 					continue
 				}
 				lastProcessedEpoch = currentEpoch
-				log.Printf("[Epoch] successfully updated epoch")
+				log.Printf("[Epoch] Successfully updated epoch")
 			}	
 		}
 	}

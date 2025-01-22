@@ -10,6 +10,8 @@ contract MockRegistry {
         address _avs
     );
 
+    event OperatorDeregistered(address indexed _operator, uint256 indexed blockNumber, address indexed _avs);
+
     // Mock function to emit operator registered event
     function emitOperatorRegistered(
         address operator,
@@ -23,6 +25,13 @@ contract MockRegistry {
             block.timestamp,
             avs
         );
+    }
+
+    function emitOperatorDeregistered(
+        address operator,
+        address avs
+    ) external {
+        emit OperatorDeregistered(operator, block.number, avs);
     }
 
     // Mock function to check if operator is registered

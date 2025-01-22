@@ -2,7 +2,6 @@ package operator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -296,57 +295,16 @@ func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
 	return nil
 }
 
-// getOperatorWeight returns the weight of an operator
-func (n *Node) getOperatorWeight(addr string) *big.Int {
-	n.statesMu.RLock()
-	defer n.statesMu.RUnlock()
-	
-	if state, exists := n.operatorStates[addr]; exists {
-		weight := new(big.Int)
-		weight.SetString(state.Weight, 10)
-		return weight
+// getConsensusThreshold returns the threshold weight for consensus from the latest epoch state
+func (n *Node) getConsensusThreshold(ctx context.Context) (*big.Int, error) {
+	latestEpoch, err := n.epochStates.GetLatestEpochState(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest epoch state: %w", err)
 	}
-	return big.NewInt(0)
+	
+	if !latestEpoch.ThresholdWeight.Valid || latestEpoch.ThresholdWeight.Int == nil {
+		return nil, fmt.Errorf("invalid threshold weight in epoch state")
+	}
+	
+	return latestEpoch.ThresholdWeight.Int, nil
 }
-
-// getConsensusThreshold returns the required weight threshold for consensus
-func (n *Node) getConsensusThreshold() *big.Int {
-	n.statesMu.RLock()
-	defer n.statesMu.RUnlock()
-	
-	// Calculate total weight
-	totalWeight := big.NewInt(0)
-	for _, state := range n.operatorStates {
-		weight := new(big.Int)
-		weight.SetString(state.Weight, 10)
-		totalWeight.Add(totalWeight, weight)
-	}
-	
-	// Threshold is 2/3 of total weight
-	threshold := new(big.Int).Mul(totalWeight, big.NewInt(2))
-	threshold.Div(threshold, big.NewInt(3))
-	
-	return threshold
-}
-
-// CalculateTotalWeight calculates the total weight of operator signatures
-func (n *Node) CalculateTotalWeight(sigs []byte) string {
-	var operatorSigs map[string][]byte
-	if err := json.Unmarshal(sigs, &operatorSigs); err != nil {
-		return "0"
-	}
-
-	totalWeight := new(big.Int)
-	n.statesMu.RLock()
-	defer n.statesMu.RUnlock()
-
-	for addr := range operatorSigs {
-		if state, ok := n.operatorStates[addr]; ok {
-			weight := new(big.Int)
-			weight.SetString(state.Weight, 10)
-			totalWeight.Add(totalWeight, weight)
-		}
-	}
-
-	return totalWeight.String()
-} 
