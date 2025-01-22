@@ -53,6 +53,26 @@ contract MockRegistry {
         return 0;
     }
 
+    function getOperatorWeightAtEpoch(
+        address _operator,
+        uint32 _epochNumber
+    ) external view returns (uint256) {
+        if (_epochNumber == 0) {
+            return 0;
+        }
+
+        if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
+            return 300; // Return fixed weight for testing
+        }
+        if (_operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
+            return 400;
+        }
+        if (_operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
+            return 500;
+        }
+        return 100;
+    }
+
     // Mock function to get total weight
     function getTotalWeightAtEpoch(
         uint32 _epochNumber

@@ -6,6 +6,18 @@ generate-keys:
 	@go run scripts/generate_keys.go
 	@echo "Keys generated successfully in ./keys directory"
 
+check-operator-status-operator1:
+	@echo "Querying operator1 status..."
+	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM operators;"
+
+check-operator-status-operator2:
+	@echo "Querying operator2 status..."
+	@PGPASSWORD=spotted psql -h localhost -p 5434 -U spotted -d operator2 -c "SELECT * FROM operators;"
+
+check-operator-status-operator3:
+	@echo "Querying operator3 status..."
+	@PGPASSWORD=spotted psql -h localhost -p 5435 -U spotted -d operator3 -c "SELECT * FROM operators;"
+
 # Check operator1 tasks
 check-tasks-operator1:
 	@echo "Querying tasks from operator1 database..."
