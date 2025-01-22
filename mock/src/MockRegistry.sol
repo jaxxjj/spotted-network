@@ -42,13 +42,13 @@ contract MockRegistry {
     // Mock function to get operator weight
     function getOperatorWeight(address operator) external pure returns (uint256) {
         if (operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
-            return 300; // Return fixed weight for testing
+            return 333; // Return fixed weight for testing
         }
         if (operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
-            return 400;
+            return 444;
         }
         if (operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
-            return 500;
+            return 555;
         }
         return 0;
     }
@@ -62,13 +62,13 @@ contract MockRegistry {
         }
 
         if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
-            return 300; // Return fixed weight for testing
+            return 333; // Return fixed weight for testing
         }
         if (_operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
-            return 400;
+            return 444;
         }
         if (_operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
-            return 500;
+            return 555;
         }
         return 100;
     }
@@ -77,7 +77,7 @@ contract MockRegistry {
     function getTotalWeightAtEpoch(
         uint32 _epochNumber
     ) external pure returns (uint256) {
-        return 1200;
+        return 1332;
     }
 
     function getThresholdWeightAtEpoch(
@@ -87,14 +87,14 @@ contract MockRegistry {
             return 0;
         }
         if (_epochNumber == 1) {
-            return 600;
+            return 666;
         }
     
         if (_epochNumber == 2) {
-            return 900;
+            return 999;
         }
         if (_epochNumber == 3) {
-            return 1200;
+            return 1234;
         }
         return 0;
     }

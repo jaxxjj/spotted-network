@@ -137,6 +137,52 @@ func (c *RegistryClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, si
 	return sub, nil
 }
 
+// WatchOperatorDeregistered watches for operator deregistration events
+func (c *RegistryClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *contracts.OperatorDeregisteredEvent) (event.Subscription, error) {
+	// Create a subscription
+	sub := event.NewSubscription(func(quit <-chan struct{}) error {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		var lastBlock uint64
+		if filterOpts.Start > 0 {
+			lastBlock = filterOpts.Start - 1 // Start from the block before to ensure we don't miss any events
+		}
+
+		for {
+			select {
+			case <-quit:
+				return nil
+			case <-ticker.C:
+				// Get events from last processed block
+				events, err := c.contract.FilterOperatorDeregistered(&bind.FilterOpts{
+					Start:   lastBlock + 1,
+					Context: filterOpts.Context,
+				}, nil, nil)
+				if err != nil {
+					continue
+				}
+
+				// Process events
+				for events.Next() {
+					event := events.Event
+					sink <- &contracts.OperatorDeregisteredEvent{
+						Operator:    event.Operator,
+						BlockNumber: big.NewInt(int64(event.Raw.BlockNumber)),
+						AVS:        event.Avs,
+					}
+					// Update last block to the event's block number
+					if event.Raw.BlockNumber > lastBlock {
+						lastBlock = event.Raw.BlockNumber
+					}
+				}
+			}
+		}
+	})
+
+	return sub, nil
+}
+
 // Forward EpochClient methods to the epoch manager
 
 func (c *RegistryClient) GetCurrentEpoch(ctx context.Context) (uint32, error) {

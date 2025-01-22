@@ -7,8 +7,8 @@ generate-keys:
 	@echo "Keys generated successfully in ./keys directory"
 
 check-operator-status-operator1:
-	@echo "Querying operator1 status..."
-	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM operators;"
+	@echo "Querying operator status from registry database..."
+	@PGPASSWORD=spotted psql -h localhost -p 5432 -U spotted -d spotted -c "SELECT * FROM operators;"
 
 check-operator-status-operator2:
 	@echo "Querying operator2 status..."

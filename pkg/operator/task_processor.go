@@ -474,6 +474,9 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	// Get responses and weights from memory maps
 	tp.responsesMutex.RLock()
 	responses := tp.responses[taskID]
+	tp.responsesMutex.RUnlock()
+
+	tp.weightsMutex.RLock()
 	weights := tp.taskWeights[taskID]
 	tp.weightsMutex.RUnlock()
 
@@ -618,7 +621,12 @@ func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error
 	
 	if state, exists := tp.node.operatorStates[operatorAddr]; exists {
 		weight := new(big.Int)
-		weight.SetString(state.Weight, 10)
+		// Parse the weight string directly
+		if _, ok := weight.SetString(state.Weight, 10); !ok {
+			return big.NewInt(0), fmt.Errorf("[TaskProcessor] failed to parse weight for operator %s", operatorAddr)
+		}
+		// Log the actual weight value directly
+		tp.logger.Printf("[TaskProcessor] Got operator %s weight: %v", operatorAddr, weight)
 		return weight, nil
 	}
 	return big.NewInt(0), fmt.Errorf("[TaskProcessor] operator %s not found", operatorAddr)
