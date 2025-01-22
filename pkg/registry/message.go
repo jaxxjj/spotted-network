@@ -10,7 +10,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/p2p"
-	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -138,17 +137,13 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 	}
 	log.Printf("Signing key verified for operator %s", req.Address)
 
-	// Update status to waitingActive
-	log.Printf("Updating status to waitingActive for operator %s", req.Address)
-	updatedOp, err := n.db.UpdateOperatorStatus(ctx, operators.UpdateOperatorStatusParams{
-		Address: req.Address,
-		Status:  string(OperatorStatusWaitingActive),
-	})
-	if err != nil {
-		log.Printf("Failed to update operator %s status: %v", req.Address, err)
+	// Update operator status
+	log.Printf("Updating status for operator %s", req.Address)
+	if err := n.eventListener.updateStatusAfterOperations(ctx, req.Address); err != nil {
+		log.Printf("Failed to update operator status: %v", err)
 		return fmt.Errorf("failed to update operator status: %w", err)
 	}
-	log.Printf("Successfully updated status to waitingActive for operator %s", req.Address)
+	log.Printf("Successfully updated operator status")
 
 	// Broadcast state update
 	log.Printf("Broadcasting state update for operator %s", req.Address)
@@ -158,21 +153,21 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 		Valid:  true,
 		Exp:    0,
 	}
-	if updatedOp.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if not default max value
-		val := int32(updatedOp.ExitEpoch.Int.Int64())
+	if op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if not default max value
+		val := int32(op.ExitEpoch.Int.Int64())
 		exitEpoch = &val
 	}
 
 	stateUpdate := []*pb.OperatorState{
 		{
-			Address:                 updatedOp.Address,
-			SigningKey:             updatedOp.SigningKey,
-			RegisteredAtBlockNumber: updatedOp.RegisteredAtBlockNumber.Int.Int64(),
-			RegisteredAtTimestamp:   updatedOp.RegisteredAtTimestamp.Int.Int64(),
-			ActiveEpoch:            int32(updatedOp.ActiveEpoch.Int.Int64()),
+			Address:                 op.Address,
+			SigningKey:             op.SigningKey,
+			RegisteredAtBlockNumber: op.RegisteredAtBlockNumber.Int.Int64(),
+			RegisteredAtTimestamp:   op.RegisteredAtTimestamp.Int.Int64(),
+			ActiveEpoch:            int32(op.ActiveEpoch.Int.Int64()),
 			ExitEpoch:              exitEpoch,
-			Status:                 updatedOp.Status,
-			Weight:                 updatedOp.Weight.Int.String(),
+			Status:                 op.Status,
+			Weight:                 op.Weight.Int.String(),
 		},
 	}
 	n.BroadcastStateUpdate(stateUpdate, "DELTA")

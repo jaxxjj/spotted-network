@@ -158,6 +158,40 @@ func (q *Queries) ListOperatorsByStatus(ctx context.Context, status string) ([]O
 	return items, nil
 }
 
+const updateOperatorExitEpoch = `-- name: UpdateOperatorExitEpoch :one
+UPDATE operators
+SET exit_epoch = $2,
+    status = $3,
+    updated_at = NOW()
+WHERE address = $1
+RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at
+`
+
+type UpdateOperatorExitEpochParams struct {
+	Address   string         `json:"address"`
+	ExitEpoch pgtype.Numeric `json:"exit_epoch"`
+	Status    string         `json:"status"`
+}
+
+// Update operator exit epoch and status
+func (q *Queries) UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams) (Operators, error) {
+	row := q.db.QueryRow(ctx, updateOperatorExitEpoch, arg.Address, arg.ExitEpoch, arg.Status)
+	var i Operators
+	err := row.Scan(
+		&i.Address,
+		&i.SigningKey,
+		&i.RegisteredAtBlockNumber,
+		&i.RegisteredAtTimestamp,
+		&i.ActiveEpoch,
+		&i.ExitEpoch,
+		&i.Status,
+		&i.Weight,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateOperatorState = `-- name: UpdateOperatorState :one
 UPDATE operators
 SET status = $2,
@@ -208,6 +242,66 @@ type UpdateOperatorStatusParams struct {
 // Update operator status
 func (q *Queries) UpdateOperatorStatus(ctx context.Context, arg UpdateOperatorStatusParams) (Operators, error) {
 	row := q.db.QueryRow(ctx, updateOperatorStatus, arg.Address, arg.Status)
+	var i Operators
+	err := row.Scan(
+		&i.Address,
+		&i.SigningKey,
+		&i.RegisteredAtBlockNumber,
+		&i.RegisteredAtTimestamp,
+		&i.ActiveEpoch,
+		&i.ExitEpoch,
+		&i.Status,
+		&i.Weight,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertOperator = `-- name: UpsertOperator :one
+INSERT INTO operators (
+    address,
+    signing_key,
+    registered_at_block_number,
+    registered_at_timestamp,
+    active_epoch,
+    status,
+    weight,
+    exit_epoch
+) VALUES ($1, $2, $3, $4, $5, 'waitingJoin', $6, $7)
+ON CONFLICT (address) DO UPDATE
+SET signing_key = EXCLUDED.signing_key,
+    registered_at_block_number = EXCLUDED.registered_at_block_number,
+    registered_at_timestamp = EXCLUDED.registered_at_timestamp,
+    active_epoch = EXCLUDED.active_epoch,
+    status = EXCLUDED.status,
+    weight = EXCLUDED.weight,
+    exit_epoch = EXCLUDED.exit_epoch,
+    updated_at = NOW()
+RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at
+`
+
+type UpsertOperatorParams struct {
+	Address                 string         `json:"address"`
+	SigningKey              string         `json:"signing_key"`
+	RegisteredAtBlockNumber pgtype.Numeric `json:"registered_at_block_number"`
+	RegisteredAtTimestamp   pgtype.Numeric `json:"registered_at_timestamp"`
+	ActiveEpoch             pgtype.Numeric `json:"active_epoch"`
+	Weight                  pgtype.Numeric `json:"weight"`
+	ExitEpoch               pgtype.Numeric `json:"exit_epoch"`
+}
+
+// Insert or update operator record
+func (q *Queries) UpsertOperator(ctx context.Context, arg UpsertOperatorParams) (Operators, error) {
+	row := q.db.QueryRow(ctx, upsertOperator,
+		arg.Address,
+		arg.SigningKey,
+		arg.RegisteredAtBlockNumber,
+		arg.RegisteredAtTimestamp,
+		arg.ActiveEpoch,
+		arg.Weight,
+		arg.ExitEpoch,
+	)
 	var i Operators
 	err := row.Scan(
 		&i.Address,

@@ -171,4 +171,9 @@ func (c *Client) GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint
 // WatchOperatorRegistered forwards to registry client
 func (c *Client) WatchOperatorRegistered(opts *bind.FilterOpts, sink chan<- *contracts.OperatorRegisteredEvent) (event.Subscription, error) {
 	return c.registry.WatchOperatorRegistered(opts, sink)
-} 
+}
+
+// WatchOperatorDeregistered forwards to registry client
+func (c *Client) WatchOperatorDeregistered(opts *bind.FilterOpts, sink chan<- *contracts.OperatorDeregisteredEvent) (event.Subscription, error) {
+	return c.registry.WatchOperatorDeregistered(opts, sink)
+}

@@ -64,6 +64,9 @@ type RegistryClient interface {
 
 	// Watch for operator registered events
 	WatchOperatorRegistered(opts *bind.FilterOpts, sink chan<- *OperatorRegisteredEvent) (event.Subscription, error)
+
+	// Watch for operator deregistered events
+	WatchOperatorDeregistered(opts *bind.FilterOpts, sink chan<- *OperatorDeregisteredEvent) (event.Subscription, error)
 }
 
 // StateClient defines interactions with the StateManager contract

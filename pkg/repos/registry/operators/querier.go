@@ -17,10 +17,14 @@ type Querier interface {
 	ListAllOperators(ctx context.Context) ([]Operators, error)
 	// Get all operators with a specific status
 	ListOperatorsByStatus(ctx context.Context, status string) ([]Operators, error)
+	// Update operator exit epoch and status
+	UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams) (Operators, error)
 	// Update operator status and weight
 	UpdateOperatorState(ctx context.Context, arg UpdateOperatorStateParams) (Operators, error)
 	// Update operator status
 	UpdateOperatorStatus(ctx context.Context, arg UpdateOperatorStatusParams) (Operators, error)
+	// Insert or update operator record
+	UpsertOperator(ctx context.Context, arg UpsertOperatorParams) (Operators, error)
 	// Verify operator status and signing key for join request
 	VerifyOperatorStatus(ctx context.Context, address string) (VerifyOperatorStatusRow, error)
 }
