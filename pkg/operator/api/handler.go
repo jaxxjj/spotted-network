@@ -125,7 +125,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		blockNumber = pgtype.Numeric{
 			Int:   new(big.Int).SetInt64(*params.BlockNumber),
 			Valid: true,
-			Exp:   0, // Ensure no scale is applied
+			Exp:   0, 
 		}
 	}
 	if params.Timestamp != nil {
@@ -230,20 +230,77 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) validateRequest(params *SendRequestParams) error {
+	// 1. Validate chain ID (must be positive integer and supported in config)
 	if params.ChainID <= 0 {
-		return fmt.Errorf("invalid chain ID")
+		return fmt.Errorf("invalid chain ID: must be positive integer")
 	}
 
+	// Check if chain ID is supported in config
+	chainIDStr := fmt.Sprintf("%d", params.ChainID)
+	if _, ok := h.config.Chains[chainIDStr]; !ok {
+		// Get list of supported chains for better error message
+		supportedChains := make([]string, 0, len(h.config.Chains))
+		for chainID := range h.config.Chains {
+			supportedChains = append(supportedChains, chainID)
+		}
+		return fmt.Errorf("unsupported chain ID %s. supported chains: %v", chainIDStr, supportedChains)
+	}
+
+	// 2. Validate target address
 	if !common.IsHexAddress(params.TargetAddress) {
-		return fmt.Errorf("invalid target address")
+		return fmt.Errorf("invalid target address: must be valid Ethereum address")
 	}
 
+	// 3. Validate key (must be valid uint256)
+	keyBig := new(big.Int)
+	if _, ok := keyBig.SetString(params.Key, 0); !ok {
+		return fmt.Errorf("invalid key: must be valid uint256")
+	}
+	// Check if key is within uint256 range
+	if keyBig.Cmp(big.NewInt(0)) < 0 || keyBig.Cmp(new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))) > 0 {
+		return fmt.Errorf("invalid key: must be within uint256 range")
+	}
+
+	// 4. Validate block number and timestamp
 	if params.BlockNumber == nil && params.Timestamp == nil {
 		return fmt.Errorf("either block number or timestamp must be provided")
 	}
 
 	if params.BlockNumber != nil && params.Timestamp != nil {
 		return fmt.Errorf("only one of block number or timestamp should be provided")
+	}
+
+	// 5. If block number provided, validate it
+	if params.BlockNumber != nil {
+		// Get state client for target chain
+		stateClient, err := h.chainClient.GetStateClient(fmt.Sprintf("%d", params.ChainID))
+		if err != nil {
+			return fmt.Errorf("failed to get state client: %w", err)
+		}
+
+		// Get latest block number
+		latestBlock, err := stateClient.GetLatestBlockNumber(context.Background())
+		if err != nil {
+			return fmt.Errorf("failed to get latest block: %w", err)
+		}
+
+
+		// Validate block number range
+		blockNum := uint64(*params.BlockNumber)
+		if blockNum > latestBlock {
+			return fmt.Errorf("block number %d is in the future (latest: %d)", blockNum, latestBlock)
+		}
+	}
+
+	// 6. If timestamp provided, validate it
+	if params.Timestamp != nil {
+		// Get current time
+		now := time.Now().Unix()
+
+		// Validate timestamp is not in future
+		if *params.Timestamp > now {
+			return fmt.Errorf("timestamp is in the future")
+		}
 	}
 
 	return nil

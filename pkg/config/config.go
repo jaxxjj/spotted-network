@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,6 +18,9 @@ type ChainConfig struct {
 
 	// Number of block confirmations required before processing tasks
 	RequiredConfirmations int32 `yaml:"required_confirmations"`
+
+	// Average block time in seconds
+	AverageBlockTime float64 `yaml:"average_block_time"`
 }
 
 type ContractConfig struct {
@@ -78,6 +82,11 @@ type Config struct {
 	Logging LogConfig `yaml:"logging"`
 }
 
+var (
+	config *Config
+	once   sync.Once
+)
+
 // LoadConfig loads the configuration from the given file path
 func LoadConfig(path string) (*Config, error) {
 	log.Printf("Loading config from file: %s", path)
@@ -111,6 +120,11 @@ func LoadConfig(path string) (*Config, error) {
 	log.Printf("Final loaded config: %+v", cfg)
 	log.Printf("Final database config: %+v", cfg.Database)
 
+	// Set singleton instance
+	once.Do(func() {
+		config = cfg
+	})
+
 	return cfg, nil
 }
 
@@ -135,7 +149,7 @@ func DefaultConfig() *Config {
 					Registry:    "",
 					StateManager: "",
 				},
-				RequiredConfirmations: 12, // Default for Ethereum
+				RequiredConfirmations: 12, // Default for mainnet
 			},
 		},
 		Database: DatabaseConfig{
@@ -158,4 +172,12 @@ func DefaultConfig() *Config {
 			Format: "json",
 		},
 	}
+}
+
+// GetConfig returns the singleton config instance
+func GetConfig() *Config {
+	if config == nil {
+		panic("config not loaded")
+	}
+	return config
 } 
