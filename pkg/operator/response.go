@@ -229,10 +229,10 @@ func (tp *TaskProcessor) storeResponse(ctx context.Context, resp *types.TaskResp
 		Epoch:         int32(resp.Epoch),
 		ChainID:       int32(resp.ChainID),
 		TargetAddress: resp.TargetAddress,
-		Key:           types.NumericFromBigInt(resp.Key),
-		Value:         types.NumericFromBigInt(resp.Value),
-		BlockNumber:   types.NumericFromBigInt(resp.BlockNumber),
-		Timestamp:     types.NumericFromBigInt(resp.Timestamp),
+		Key:           NumericFromBigInt(resp.Key),
+		Value:         NumericFromBigInt(resp.Value),
+		BlockNumber:   NumericFromBigInt(resp.BlockNumber),
+		Timestamp:     NumericFromBigInt(resp.Timestamp),
 	}
 
 	_, err := tp.db.CreateTaskResponse(ctx, params)
