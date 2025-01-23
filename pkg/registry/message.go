@@ -8,7 +8,8 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/p2p"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -108,7 +109,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 	// Check if operator is registered on chain
 	log.Printf("Checking if operator %s is registered on chain", req.Address)
 	mainnetClient := n.chainClients.GetMainnetClient()
-	isRegistered, err := mainnetClient.IsOperatorRegistered(ctx, common.HexToAddress(req.Address))
+	isRegistered, err := mainnetClient.IsOperatorRegistered(ctx, ethcommon.HexToAddress(req.Address))
 	if err != nil {
 		log.Printf("Failed to check operator %s registration: %v", req.Address, err)
 		return fmt.Errorf("failed to check operator registration: %w", err)
@@ -167,7 +168,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 			ActiveEpoch:            int32(op.ActiveEpoch.Int.Int64()),
 			ExitEpoch:              exitEpoch,
 			Status:                 op.Status,
-			Weight:                 op.Weight.Int.String(),
+			Weight:                 common.NumericToString(op.Weight),
 		},
 	}
 	n.BroadcastStateUpdate(stateUpdate, "DELTA")
@@ -292,7 +293,7 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 			ActiveEpoch:            int32(op.ActiveEpoch.Int.Int64()),
 			ExitEpoch:              exitEpoch,
 			Status:                 op.Status,
-			Weight:                 op.Weight.Int.String(),
+			Weight:                 common.NumericToString(op.Weight),
 			Missing:                0, // These fields are no longer in the table
 			SuccessfulResponseCount: 0, // These fields are no longer in the table
 		})

@@ -8,16 +8,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"google.golang.org/protobuf/proto"
-
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/p2p"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"google.golang.org/protobuf/proto"
 )
 
 type Node struct {
@@ -311,7 +311,7 @@ func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) er
 				ActiveEpoch:            int32(updatedOp.ActiveEpoch.Int.Int64()),
 				ExitEpoch:              &exitEpoch,
 				Status:                 updatedOp.Status,
-				Weight:                 updatedOp.Weight.Int.String(),
+				Weight:                 common.NumericToString(updatedOp.Weight),
 			})
 
 			log.Printf("[Registry] Deactivated operator %s at epoch %d", op.Address, currentEpoch)
@@ -328,7 +328,7 @@ func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) er
 
 	mainnetClient := n.chainClients.GetMainnetClient()
 	for _, op := range activeOps {
-		weight, err := mainnetClient.GetOperatorWeight(ctx, common.HexToAddress(op.Address))
+		weight, err := mainnetClient.GetOperatorWeight(ctx, ethcommon.HexToAddress(op.Address))
 		if err != nil {
 			log.Printf("[Registry] Failed to get weight for operator %s: %v", op.Address, err)
 			continue

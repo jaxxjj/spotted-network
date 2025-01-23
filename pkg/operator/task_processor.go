@@ -11,17 +11,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/jackc/pgx/v5/pgtype"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"google.golang.org/protobuf/proto"
-
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	"github.com/jackc/pgx/v5/pgtype"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"google.golang.org/protobuf/proto"
+
 	pb "github.com/galxe/spotted-network/proto"
 )
 
@@ -151,7 +152,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	blockUint64 := task.BlockNumber.Uint64()
 	value, err := stateClient.GetStateAtBlock(
 		ctx,
-		common.HexToAddress(task.TargetAddress),
+		ethcommon.HexToAddress(task.TargetAddress),
 		task.Key,
 		blockUint64,
 	)
@@ -168,7 +169,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 
 	// Sign the response with all required fields
 	signParams := signer.TaskSignParams{
-		User:        common.HexToAddress(task.TargetAddress),
+		User:        ethcommon.HexToAddress(task.TargetAddress),
 		ChainID:     uint32(task.ChainID),
 		BlockNumber: blockUint64,
 		Timestamp:   task.Timestamp.Uint64(),
@@ -440,7 +441,7 @@ func (tp *TaskProcessor) verifyResponse(response *types.TaskResponse) error {
 	}
 
 	params := signer.TaskSignParams{
-		User:        common.HexToAddress(response.TargetAddress),
+		User:        ethcommon.HexToAddress(response.TargetAddress),
 		ChainID:     uint32(response.ChainID),
 		BlockNumber: response.BlockNumber.Uint64(),
 		Timestamp:   response.Timestamp.Uint64(),
@@ -552,7 +553,7 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 		Key:               types.NumericFromBigInt(sampleResp.Key),
 		AggregatedSignatures: aggregatedSigs, // Use aggregated signatures
 		OperatorSignatures:  operatorSigsJSON,
-		TotalWeight:        types.NumericFromBigInt(totalWeight),
+		TotalWeight:        pgtype.Numeric{Int: big.NewInt(0), Exp: 0, Valid: true},
 		ConsensusReachedAt:  pgtype.Timestamp{Time: time.Now(), Valid: true},
 	}
 
@@ -675,7 +676,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 						Key: task.Key,
 						AggregatedSignatures: []byte{},
 						OperatorSignatures: []byte("{}"),
-						TotalWeight: pgtype.Numeric{Int: big.NewInt(0), Valid: true},
+						TotalWeight: pgtype.Numeric{Int: big.NewInt(0), Exp: 0, Valid: true},
 						ConsensusReachedAt: pgtype.Timestamp{Time: time.Now(), Valid: true},
 					}
 					
@@ -875,7 +876,7 @@ func (tp *TaskProcessor) checkP2PStatus() {
 }
 
 // getStateWithRetries attempts to get state with retries
-func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, stateClient contracts.StateClient, target common.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
+func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, stateClient contracts.StateClient, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
 	maxRetries := 3
 	retryDelay := time.Second
 
@@ -938,16 +939,8 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 	}
 
 	// Handle numeric scale properly
-	blockNum := new(big.Int).Set(blockNumNumeric.Int)
-	if blockNumNumeric.Exp > 0 {
-		// If scale is positive, multiply by 10^scale
-		multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(blockNumNumeric.Exp)), nil)
-		blockNum.Mul(blockNum, multiplier)
-	} else if blockNumNumeric.Exp < 0 {
-		// If scale is negative, divide by 10^(-scale)
-		divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(-blockNumNumeric.Exp)), nil)
-		blockNum.Div(blockNum, divisor)
-	}
+	blockNumStr := common.NumericToString(blockNumNumeric)
+	blockNum, _ := new(big.Int).SetString(blockNumStr, 10)
 
 	tp.logger.Printf("[TaskProcessor] Using block number: %s", blockNum.String())
 
@@ -966,7 +959,7 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 
 	// Get state at block with retries
 	blockUint64 := blockNum.Uint64()
-	targetAddr := common.HexToAddress(task.TargetAddress)
+	targetAddr := ethcommon.HexToAddress(task.TargetAddress)
 	tp.logger.Printf("[TaskProcessor] Getting state for address %s at block %d", targetAddr.Hex(), blockUint64)
 	
 	state, err := tp.getStateWithRetries(ctx, stateClient, targetAddr, keyBig, blockUint64)

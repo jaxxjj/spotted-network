@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -213,22 +214,6 @@ func convertToProtoOperator(op operators.Operators) *pb.OperatorState {
 		exitEpoch = &val
 	}
 
-	// Handle weight conversion properly
-	var weightStr string
-	if op.Weight.Valid && op.Weight.Int != nil {
-		weight := new(big.Int).Set(op.Weight.Int)
-		if op.Weight.Exp > 0 {
-			// If scale is positive, multiply by 10^scale
-			multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(op.Weight.Exp)), nil)
-			weight.Mul(weight, multiplier)
-		} else if op.Weight.Exp < 0 {
-			// If scale is negative, divide by 10^(-scale)
-			divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(-op.Weight.Exp)), nil)
-			weight.Div(weight, divisor)
-		}
-		weightStr = weight.String()
-	}
-
 	return &pb.OperatorState{
 		Address:                op.Address,
 		SigningKey:            op.SigningKey,
@@ -237,7 +222,7 @@ func convertToProtoOperator(op operators.Operators) *pb.OperatorState {
 		ActiveEpoch:           int32(op.ActiveEpoch.Int.Int64()),
 		ExitEpoch:            exitEpoch,
 		Status:               op.Status,
-		Weight:               weightStr,
+		Weight:               common.NumericToString(op.Weight),
 	}
 }
 
