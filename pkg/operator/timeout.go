@@ -8,6 +8,10 @@ import (
 	"github.com/galxe/spotted-network/pkg/common"
 )
 
+const (
+	maxRetryCount = 3
+)
+
 // checkTimeouts periodically checks for pending tasks and retries them
 func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
@@ -30,34 +34,45 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 			for _, task := range tasks {
 				tp.logger.Printf("[Timeout] Processing pending task %s (retry count: %d)", task.TaskID, task.RetryCount)
 				
+				// Clean up memory maps before retrying
+				tp.responsesMutex.Lock()
+				delete(tp.responses, task.TaskID)
+				tp.responsesMutex.Unlock()
+
+				tp.weightsMutex.Lock()
+				delete(tp.taskWeights, task.TaskID)
+				tp.weightsMutex.Unlock()
+
+				// Increment retry count before processing
+				newRetryCount, err := tp.taskQueries.IncrementRetryCount(ctx, task.TaskID)
+				if err != nil {
+					tp.logger.Printf("[Timeout] Failed to increment retry count: %v", err)
+					continue
+				}
+				tp.logger.Printf("[Timeout] Incremented retry count for task %s to %d", task.TaskID, newRetryCount.RetryCount)
+
+				// If retry count reaches max, delete the task
+				if newRetryCount.RetryCount >= maxRetryCount {
+					tp.logger.Printf("[Timeout] Task %s reached max retries, deleting", task.TaskID)
+					if err := tp.taskQueries.DeleteTaskByID(ctx, task.TaskID); err != nil {
+						tp.logger.Printf("[Timeout] Failed to delete task: %v", err)
+					}
+
+					// Clean up memory
+                    tp.responsesMutex.Lock()
+                    delete(tp.responses, task.TaskID)
+                    tp.responsesMutex.Unlock()
+
+                    tp.weightsMutex.Lock()
+                    delete(tp.taskWeights, task.TaskID)
+                    tp.weightsMutex.Unlock()
+
+					continue
+				}
+				
 				// Try to process the task
 				if err := tp.ProcessPendingTask(ctx, &task); err != nil {
 					tp.logger.Printf("[Timeout] Failed to process task %s: %v", task.TaskID, err)
-					
-					// Increment retry count
-					if _, err := tp.taskQueries.IncrementRetryCount(ctx, task.TaskID); err != nil {
-						tp.logger.Printf("[Timeout] Failed to increment retry count: %v", err)
-						continue
-					}
-					
-					// If retry count reaches 3, delete the task
-					if task.RetryCount >= 2 { // Check for 2 since we just incremented
-						tp.logger.Printf("[Timeout] Task %s reached max retries, deleting", task.TaskID)
-						
-						if err := tp.taskQueries.DeleteTasksByRetryCount(ctx, 3); err != nil {
-							tp.logger.Printf("[Timeout] Failed to delete task: %v", err)
-							continue
-						}
-						
-						// Clean up memory
-						tp.responsesMutex.Lock()
-						delete(tp.responses, task.TaskID)
-						tp.responsesMutex.Unlock()
-
-						tp.weightsMutex.Lock()
-						delete(tp.taskWeights, task.TaskID)
-						tp.weightsMutex.Unlock()
-					}
 				} else {
 					tp.logger.Printf("[Timeout] Successfully processed pending task %s", task.TaskID)
 				}

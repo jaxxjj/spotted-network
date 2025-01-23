@@ -84,14 +84,13 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 	return i, err
 }
 
-const deleteTasksByRetryCount = `-- name: DeleteTasksByRetryCount :exec
+const deleteTaskByID = `-- name: DeleteTaskByID :exec
 DELETE FROM tasks
-WHERE retry_count >= $1
-AND status = 'pending'
+WHERE task_id = $1
 `
 
-func (q *Queries) DeleteTasksByRetryCount(ctx context.Context, retryCount int32) error {
-	_, err := q.db.Exec(ctx, deleteTasksByRetryCount, retryCount)
+func (q *Queries) DeleteTaskByID(ctx context.Context, taskID string) error {
+	_, err := q.db.Exec(ctx, deleteTaskByID, taskID)
 	return err
 }
 

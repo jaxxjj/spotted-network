@@ -70,7 +70,7 @@ SET retry_count = retry_count + 1,
 WHERE task_id = $1
 RETURNING *;
 
--- name: DeleteTasksByRetryCount :exec
+-- name: DeleteTaskByID :exec
 DELETE FROM tasks
-WHERE retry_count >= $1
-AND status = 'pending';
+WHERE task_id = $1;
+
