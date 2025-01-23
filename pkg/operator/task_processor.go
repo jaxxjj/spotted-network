@@ -771,9 +771,10 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 
 				// Check if we have enough confirmations
 				targetBlockUint64 := targetBlock.Uint64()
-				if latestBlock >= targetBlockUint64 {
-					tp.logger.Printf("[Confirmation] Task %s has reached required confirmations (latest: %d >= target: %d), changing status to pending", 
-						task.TaskID, latestBlock, targetBlockUint64)
+				requiredTarget := targetBlockUint64 + uint64(requiredConfirmations)
+				if latestBlock >= requiredTarget {
+					tp.logger.Printf("[Confirmation] Task %s has reached required confirmations (latest: %d >= target+confirmations: %d), changing status to pending", 
+						task.TaskID, latestBlock, requiredTarget)
 					
 					// Change task status to pending
 					err = tp.taskQueries.UpdateTaskToPending(ctx, task.TaskID)
