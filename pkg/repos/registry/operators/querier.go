@@ -9,7 +9,7 @@ import (
 )
 
 type Querier interface {
-	// Create a new operator record with waitingJoin status
+	// Create a new operator record with inactive status
 	CreateOperator(ctx context.Context, arg CreateOperatorParams) (Operators, error)
 	// Get operator information by address
 	GetOperatorByAddress(ctx context.Context, address string) (Operators, error)
@@ -17,7 +17,7 @@ type Querier interface {
 	ListAllOperators(ctx context.Context) ([]Operators, error)
 	// Get all operators with a specific status
 	ListOperatorsByStatus(ctx context.Context, status string) ([]Operators, error)
-	// Update operator exit epoch and status
+	// Update operator exit epoch
 	UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams) (Operators, error)
 	// Update operator status and weight
 	UpdateOperatorState(ctx context.Context, arg UpdateOperatorStateParams) (Operators, error)

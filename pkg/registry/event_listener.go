@@ -204,55 +204,13 @@ func (el *EventListener) updateStatusAfterOperations(ctx context.Context, operat
 		exitEpoch = 4294967295 // max uint32 value to indicate no exit epoch
 	}
 
-	// Calculate epoch block numbers
-	activeEpochStartBlock := GenesisBlock + uint64(activeEpoch) * EpochPeriod
-	exitEpochStartBlock := GenesisBlock + uint64(exitEpoch) * EpochPeriod
+	// Determine operator status using helper
+	status, logMsg := DetermineOperatorStatus(currentBlock, activeEpoch, exitEpoch)
+	log.Printf("[EventListener] %s", logMsg)
 
-	// Determine operator status
-	var status string
+	// Get weight if status is active
 	var weight *big.Int
-
-	if exitEpoch == 4294967295 {
-		// Case 1: Only has active epoch, no exit epoch
-		if currentBlock >= activeEpochStartBlock {
-			status = "active"
-			log.Printf("[EventListener] Operator %s marked as active (block %d >= active epoch %d start block %d)", 
-				operatorAddr, currentBlock, activeEpoch, activeEpochStartBlock)
-		} else {
-			status = "waitingActive"
-			log.Printf("[EventListener] Operator %s marked as waitingActive (block %d < active epoch %d start block %d)", 
-				operatorAddr, currentBlock, activeEpoch, activeEpochStartBlock)
-		}
-	} else if exitEpoch > activeEpoch {
-		// Case 2: Has exit epoch and exit epoch > active epoch
-		if currentBlock < activeEpochStartBlock {
-			status = "waitingActive"
-			log.Printf("[EventListener] Operator %s marked as waitingActive (block %d < active epoch %d start block %d)", 
-				operatorAddr, currentBlock, activeEpoch, activeEpochStartBlock)
-		} else if currentBlock >= activeEpochStartBlock && currentBlock < exitEpochStartBlock {
-			status = "active"
-			log.Printf("[EventListener] Operator %s marked as active (block %d in [%d, %d))", 
-				operatorAddr, currentBlock, activeEpochStartBlock, exitEpochStartBlock)
-		} else {
-			status = "inactive"
-			log.Printf("[EventListener] Operator %s marked as inactive (block %d >= exit epoch %d start block %d)", 
-				operatorAddr, currentBlock, exitEpoch, exitEpochStartBlock)
-		}
-	} else {
-		// Case 3: Has exit epoch and exit epoch <= active epoch
-		if currentBlock < exitEpochStartBlock {
-			status = "waitingExit"
-			log.Printf("[EventListener] Operator %s marked as waitingExit (block %d < exit epoch %d start block %d)", 
-				operatorAddr, currentBlock, exitEpoch, exitEpochStartBlock)
-		} else {
-			status = "inactive"
-			log.Printf("[EventListener] Operator %s marked as inactive (block %d >= exit epoch %d start block %d)", 
-				operatorAddr, currentBlock, exitEpoch, exitEpochStartBlock)
-		}
-	}
-
-	// Get weight if status is active or waitingExit
-	if status == "active" || status == "waitingExit" {
+	if status == "active" {
 		weight, err = client.GetOperatorWeight(ctx, common.HexToAddress(operatorAddr))
 		if err != nil {
 			return fmt.Errorf("[EventListener] failed to get operator weight: %w", err)
@@ -305,7 +263,6 @@ func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *
 			Exp:    0,
 			Valid:  true,
 		},
-		Status:    "waitingExit",  // Always set to waitingExit initially
 	})
 	if err != nil {
 		log.Printf("[EventListener] Failed to update operator exit epoch: %v", err)

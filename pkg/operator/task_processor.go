@@ -594,8 +594,7 @@ func (tp *TaskProcessor) isActiveOperator(signingKey string) bool {
 
 	// Check each operator's state
 	for _, state := range tp.node.operatorStates {
-		// Both 'active' and 'waitingExit' states are considered active until the exit epoch
-		if state.Status == "active" || state.Status == "waitingExit" {
+		if state.Status == "active" {
 			tp.logger.Printf("[Operator] Found active operator %s with status %s", state.Address, state.Status)
 			return true
 		}

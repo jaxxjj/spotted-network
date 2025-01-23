@@ -41,11 +41,11 @@ func (s *registryServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Joi
 		}, nil
 	}
 
-	// Verify operator is in waitingJoin status
-	if op.Status != string(registrynode.OperatorStatusWaitingJoin) {
+	// Verify operator is in active status
+	if op.Status != string(registrynode.OperatorStatusActive) {
 		return &pb.JoinResponse{
 			Success: false,
-			Error:   "Operator not in waitingJoin status",
+			Error:   "Operator not in active status",
 		}, nil
 	}
 
@@ -76,8 +76,8 @@ func (s *registryServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Joi
 		}, nil
 	}
 
-	// Update operator status to waitingActive
-	if err := s.node.UpdateOperatorStatus(ctx, req.Address, string(registrynode.OperatorStatusWaitingActive)); err != nil {
+	// Update operator status to active
+	if err := s.node.UpdateOperatorStatus(ctx, req.Address, string(registrynode.OperatorStatusActive)); err != nil {
 		return &pb.JoinResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to update operator status: %v", err),

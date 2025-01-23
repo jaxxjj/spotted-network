@@ -20,7 +20,7 @@ INSERT INTO operators (
     active_epoch,
     status,
     weight
-) VALUES ($1, $2, $3, $4, $5, 'waitingJoin', $6)
+) VALUES ($1, $2, $3, $4, $5, 'inactive', $6)
 RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at
 `
 
@@ -33,7 +33,7 @@ type CreateOperatorParams struct {
 	Weight                  pgtype.Numeric `json:"weight"`
 }
 
-// Create a new operator record with waitingJoin status
+// Create a new operator record with inactive status
 func (q *Queries) CreateOperator(ctx context.Context, arg CreateOperatorParams) (Operators, error) {
 	row := q.db.QueryRow(ctx, createOperator,
 		arg.Address,
@@ -161,7 +161,6 @@ func (q *Queries) ListOperatorsByStatus(ctx context.Context, status string) ([]O
 const updateOperatorExitEpoch = `-- name: UpdateOperatorExitEpoch :one
 UPDATE operators
 SET exit_epoch = $2,
-    status = $3,
     updated_at = NOW()
 WHERE address = $1
 RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at
@@ -170,12 +169,11 @@ RETURNING address, signing_key, registered_at_block_number, registered_at_timest
 type UpdateOperatorExitEpochParams struct {
 	Address   string         `json:"address"`
 	ExitEpoch pgtype.Numeric `json:"exit_epoch"`
-	Status    string         `json:"status"`
 }
 
-// Update operator exit epoch and status
+// Update operator exit epoch
 func (q *Queries) UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams) (Operators, error) {
-	row := q.db.QueryRow(ctx, updateOperatorExitEpoch, arg.Address, arg.ExitEpoch, arg.Status)
+	row := q.db.QueryRow(ctx, updateOperatorExitEpoch, arg.Address, arg.ExitEpoch)
 	var i Operators
 	err := row.Scan(
 		&i.Address,
@@ -268,7 +266,7 @@ INSERT INTO operators (
     status,
     weight,
     exit_epoch
-) VALUES ($1, $2, $3, $4, $5, 'waitingJoin', $6, $7)
+) VALUES ($1, $2, $3, $4, $5, 'inactive', $6, $7)
 ON CONFLICT (address) DO UPDATE
 SET signing_key = EXCLUDED.signing_key,
     registered_at_block_number = EXCLUDED.registered_at_block_number,
@@ -321,7 +319,7 @@ func (q *Queries) UpsertOperator(ctx context.Context, arg UpsertOperatorParams) 
 const verifyOperatorStatus = `-- name: VerifyOperatorStatus :one
 SELECT status, signing_key 
 FROM operators
-WHERE address = $1 AND status = 'waitingJoin'
+WHERE address = $1 AND status = 'active'
 `
 
 type VerifyOperatorStatusRow struct {

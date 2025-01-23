@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS operators (
     registered_at_timestamp NUMERIC(78) NOT NULL,
     active_epoch NUMERIC(78) NOT NULL,
     exit_epoch NUMERIC(78) NOT NULL DEFAULT 4294967295,
-    status TEXT NOT NULL CHECK (status IN ('waitingJoin', 'waitingActive', 'active', 'waitingExit', 'inactive', 'suspended')),
+    status TEXT NOT NULL CHECK (status IN ('active', 'inactive', 'suspended')),
     weight NUMERIC(78),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()

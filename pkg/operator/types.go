@@ -11,13 +11,9 @@ import (
 type OperatorStatus string
 
 const (
-	// OperatorStatusWaitingJoin indicates the operator is waiting to join
-	OperatorStatusWaitingJoin OperatorStatus = "waitingJoin"
-	// OperatorStatusWaitingActive indicates the operator has joined but is not yet active
-	OperatorStatusWaitingActive OperatorStatus = "waitingActive"
-	// OperatorStatusActive indicates the operator is active and participating in consensus
+	// OperatorStatusActive indicates the operator is active
 	OperatorStatusActive OperatorStatus = "active"
-	// OperatorStatusInactive indicates the operator is no longer active
+	// OperatorStatusInactive indicates the operator is inactive
 	OperatorStatusInactive OperatorStatus = "inactive"
 )
 

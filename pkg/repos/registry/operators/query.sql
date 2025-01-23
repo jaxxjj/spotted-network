@@ -4,7 +4,7 @@ SELECT * FROM operators
 WHERE address = $1;
 
 -- name: CreateOperator :one
--- Create a new operator record with waitingJoin status
+-- Create a new operator record with inactive status
 INSERT INTO operators (
     address,
     signing_key,
@@ -13,7 +13,7 @@ INSERT INTO operators (
     active_epoch,
     status,
     weight
-) VALUES ($1, $2, $3, $4, $5, 'waitingJoin', $6)
+) VALUES ($1, $2, $3, $4, $5, 'inactive', $6)
 RETURNING *;
 
 -- name: UpdateOperatorStatus :one
@@ -28,7 +28,7 @@ RETURNING *;
 -- Verify operator status and signing key for join request
 SELECT status, signing_key 
 FROM operators
-WHERE address = $1 AND status = 'waitingJoin';
+WHERE address = $1 AND status = 'active';
 
 -- name: ListOperatorsByStatus :many
 -- Get all operators with a specific status
@@ -51,10 +51,9 @@ WHERE address = $1
 RETURNING *;
 
 -- name: UpdateOperatorExitEpoch :one
--- Update operator exit epoch and status
+-- Update operator exit epoch
 UPDATE operators
 SET exit_epoch = $2,
-    status = $3,
     updated_at = NOW()
 WHERE address = $1
 RETURNING *;
@@ -70,7 +69,7 @@ INSERT INTO operators (
     status,
     weight,
     exit_epoch
-) VALUES ($1, $2, $3, $4, $5, 'waitingJoin', $6, $7)
+) VALUES ($1, $2, $3, $4, $5, 'inactive', $6, $7)
 ON CONFLICT (address) DO UPDATE
 SET signing_key = EXCLUDED.signing_key,
     registered_at_block_number = EXCLUDED.registered_at_block_number,
