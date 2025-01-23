@@ -4,43 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/big"
-	"sync"
 	"time"
 
-	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/p2p"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
-	pb "github.com/galxe/spotted-network/proto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"google.golang.org/protobuf/proto"
 )
-
-type Node struct {
-	host *p2p.Host
-	
-	// Connected operators
-	operators map[peer.ID]*OperatorInfo
-	operatorsMu sync.RWMutex
-	
-	// Health check interval
-	healthCheckInterval time.Duration
-
-	// Database connection
-	db *operators.Queries
-
-	// Event listener
-	eventListener *EventListener
-
-	// Chain clients manager
-	chainClients *ethereum.ChainClients
-
-	// State sync subscribers
-	subscribers map[peer.ID]network.Stream
-	subscribersMu sync.RWMutex
-}
 
 func NewNode(ctx context.Context, cfg *p2p.Config, db *operators.Queries, chainClients *ethereum.ChainClients) (*Node, error) {
 	host, err := p2p.NewHost(ctx, cfg)
@@ -75,73 +46,15 @@ func NewNode(ctx context.Context, cfg *p2p.Config, db *operators.Queries, chainC
 	return node, nil
 }
 
+func (n *Node) Start(ctx context.Context) error {
+	// Start epoch monitoring
+	go n.monitorEpochUpdates(ctx)
+
+	return nil
+}
+
 func (n *Node) Stop() error {
 	return n.host.Close()
-}
-
-// SetupProtocols sets up the protocol handlers for the registry node
-func (n *Node) SetupProtocols() {
-	// Set up join request handler
-	n.host.SetStreamHandler("/spotted/1.0.0", n.handleStream)
-	
-	// Set up state sync handler
-	n.host.SetStreamHandler("/state-sync/1.0.0", n.handleStateSync)
-	
-	log.Printf("Protocol handlers set up")
-}
-
-// BroadcastStateUpdate sends a state update to all subscribers
-func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType string) {
-	update := &pb.OperatorStateUpdate{
-		Type:      updateType,
-		Operators: operators,
-	}
-
-	data, err := proto.Marshal(update)
-	if err != nil {
-		log.Printf("Error marshaling state update: %v", err)
-		return
-	}
-
-	// Prepare message type and length prefix
-	msgType := []byte{0x02} // 0x02 for state update
-	length := uint32(len(data))
-	lengthBytes := make([]byte, 4)
-	lengthBytes[0] = byte(length >> 24)
-	lengthBytes[1] = byte(length >> 16)
-	lengthBytes[2] = byte(length >> 8)
-	lengthBytes[3] = byte(length)
-
-	n.subscribersMu.RLock()
-	defer n.subscribersMu.RUnlock()
-
-	for peer, stream := range n.subscribers {
-		// Write message type
-		if _, err := stream.Write(msgType); err != nil {
-			log.Printf("Error sending message type to %s: %v", peer, err)
-			stream.Reset()
-			delete(n.subscribers, peer)
-			continue
-		}
-
-		// Write length prefix
-		if _, err := stream.Write(lengthBytes); err != nil {
-			log.Printf("Error sending length prefix to %s: %v", peer, err)
-			stream.Reset()
-			delete(n.subscribers, peer)
-			continue
-		}
-
-		// Write protobuf data
-		if _, err := stream.Write(data); err != nil {
-			log.Printf("Error sending update data to %s: %v", peer, err)
-			stream.Reset()
-			delete(n.subscribers, peer)
-		} else {
-			log.Printf("Sent state update to %s - Type: %s, Length: %d, Operators: %d", 
-				peer, updateType, length, len(operators))
-		}
-	}
 }
 
 // GetOperatorInfo returns information about a connected operator
@@ -167,54 +80,6 @@ func (n *Node) GetHostID() string {
 	return n.host.ID().String()
 }
 
-func (n *Node) Start(ctx context.Context) error {
-	// Start epoch monitoring
-	go n.monitorEpochUpdates(ctx)
-
-	return nil
-}
-
-func (n *Node) calculateEpochNumber(blockNumber uint64) uint32 {
-	return uint32((blockNumber - GenesisBlock) / EpochPeriod)
-}
-
-func (n *Node) monitorEpochUpdates(ctx context.Context) {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	var lastProcessedEpoch uint32
-
-	log.Printf("[Registry] Starting epoch monitoring...")
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// Get latest block number
-			mainnetClient := n.chainClients.GetMainnetClient()
-			blockNumber, err := mainnetClient.GetLatestBlockNumber(ctx)
-			if err != nil {
-				log.Printf("[Registry] Failed to get latest block number: %v", err)
-				continue
-			}
-
-			// Calculate current epoch
-			currentEpoch := n.calculateEpochNumber(blockNumber)
-
-			// If we're in a new epoch, update operator states
-			if currentEpoch > lastProcessedEpoch {
-				if err := n.updateOperatorStates(ctx, currentEpoch); err != nil {
-					log.Printf("[Registry] Failed to update operator states for epoch %d: %v", currentEpoch, err)
-					continue
-				}
-				lastProcessedEpoch = currentEpoch
-				log.Printf("[Registry] Updated operator states for epoch %d", currentEpoch)
-			}
-		}
-	}
-}
-
 // GetOperatorByAddress gets operator info from database
 func (n *Node) GetOperatorByAddress(ctx context.Context, address string) (operators.Operators, error) {
 	return n.db.GetOperatorByAddress(ctx, address)
@@ -227,86 +92,4 @@ func (n *Node) UpdateOperatorStatus(ctx context.Context, address string, status 
 		Status:  status,
 	})
 	return err
-}
-
-func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) error {
-	updatedOperators := make([]*pb.OperatorState, 0)
-	mainnetClient := n.chainClients.GetMainnetClient()
-	currentBlock, err := mainnetClient.GetLatestBlockNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get current block number: %w", err)
-	}
-
-	// Get all operators
-	allOps, err := n.db.ListAllOperators(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get all operators: %w", err)
-	}
-
-	log.Printf("[Registry] Processing %d operators for epoch %d (block %d)", len(allOps), currentEpoch, currentBlock)
-
-	for _, op := range allOps {
-		activeEpoch := uint32(op.ActiveEpoch.Int.Int64())
-		exitEpoch := uint32(op.ExitEpoch.Int.Int64())
-		
-		// Use helper function to determine status
-		newStatus, logMsg := DetermineOperatorStatus(currentBlock, activeEpoch, exitEpoch)
-		log.Printf("[Node] %s", logMsg)
-
-		// Only update if status has changed
-		if newStatus != op.Status {
-			// Update operator state in database
-			updatedOp, err := n.db.UpdateOperatorStatus(ctx, operators.UpdateOperatorStatusParams{
-				Address: op.Address,
-				Status:  newStatus,
-			})
-			if err != nil {
-				log.Printf("[Registry] Failed to update operator %s state: %v", op.Address, err)
-				continue
-			}
-
-			// Get weight if status is active
-			var weight *big.Int
-			if newStatus == "active" {
-				weight, err = mainnetClient.GetOperatorWeight(ctx, ethcommon.HexToAddress(op.Address))
-				if err != nil {
-					log.Printf("[Registry] Failed to get weight for operator %s: %v", op.Address, err)
-					continue
-				}
-			} else {
-				weight = big.NewInt(0)
-			}
-
-			// Add to updated operators list
-			var exitEpochPtr *int32
-			if exitEpoch != 4294967295 {
-				exitEpochInt32 := int32(exitEpoch)
-				exitEpochPtr = &exitEpochInt32
-			}
-
-			updatedOperators = append(updatedOperators, &pb.OperatorState{
-				Address:                 updatedOp.Address,
-				SigningKey:             updatedOp.SigningKey,
-				RegisteredAtBlockNumber: updatedOp.RegisteredAtBlockNumber.Int.Int64(),
-				RegisteredAtTimestamp:   updatedOp.RegisteredAtTimestamp.Int.Int64(),
-				ActiveEpoch:            int32(activeEpoch),
-				ExitEpoch:              exitEpochPtr,
-				Status:                 newStatus,
-				Weight:                 weight.String(),
-			})
-
-			log.Printf("[Registry] Updated operator %s status from %s to %s at epoch %d (block %d)", 
-				op.Address, op.Status, newStatus, currentEpoch, currentBlock)
-		}
-	}
-
-	// Broadcast updates if any operators were updated
-	if len(updatedOperators) > 0 {
-		n.BroadcastStateUpdate(updatedOperators, "state_update")
-		log.Printf("[Registry] Broadcast state update for %d operators at epoch %d", len(updatedOperators), currentEpoch)
-	} else {
-		log.Printf("[Registry] No operator state changes needed for epoch %d", currentEpoch)
-	}
-
-	return nil
 }

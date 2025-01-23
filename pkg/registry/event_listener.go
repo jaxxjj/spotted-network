@@ -14,11 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type EventListener struct {
-	chainClients *eth.ChainClients     // Chain clients manager
-	operatorQueries *operators.Queries     // Database queries
-}
-
 func NewEventListener(chainClients *eth.ChainClients, operatorQueries *operators.Queries) *EventListener {
 	log.Printf("[EventListener] Creating new EventListener instance")
 	return &EventListener{

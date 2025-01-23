@@ -8,7 +8,6 @@ import (
 	pb "github.com/galxe/spotted-network/proto"
 	"google.golang.org/grpc"
 )
-
 type RegistryClient struct {
     client pb.RegistryClient
     conn   *grpc.ClientConn

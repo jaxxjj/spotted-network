@@ -11,10 +11,53 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	pb "github.com/galxe/spotted-network/proto"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
+
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
+	"github.com/galxe/spotted-network/pkg/operator/api"
+	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type Node struct {
+	host           host.Host
+	registryID     peer.ID
+	registryAddr   string
+	signer         signer.Signer
+	knownOperators map[peer.ID]*peer.AddrInfo
+	operators      map[peer.ID]*OperatorInfo
+	operatorsMu    sync.RWMutex
+	pingService    *ping.PingService
+	
+	// State sync related fields
+	operatorStates map[string]*pb.OperatorState
+	statesMu       sync.RWMutex
+	
+	// Database connection
+	db          *pgxpool.Pool
+	taskQueries *tasks.Queries
+	responseQueries *task_responses.Queries
+	consensusQueries *consensus_responses.Queries
+	epochStates *epoch_states.Queries
+	
+	// Chain clients
+	chainClient *ethereum.ChainClients
+	
+	// API server
+	apiServer *api.Server
+
+	// P2P pubsub
+	PubSub *pubsub.PubSub
+
+	// Task processor
+	taskProcessor *TaskProcessor
+}
 
 // OperatorStatus represents the status of an operator
 type OperatorStatus string

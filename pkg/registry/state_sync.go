@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"math/big"
-	"sync"
 
 	"github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
@@ -15,16 +14,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
 )
-
-// StateSyncService handles operator state synchronization
-type StateSyncService struct {
-	host host.Host
-	db   *operators.Queries
-	
-	// Subscribers for state updates
-	subscribers   map[peer.ID]network.Stream
-	subscribersMu sync.RWMutex
-}
 
 // NewStateSyncService creates a new state sync service
 func NewStateSyncService(h host.Host, db *operators.Queries) *StateSyncService {
@@ -148,29 +137,21 @@ func (s *StateSyncService) Unsubscribe(peerID peer.ID) {
 	}
 }
 
-// BroadcastUpdate sends an update to all subscribed operators
-func (s *StateSyncService) BroadcastUpdate(operators []*pb.OperatorState) {
-	s.subscribersMu.RLock()
-	defer s.subscribersMu.RUnlock()
-
-	if len(operators) == 0 {
-		log.Printf("[StateSync] No operators to broadcast")
-		return
-	}
-
-	// Create update message
+// BroadcastStateUpdate sends a state update to all subscribers
+func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType string) {
 	update := &pb.OperatorStateUpdate{
+		Type:      updateType,
 		Operators: operators,
 	}
 
-	// Marshal update
 	data, err := proto.Marshal(update)
 	if err != nil {
-		log.Printf("[StateSync] Failed to marshal state update: %v", err)
+		log.Printf("Error marshaling state update: %v", err)
 		return
 	}
 
-	// Write length prefix
+	// Prepare message type and length prefix
+	msgType := []byte{0x02} // 0x02 for state update
 	length := uint32(len(data))
 	lengthBytes := make([]byte, 4)
 	lengthBytes[0] = byte(length >> 24)
@@ -178,25 +159,35 @@ func (s *StateSyncService) BroadcastUpdate(operators []*pb.OperatorState) {
 	lengthBytes[2] = byte(length >> 8)
 	lengthBytes[3] = byte(length)
 
-	// Broadcast to all subscribers
-	for peer, stream := range s.subscribers {
+	n.subscribersMu.RLock()
+	defer n.subscribersMu.RUnlock()
+
+	for peer, stream := range n.subscribers {
+		// Write message type
+		if _, err := stream.Write(msgType); err != nil {
+			log.Printf("Error sending message type to %s: %v", peer, err)
+			stream.Reset()
+			delete(n.subscribers, peer)
+			continue
+		}
+
 		// Write length prefix
 		if _, err := stream.Write(lengthBytes); err != nil {
-			log.Printf("[StateSync] Error sending length prefix to %s: %v", peer, err)
+			log.Printf("Error sending length prefix to %s: %v", peer, err)
 			stream.Reset()
-			delete(s.subscribers, peer)
+			delete(n.subscribers, peer)
 			continue
 		}
 
-		// Write update data
+		// Write protobuf data
 		if _, err := stream.Write(data); err != nil {
-			log.Printf("[StateSync] Error sending update to %s: %v", peer, err)
+			log.Printf("Error sending update data to %s: %v", peer, err)
 			stream.Reset()
-			delete(s.subscribers, peer)
-			continue
+			delete(n.subscribers, peer)
+		} else {
+			log.Printf("Sent state update to %s - Type: %s, Length: %d, Operators: %d", 
+				peer, updateType, length, len(operators))
 		}
-
-		log.Printf("[StateSync] Sent state update to %s with %d operators", peer, len(operators))
 	}
 }
 

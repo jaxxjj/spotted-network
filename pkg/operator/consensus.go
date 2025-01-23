@@ -146,6 +146,19 @@ func (tp *TaskProcessor) aggregateSignatures(sigs map[string][]byte) []byte {
 	return aggregated
 }
 
+// getConsensusThreshold returns the threshold weight for consensus from the latest epoch state
+func (n *Node) getConsensusThreshold(ctx context.Context) (*big.Int, error) {
+	latestEpoch, err := n.epochStates.GetLatestEpochState(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest epoch state: %w", err)
+	}
+	
+	if !latestEpoch.ThresholdWeight.Valid || latestEpoch.ThresholdWeight.Int == nil {
+		return nil, fmt.Errorf("invalid threshold weight in epoch state")
+	}
+	
+	return latestEpoch.ThresholdWeight.Int, nil
+}
 
 // storeConsensus stores a consensus response in the database
 func (tp *TaskProcessor) storeConsensus(ctx context.Context, consensus consensus_responses.CreateConsensusResponseParams) error {

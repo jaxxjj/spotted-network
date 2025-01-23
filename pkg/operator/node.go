@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/big"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
@@ -27,39 +25,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Node struct {
-	host           host.Host
-	registryID     peer.ID
-	registryAddr   string
-	signer         signer.Signer
-	knownOperators map[peer.ID]*peer.AddrInfo
-	operators      map[peer.ID]*OperatorInfo
-	operatorsMu    sync.RWMutex
-	pingService    *ping.PingService
-	
-	// State sync related fields
-	operatorStates map[string]*pb.OperatorState
-	statesMu       sync.RWMutex
-	
-	// Database connection
-	db          *pgxpool.Pool
-	taskQueries *tasks.Queries
-	responseQueries *task_responses.Queries
-	consensusQueries *consensus_responses.Queries
-	epochStates *epoch_states.Queries
-	
-	// Chain clients
-	chainClient *ethereum.ChainClients
-	
-	// API server
-	apiServer *api.Server
-
-	// P2P pubsub
-	PubSub *pubsub.PubSub
-
-	// Task processor
-	taskProcessor *TaskProcessor
-}
 
 func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *ethereum.ChainClients) (*Node, error) {
 	// Parse the registry multiaddr
@@ -297,16 +262,4 @@ func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
 	return nil
 }
 
-// getConsensusThreshold returns the threshold weight for consensus from the latest epoch state
-func (n *Node) getConsensusThreshold(ctx context.Context) (*big.Int, error) {
-	latestEpoch, err := n.epochStates.GetLatestEpochState(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get latest epoch state: %w", err)
-	}
-	
-	if !latestEpoch.ThresholdWeight.Valid || latestEpoch.ThresholdWeight.Int == nil {
-		return nil, fmt.Errorf("invalid threshold weight in epoch state")
-	}
-	
-	return latestEpoch.ThresholdWeight.Int, nil
-}
+
