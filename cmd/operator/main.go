@@ -21,7 +21,6 @@ func main() {
 	message := flag.String("message", "", "Message to sign")
 	getRegistryID := flag.Bool("get-registry-id", false, "Get registry ID")
 	join := flag.Bool("join", false, "Join the network")
-	databaseURL := flag.String("database-url", "", "Database URL")
 
 	flag.Parse()
 
@@ -97,17 +96,6 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
 	}
-
-	// Print database connection info for debugging
-	log.Printf("Config file database URL: %s", cfg.Database.URL)
-
-	// Override database URL if provided
-	if *databaseURL != "" {
-		log.Printf("Overriding database URL from command line")
-		cfg.Database.URL = *databaseURL
-	}
-
-	log.Printf("Final database URL: %s", cfg.Database.URL)
 
 	// Initialize chain clients
 	chainClients, err := ethereum.NewChainClients(cfg)

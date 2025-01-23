@@ -1,18 +1,12 @@
 #!/bin/bash
 
-# Set default values for environment variables
-KEYSTORE_PATH=${KEYSTORE_PATH:-"/app/dummy.key.json"}
+# default values for environment variables
+# Replace your keystore path and password here
+KEYSTORE_PATH=${KEYSTORE_PATH:-"/app/dummy.key.json"} 
 KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD:-"testpassword"}
-CONFIG_PATH=${CONFIG_PATH:-"/app/config/operator.yaml"}
-DATABASE_URL=${DATABASE_URL:-"postgresql://spotted:spotted@localhost:5432/operator1?sslmode=disable"}
-HTTP_PORT=${HTTP_PORT:-8001}
-P2P_PORT=${P2P_PORT:-10000}
 
 echo "Starting operator with keystore: $KEYSTORE_PATH"
 echo "Using config file: $CONFIG_PATH"
-echo "Database URL: $DATABASE_URL"
-echo "HTTP Port: $HTTP_PORT"
-echo "P2P Port: $P2P_PORT"
 
 # Wait for registry gRPC endpoint to be ready
 while ! nc -z registry 8000; do
@@ -56,4 +50,4 @@ echo "Connecting to registry at: $REGISTRY_MULTIADDR"
 
 # Start operator node
 echo "Starting operator node..."
-./operator -keystore "$KEYSTORE_PATH" -password "$KEYSTORE_PASSWORD" -registry "$REGISTRY_MULTIADDR" -config "$CONFIG_PATH" -database-url "$DATABASE_URL" 
+./operator -keystore "$KEYSTORE_PATH" -password "$KEYSTORE_PASSWORD" -registry "$REGISTRY_MULTIADDR" 

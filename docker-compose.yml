@@ -33,8 +33,10 @@ services:
       - "5433:5432"
     volumes:
       - postgres_operator1_data:/var/lib/postgresql/data
-      - ./pkg/repos/operator/tasks/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./scripts/create-multiple-postgresql-databases.sh:/docker-entrypoint-initdb.d/00-create-multiple-databases.sh
+      - ./pkg/repos/operator/tasks/schema.sql:/docker-entrypoint-initdb.d/01-tasks-schema.sql
+      - ./pkg/repos/operator/task_responses/schema.sql:/docker-entrypoint-initdb.d/02-task-responses-schema.sql
+      - ./pkg/repos/operator/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/03-consensus-responses-schema.sql
+      - ./pkg/repos/operator/epoch_states/schema.sql:/docker-entrypoint-initdb.d/04-epoch-states-schema.sql
     networks:
       - spotted-net
     healthcheck:
@@ -55,8 +57,10 @@ services:
       - "5434:5432"
     volumes:
       - postgres_operator2_data:/var/lib/postgresql/data
-      - ./pkg/repos/operator/tasks/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./scripts/create-multiple-postgresql-databases.sh:/docker-entrypoint-initdb.d/00-create-multiple-databases.sh
+      - ./pkg/repos/operator/tasks/schema.sql:/docker-entrypoint-initdb.d/01-tasks-schema.sql
+      - ./pkg/repos/operator/task_responses/schema.sql:/docker-entrypoint-initdb.d/02-task-responses-schema.sql
+      - ./pkg/repos/operator/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/03-consensus-responses-schema.sql
+      - ./pkg/repos/operator/epoch_states/schema.sql:/docker-entrypoint-initdb.d/04-epoch-states-schema.sql
     networks:
       - spotted-net
     healthcheck:
@@ -77,8 +81,10 @@ services:
       - "5435:5432"
     volumes:
       - postgres_operator3_data:/var/lib/postgresql/data
-      - ./pkg/repos/operator/tasks/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./scripts/create-multiple-postgresql-databases.sh:/docker-entrypoint-initdb.d/00-create-multiple-databases.sh
+      - ./pkg/repos/operator/tasks/schema.sql:/docker-entrypoint-initdb.d/01-tasks-schema.sql
+      - ./pkg/repos/operator/task_responses/schema.sql:/docker-entrypoint-initdb.d/02-task-responses-schema.sql
+      - ./pkg/repos/operator/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/03-consensus-responses-schema.sql
+      - ./pkg/repos/operator/epoch_states/schema.sql:/docker-entrypoint-initdb.d/04-epoch-states-schema.sql
     networks:
       - spotted-net
     healthcheck:
@@ -128,23 +134,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.operator
-    env_file: []
     ports:
       - "10000:10000"  # P2P port
       - "8001:8001"    # HTTP port
     environment:
-      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator1:5432/operator1?sslmode=disable
-      - CHAIN_RPC_URL=http://host.docker.internal:8545
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
-      - LOG_LEVEL=debug
-      - CHAIN_ID=31337
-      - P2P_PORT=10000
-      - HTTP_PORT=8001
+      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator1:5432/operator1?sslmode=disable
       - KEYSTORE_PATH=/app/keys/operator1.key.json
       - KEYSTORE_PASSWORD=testpassword
       - CONFIG_PATH=/app/config/operator.yaml
+      - LOG_LEVEL=debug
+      - P2P_PORT=10000
+      - HTTP_PORT=8001
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
     volumes:
       - ./keys/operator1.key.json:/app/keys/operator1.key.json
       - ./config:/app/config
@@ -171,20 +175,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.operator
-    env_file: []
     ports:
       - "10001:10001"  # P2P port
       - "8002:8002"    # HTTP port
     environment:
-      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator2:5432/operator2?sslmode=disable
-      - CHAIN_RPC_URL=http://host.docker.internal:8545
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
-      - LOG_LEVEL=debug
-      - CHAIN_ID=31337
+      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator2:5432/operator2?sslmode=disable
       - P2P_PORT=10001
       - HTTP_PORT=8002
+      - LOG_LEVEL=debug
       - KEYSTORE_PATH=/app/keys/operator2.key.json
       - KEYSTORE_PASSWORD=testpassword
       - CONFIG_PATH=/app/config/operator.yaml
@@ -214,20 +215,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.operator
-    env_file: []
     ports:
       - "10002:10002"  # P2P port
       - "8003:8003"    # HTTP port
     environment:
-      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator3:5432/operator3?sslmode=disable
-      - CHAIN_RPC_URL=http://host.docker.internal:8545
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
-      - LOG_LEVEL=debug
-      - CHAIN_ID=31337
+      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator3:5432/operator3?sslmode=disable
       - P2P_PORT=10002
       - HTTP_PORT=8003
+      - LOG_LEVEL=debug
       - KEYSTORE_PATH=/app/keys/operator3.key.json
       - KEYSTORE_PASSWORD=testpassword
       - CONFIG_PATH=/app/config/operator.yaml

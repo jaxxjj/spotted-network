@@ -18,16 +18,16 @@ database:
 
 # P2P Configuration
 p2p:
-  port: 0
-  bootstrap_nodes: []
+  port: ${P2P_PORT}
+  bootstrap_nodes: [] 
   external_ip: "0.0.0.0"
 
-# HTTP Configuration
+# HTTP Server Configuration
 http:
-  port: 8001
+  port: ${HTTP_PORT}
   host: "0.0.0.0"
 
 # Logging Configuration
 logging:
-  level: "debug"
+  level: ${LOG_LEVEL}
   format: "json" 
