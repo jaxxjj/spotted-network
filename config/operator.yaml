@@ -1,53 +1,33 @@
-# Chains Configuration (multiple chain support)
+# Chains Configuration
 chains:
-  ethereum:  # mainnet config but using anvil
-    rpc: "http://host.docker.internal:8545"  # Default to local Anvil
+  31337:  # Local testnet
+    rpc: "http://host.docker.internal:8545"
     contracts:
       registry: ${REGISTRY_ADDRESS}
       epochManager: ${EPOCH_MANAGER_ADDRESS}
       stateManager: ${STATE_MANAGER_ADDRESS}
-    required_confirmations: 12  # Ethereum mainnet confirmations
-  "137":  # Polygon
-    rpc: "http://polygon-rpc.com"
-    contracts:
-      registry: ${POLYGON_REGISTRY_ADDRESS}
-      epochManager: ${POLYGON_EPOCH_MANAGER_ADDRESS}
-      stateManager: ${POLYGON_STATE_MANAGER_ADDRESS} 
-    required_confirmations: 256  # Polygon confirmations
-  "56":  # BSC
-    rpc: "http://bsc-rpc.com"
-    contracts:
-      registry: ${BSC_REGISTRY_ADDRESS}
-      epochManager: ${BSC_EPOCH_MANAGER_ADDRESS}
-      stateManager: ${BSC_STATE_MANAGER_ADDRESS}
-    required_confirmations: 15  # BSC confirmations
-  "31337":  # Chain ID config (local testnet)
-    rpc: "http://host.docker.internal:8545"  # Default to local Anvil
-    contracts:
-      registry: ${REGISTRY_ADDRESS}
-      epochManager: ${EPOCH_MANAGER_ADDRESS}
-      stateManager: ${STATE_MANAGER_ADDRESS}
-    required_confirmations: 12  # Local testnet can use 1 confirmation
+    required_confirmations: 12
+    average_block_time: 12.5
 
-# Database Config
+# Database Configuration
 database:
-  url: "postgresql://spotted:spotted@localhost:5432/operator1?sslmode=disable"
+  url: ${DATABASE_URL}
   max_open_conns: 20
   max_idle_conns: 5
   conn_max_lifetime: "1h"
 
 # P2P Configuration
 p2p:
-  port: 10000  # Fixed P2P port for operator1
-  bootstrap_nodes: []  # Empty for local testing
+  port: 0
+  bootstrap_nodes: []
   external_ip: "0.0.0.0"
 
 # HTTP Configuration
 http:
-  port: 8001  # Fixed HTTP port for operator1
+  port: 8001
   host: "0.0.0.0"
 
 # Logging Configuration
 logging:
-  level: ${LOG_LEVEL}
+  level: "debug"
   format: "json" 

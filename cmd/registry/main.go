@@ -7,11 +7,12 @@ import (
 	"log"
 	"net"
 	"os"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/galxe/spotted-network/internal/avs/config"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
+	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/p2p"
 	registrynode "github.com/galxe/spotted-network/pkg/registry"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
@@ -131,23 +132,36 @@ func main() {
 
 	// Load chain configuration
 	chainConfig := &config.Config{
-		Chains: map[string]*config.ChainConfig{
-			"ethereum": {
+		Chains: map[int64]*config.ChainConfig{
+			31337: { // Local testnet (main chain)
 				RPC: os.Getenv("CHAIN_RPC_URL"),
-				Contracts: config.ContractConfig{
+				Contracts: config.ContractsConfig{
 					Registry:     os.Getenv("REGISTRY_ADDRESS"),
 					EpochManager: os.Getenv("EPOCH_MANAGER_ADDRESS"),
 					StateManager: os.Getenv("STATE_MANAGER_ADDRESS"),
 				},
+				RequiredConfirmations: 12,
+				AverageBlockTime:      12.5,
 			},
-			"31337": {
-				RPC: os.Getenv("CHAIN_RPC_URL"),
-				Contracts: config.ContractConfig{
-					Registry:     os.Getenv("REGISTRY_ADDRESS"),
-					EpochManager: os.Getenv("EPOCH_MANAGER_ADDRESS"),
-					StateManager: os.Getenv("STATE_MANAGER_ADDRESS"),
-				},
-			},
+		},
+		Database: config.DatabaseConfig{
+			URL:             os.Getenv("DATABASE_URL"),
+			MaxOpenConns:    20,
+			MaxIdleConns:    5,
+			ConnMaxLifetime: time.Hour,
+		},
+		P2P: config.P2PConfig{
+			Port:            0, // Random port
+			BootstrapNodes: []string{},
+			ExternalIP:     "0.0.0.0",
+		},
+		HTTP: config.HTTPConfig{
+			Port: 8080,
+			Host: "0.0.0.0",
+		},
+		Logging: config.LoggingConfig{
+			Level:  "debug",
+			Format: "json",
 		},
 	}
 

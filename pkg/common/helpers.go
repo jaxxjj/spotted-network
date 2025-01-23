@@ -6,7 +6,8 @@ import (
 	"math"
 	"math/big"
 
-	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/galxe/spotted-network/pkg/common/contracts"
 	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -29,21 +30,12 @@ func NumericToString(n pgtype.Numeric) string {
 
 // BlockNumberToTimestamp converts a block number to its corresponding timestamp
 // for a specific chain
-func BlockNumberToTimestamp(ctx context.Context, chainClient *ethereum.ChainClients, chainID int64, blockNumber uint64) (int64, error) {
-	// Get state client for target chain
-	stateClient, err := chainClient.GetStateClient(fmt.Sprintf("%d", chainID))
-	if err != nil {
-		return 0, fmt.Errorf("failed to get state client: %w", err)
-	}
-
+func BlockNumberToTimestamp(ctx context.Context, client contracts.StateClient, chainID int64, blockNumber uint64) (int64, error) {
 	// Get ethclient from state client
-	ethClient, ok := stateClient.(*ethereum.StateOnlyClient)
-	if !ok {
-		return 0, fmt.Errorf("failed to get ethclient: invalid client type")
-	}
+	ethClient := client.(interface{ GetEthClient() *ethclient.Client }).GetEthClient()
 
 	// Get block by number
-	block, err := ethClient.GetEthClient().BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
+	block, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
 	if err != nil {
 		return 0, fmt.Errorf("failed to get block %d: %w", blockNumber, err)
 	}
@@ -55,54 +47,30 @@ func BlockNumberToTimestamp(ctx context.Context, chainClient *ethereum.ChainClie
 // TimestampToBlockNumber converts a timestamp to its nearest block number
 // for a specific chain. It uses a more efficient algorithm that takes into
 // account the average block time for the chain.
-func TimestampToBlockNumber(ctx context.Context, chainClient *ethereum.ChainClients, chainID int64, timestamp int64) (uint64, error) {
-	chainIDStr := fmt.Sprintf("%d", chainID)
-
-	// Get state client for target chain
-	stateClient, err := chainClient.GetStateClient(chainIDStr)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get state client: %w", err)
-	}
-
-	// Get ethclient from state client
-	ethClient, ok := stateClient.(*ethereum.StateOnlyClient)
-	if !ok {
-		return 0, fmt.Errorf("failed to get ethclient: invalid client type")
-	}
-
+func TimestampToBlockNumber(ctx context.Context, client contracts.StateClient, chainID int64, timestamp int64) (uint64, error) {
 	// Get latest block
-	currentBlockNumber, err := stateClient.GetLatestBlockNumber(ctx)
+	currentBlockNumber, err := client.GetLatestBlockNumber(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block: %w", err)
 	}
 
+	// Get ethclient from state client
+	ethClient := client.(interface{ GetEthClient() *ethclient.Client }).GetEthClient()
+
 	// Get current block
-	currentBlock, err := ethClient.GetEthClient().BlockByNumber(ctx, new(big.Int).SetUint64(currentBlockNumber))
+	currentBlock, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(currentBlockNumber))
 	if err != nil {
 		return 0, fmt.Errorf("failed to get current block: %w", err)
 	}
 
 	// Get chain config for average block time
-	chainConfig, ok := config.GetConfig().Chains[chainIDStr]
+	chainConfig, ok := config.GetConfig().Chains[chainID]
 	if !ok {
-		return 0, fmt.Errorf("chain %s not found in config", chainIDStr)
+		return 0, fmt.Errorf("chain %d not found in config", chainID)
 	}
 
-	// If average block time is not configured, use a default value
+	// Use the average block time from config
 	averageBlockTime := chainConfig.AverageBlockTime
-	if averageBlockTime <= 0 {
-		// Default to chain-specific values
-		switch chainID {
-		case 1: // Ethereum mainnet
-			averageBlockTime = 12.5
-		case 137: // Polygon
-			averageBlockTime = 2.0
-		case 56: // BSC
-			averageBlockTime = 3.0
-		default:
-			averageBlockTime = 12.5 // Default to Ethereum-like chains
-		}
-	}
 
 	blockNumber := currentBlockNumber
 	block := currentBlock
@@ -126,7 +94,7 @@ func TimestampToBlockNumber(ctx context.Context, chainClient *ethereum.ChainClie
 		blockNumber -= uint64(decreaseBlocks)
 
 		// Get new block
-		block, err = ethClient.GetEthClient().BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
+		block, err = ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
 		if err != nil {
 			return 0, fmt.Errorf("failed to get block %d: %w", blockNumber, err)
 		}
@@ -140,7 +108,7 @@ func TimestampToBlockNumber(ctx context.Context, chainClient *ethereum.ChainClie
 			break
 		}
 
-		nextBlock, err := ethClient.GetEthClient().BlockByNumber(ctx, new(big.Int).SetUint64(nextBlockNumber))
+		nextBlock, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(nextBlockNumber))
 		if err != nil {
 			break
 		}
@@ -165,7 +133,7 @@ func TimestampToBlockNumber(ctx context.Context, chainClient *ethereum.ChainClie
 		}
 
 		prevBlockNumber := blockNumber - 1
-		prevBlock, err := ethClient.GetEthClient().BlockByNumber(ctx, new(big.Int).SetUint64(prevBlockNumber))
+		prevBlock, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(prevBlockNumber))
 		if err != nil {
 			break
 		}
@@ -188,7 +156,7 @@ func TimestampToBlockNumber(ctx context.Context, chainClient *ethereum.ChainClie
 
 // ValidateBlockNumberAndTimestamp validates that exactly one of blockNumber or timestamp is provided
 // and converts between them as needed
-func ValidateBlockNumberAndTimestamp(ctx context.Context, chainClient *ethereum.ChainClients, chainID int64, blockNumber *int64, timestamp *int64) (uint64, int64, error) {
+func ValidateBlockNumberAndTimestamp(ctx context.Context, client contracts.StateClient, chainID int64, blockNumber *int64, timestamp *int64) (uint64, int64, error) {
 	// Check that exactly one is provided
 	if (blockNumber == nil && timestamp == nil) || (blockNumber != nil && timestamp != nil) {
 		return 0, 0, fmt.Errorf("exactly one of block_number or timestamp must be provided")
@@ -201,14 +169,14 @@ func ValidateBlockNumberAndTimestamp(ctx context.Context, chainClient *ethereum.
 	if blockNumber != nil {
 		// Convert block number to timestamp
 		resultBlockNumber = uint64(*blockNumber)
-		resultTimestamp, err = BlockNumberToTimestamp(ctx, chainClient, chainID, resultBlockNumber)
+		resultTimestamp, err = BlockNumberToTimestamp(ctx, client, chainID, resultBlockNumber)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert block number to timestamp: %w", err)
 		}
 	} else {
 		// Convert timestamp to block number
 		resultTimestamp = *timestamp
-		resultBlockNumber, err = TimestampToBlockNumber(ctx, chainClient, chainID, resultTimestamp)
+		resultBlockNumber, err = TimestampToBlockNumber(ctx, client, chainID, resultTimestamp)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert timestamp to block number: %w", err)
 		}

@@ -138,9 +138,9 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	}
 
 	// Get state client for chain
-	stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
+	stateClient, err := tp.node.chainClient.GetStateClient(int64(task.ChainID))
 	if err != nil {
-		return fmt.Errorf("failed to get state client: %w", err)
+		return fmt.Errorf("failed to get state client: %v", err)
 	}
 	tp.logger.Printf("[ProcessTask] Got state client for chain %d", task.ChainID)
 
@@ -172,7 +172,6 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 		User:        ethcommon.HexToAddress(task.TargetAddress),
 		ChainID:     uint32(task.ChainID),
 		BlockNumber: blockUint64,
-		Timestamp:   task.Timestamp.Uint64(),
 		Key:         task.Key,
 		Value:       value,
 	}
@@ -444,7 +443,6 @@ func (tp *TaskProcessor) verifyResponse(response *types.TaskResponse) error {
 		User:        ethcommon.HexToAddress(response.TargetAddress),
 		ChainID:     uint32(response.ChainID),
 		BlockNumber: response.BlockNumber.Uint64(),
-		Timestamp:   response.Timestamp.Uint64(),
 		Key:         response.Key,
 		Value:       response.Value,
 	}
@@ -677,7 +675,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 						ConsensusReachedAt: pgtype.Timestamp{Time: time.Now(), Valid: true},
 					}
 					
-					if _, err := tp.consensusDB.CreateConsensusResponse(ctx, consensusResp); err != nil {
+					if err := tp.storeConsensus(ctx, consensusResp); err != nil {
 						tp.logger.Printf("[Timeout] Failed to store failed consensus: %v", err)
 					}
 
@@ -731,7 +729,7 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 				tp.logger.Printf("[Confirmation] Processing task %s", task.TaskID)
 				
 				// Get state client for the chain
-				stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
+				stateClient, err := tp.node.chainClient.GetStateClient(int64(task.ChainID))
 				if err != nil {
 					tp.logger.Printf("[Confirmation] Failed to get state client for chain %d: %v", task.ChainID, err)
 					continue
@@ -911,7 +909,7 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 	tp.logger.Printf("[TaskProcessor] Processing pending task %s immediately", task.TaskID)
 	
 	// Get state client for the chain
-	stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
+	stateClient, err := tp.node.chainClient.GetStateClient(int64(task.ChainID))
 	if err != nil {
 		return fmt.Errorf("[TaskProcessor]failed to get state client for chain %d: %w", task.ChainID, err)
 	}
@@ -979,7 +977,7 @@ func (tp *TaskProcessor) ProcessNewTask(ctx context.Context, task *tasks.Task) e
 	tp.logger.Printf("[TaskProcessor] Processing new task %s", task.TaskID)
 
 	// Get state client for the chain
-	stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
+	stateClient, err := tp.node.chainClient.GetStateClient(int64(task.ChainID))
 	if err != nil {
 		return fmt.Errorf("[TaskProcessor] failed to get state client for chain %d: %w", task.ChainID, err)
 	}
@@ -1056,6 +1054,19 @@ func convertToTaskResponse(msg *pb.TaskResponseMessage) (*types.TaskResponse, er
 
 // storeConsensus stores a consensus response in the database
 func (tp *TaskProcessor) storeConsensus(ctx context.Context, consensus consensus_responses.CreateConsensusResponseParams) error {
-	_, err := tp.consensusDB.CreateConsensusResponse(ctx, consensus)
+	// Create consensus response
+	_, err := tp.consensusDB.CreateConsensusResponse(ctx, consensus_responses.CreateConsensusResponseParams{
+		TaskID:              consensus.TaskID,
+		Epoch:              consensus.Epoch,
+		Value:              consensus.Value,
+		BlockNumber:        consensus.BlockNumber,
+		ChainID:           consensus.ChainID,
+		TargetAddress:     consensus.TargetAddress,
+		Key:               consensus.Key,
+		AggregatedSignatures: consensus.AggregatedSignatures,
+		OperatorSignatures:  consensus.OperatorSignatures,
+		TotalWeight:        consensus.TotalWeight,
+		ConsensusReachedAt:  consensus.ConsensusReachedAt,
+	})
 	return err
 } 

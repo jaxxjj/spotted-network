@@ -5,26 +5,30 @@ import (
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/galxe/spotted-network/internal/avs/config"
 	"github.com/galxe/spotted-network/pkg/common/contracts"
+	"github.com/galxe/spotted-network/pkg/config"
+)
+
+const (
+	MainnetChainID = int64(31337) // Ethereum mainnet chain ID
 )
 
 // ChainClients manages multiple chain clients
 type ChainClients struct {
 	mainnetClient contracts.Client                    // 主网客户端，包含所有合约
-	stateClients  map[string]contracts.StateClient   // 其他链的状态客户端
+	stateClients  map[int64]contracts.StateClient    // 其他链的状态客户端
 	mu            sync.RWMutex
 }
 
 // NewChainClients creates clients for all configured chains
 func NewChainClients(cfg *config.Config) (*ChainClients, error) {
 	chainClients := &ChainClients{
-		stateClients: make(map[string]contracts.StateClient),
+		stateClients: make(map[int64]contracts.StateClient),
 	}
 
 	// 初始化每个链的客户端
-	for chainName, chainCfg := range cfg.Chains {
-		if chainName == "ethereum" {
+	for chainID, chainCfg := range cfg.Chains {
+		if chainID == MainnetChainID {
 			// 为主网创建完整客户端
 			clientCfg := &Config{
 				EpochManagerAddress:      common.HexToAddress(chainCfg.Contracts.EpochManager),
@@ -44,14 +48,14 @@ func NewChainClients(cfg *config.Config) (*ChainClients, error) {
 			stateClient, err := NewStateOnlyClient(chainCfg.RPC, common.HexToAddress(chainCfg.Contracts.StateManager))
 			if err != nil {
 				chainClients.Close()
-				return nil, fmt.Errorf("failed to create state client for chain %s: %w", chainName, err)
+				return nil, fmt.Errorf("failed to create state client for chain %d: %w", chainID, err)
 			}
-			chainClients.stateClients[chainName] = stateClient
+			chainClients.stateClients[chainID] = stateClient
 		}
 	}
 
 	if chainClients.mainnetClient == nil {
-		return nil, fmt.Errorf("ethereum mainnet client is required")
+		return nil, fmt.Errorf("ethereum mainnet client (chain ID %d) is required", MainnetChainID)
 	}
 
 	return chainClients, nil
@@ -63,17 +67,17 @@ func (c *ChainClients) GetMainnetClient() contracts.Client {
 }
 
 // GetStateClient returns the state client for a specific chain
-func (c *ChainClients) GetStateClient(chainName string) (contracts.StateClient, error) {
+func (c *ChainClients) GetStateClient(chainID int64) (contracts.StateClient, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if chainName == "ethereum" {
+	if chainID == MainnetChainID {
 		return c.mainnetClient.StateClient(), nil
 	}
 
-	client, exists := c.stateClients[chainName]
+	client, exists := c.stateClients[chainID]
 	if !exists {
-		return nil, fmt.Errorf("no state client found for chain: %s", chainName)
+		return nil, fmt.Errorf("no state client found for chain ID: %d", chainID)
 	}
 	return client, nil
 }
@@ -93,9 +97,9 @@ func (c *ChainClients) Close() error {
 	}
 
 	// Close state clients
-	for chainName, client := range c.stateClients {
+	for chainID, client := range c.stateClients {
 		if err := client.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close state client for chain %s: %w", chainName, err))
+			errs = append(errs, fmt.Errorf("failed to close state client for chain %d: %w", chainID, err))
 		}
 	}
 
@@ -106,45 +110,45 @@ func (c *ChainClients) Close() error {
 }
 
 // AddStateClient adds a new state client for a chain
-func (c *ChainClients) AddStateClient(chainName string, rpc string, stateManagerAddr common.Address) error {
+func (c *ChainClients) AddStateClient(chainID int64, rpc string, stateManagerAddr common.Address) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if chainName == "ethereum" {
-		return fmt.Errorf("cannot add ethereum as state-only client")
+	if chainID == MainnetChainID {
+		return fmt.Errorf("cannot add ethereum mainnet (chain ID %d) as state-only client", MainnetChainID)
 	}
 
-	if _, exists := c.stateClients[chainName]; exists {
-		return fmt.Errorf("client already exists for chain: %s", chainName)
+	if _, exists := c.stateClients[chainID]; exists {
+		return fmt.Errorf("client already exists for chain ID: %d", chainID)
 	}
 
 	client, err := NewStateOnlyClient(rpc, stateManagerAddr)
 	if err != nil {
-		return fmt.Errorf("failed to create state client for chain %s: %w", chainName, err)
+		return fmt.Errorf("failed to create state client for chain %d: %w", chainID, err)
 	}
 
-	c.stateClients[chainName] = client
+	c.stateClients[chainID] = client
 	return nil
 }
 
 // RemoveStateClient removes and closes a state client
-func (c *ChainClients) RemoveStateClient(chainName string) error {
+func (c *ChainClients) RemoveStateClient(chainID int64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if chainName == "ethereum" {
-		return fmt.Errorf("cannot remove ethereum mainnet client")
+	if chainID == MainnetChainID {
+		return fmt.Errorf("cannot remove ethereum mainnet client (chain ID %d)", MainnetChainID)
 	}
 
-	client, exists := c.stateClients[chainName]
+	client, exists := c.stateClients[chainID]
 	if !exists {
-		return fmt.Errorf("no client found for chain: %s", chainName)
+		return fmt.Errorf("no client found for chain ID: %d", chainID)
 	}
 
 	if err := client.Close(); err != nil {
-		return fmt.Errorf("failed to close client for chain %s: %w", chainName, err)
+		return fmt.Errorf("failed to close client for chain %d: %w", chainID, err)
 	}
 
-	delete(c.stateClients, chainName)
+	delete(c.stateClients, chainID)
 	return nil
 } 

@@ -4,82 +4,62 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+// Config represents the main configuration structure
+type Config struct {
+	Chains   map[int64]*ChainConfig  `yaml:"chains"`
+	Database DatabaseConfig          `yaml:"database"`
+	P2P      P2PConfig              `yaml:"p2p"`
+	HTTP     HTTPConfig             `yaml:"http"`
+	Logging  LoggingConfig          `yaml:"logging"`
+}
+
+// ChainConfig represents configuration for a specific chain
 type ChainConfig struct {
-	// RPC endpoint for the chain
-	RPC string `yaml:"rpc"`
-
-	// Contract addresses
-	Contracts ContractConfig `yaml:"contracts"`
-
-	// Number of block confirmations required before processing tasks
-	RequiredConfirmations int32 `yaml:"required_confirmations"`
-
-	// Average block time in seconds
-	AverageBlockTime float64 `yaml:"average_block_time"`
+	RPC                  string          `yaml:"rpc"`
+	Contracts           ContractsConfig  `yaml:"contracts"`
+	RequiredConfirmations int            `yaml:"required_confirmations"`
+	AverageBlockTime     float64         `yaml:"average_block_time"`
 }
 
-type ContractConfig struct {
-	// EpochManager contract address
-	EpochManager string `yaml:"epoch_manager"`
-
-	// Registry contract address (ECDSAStakeRegistry)
-	Registry string `yaml:"registry"`
-
-	// StateManager contract address
-	StateManager string `yaml:"state_manager"`
+// ContractsConfig holds addresses for deployed contracts
+type ContractsConfig struct {
+	Registry     string `yaml:"registry"`
+	EpochManager string `yaml:"epochManager"`
+	StateManager string `yaml:"stateManager"`
 }
 
+// DatabaseConfig represents database connection configuration
 type DatabaseConfig struct {
-	URL             string `yaml:"url"`
-	MaxOpenConns    int    `yaml:"max_open_conns"`
-	MaxIdleConns    int    `yaml:"max_idle_conns"`
-	ConnMaxLifetime string `yaml:"conn_max_lifetime"`
+	URL             string        `yaml:"url"`
+	MaxOpenConns    int           `yaml:"max_open_conns"`
+	MaxIdleConns    int           `yaml:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
 }
 
+// P2PConfig represents P2P network configuration
 type P2PConfig struct {
-	Port           int      `yaml:"port"`
+	Port            int      `yaml:"port"`
 	BootstrapNodes []string `yaml:"bootstrap_nodes"`
 	ExternalIP     string   `yaml:"external_ip"`
 }
 
+// HTTPConfig represents HTTP server configuration
 type HTTPConfig struct {
 	Port int    `yaml:"port"`
 	Host string `yaml:"host"`
 }
 
-type LogConfig struct {
+// LoggingConfig represents logging configuration
+type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
-}
-
-type Config struct {
-	// Chain configuration
-	Chain struct {
-		ID             int    `yaml:"id"`
-		RPCURL         string `yaml:"rpc_url"`
-		RegistryAddr   string `yaml:"registry_address"`
-		StartBlock     int64  `yaml:"start_block"`
-	} `yaml:"chain"`
-
-	// Chains configuration (multiple chain support)
-	Chains map[string]*ChainConfig `yaml:"chains"`
-
-	// Database configuration
-	Database DatabaseConfig `yaml:"database"`
-
-	// P2P configuration
-	P2P P2PConfig `yaml:"p2p"`
-
-	// HTTP configuration
-	HTTP HTTPConfig `yaml:"http"`
-
-	// Logging configuration
-	Logging LogConfig `yaml:"logging"`
 }
 
 var (
@@ -87,76 +67,97 @@ var (
 	once   sync.Once
 )
 
-// LoadConfig loads the configuration from the given file path
+// LoadConfig loads configuration from the specified file path
 func LoadConfig(path string) (*Config, error) {
-	log.Printf("Loading config from file: %s", path)
-
+	var cfg Config
+	
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	// Log raw config for debugging
 	log.Printf("Raw config data: %s", string(data))
-	
-	// Log all relevant environment variables
+
+	// Log environment variables
 	log.Printf("Environment variables:")
-	log.Printf("DATABASE_URL=%s", os.Getenv("DATABASE_URL"))
-	
-	// Replace environment variables in the config file
-	content := os.ExpandEnv(string(data))
-	log.Printf("Config after env var expansion: %s", content)
-
-	cfg := DefaultConfig()
-	if err := yaml.Unmarshal([]byte(content), cfg); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, "DATABASE_URL=") ||
+		   strings.HasPrefix(env, "REGISTRY_ADDRESS=") ||
+		   strings.HasPrefix(env, "EPOCH_MANAGER_ADDRESS=") ||
+		   strings.HasPrefix(env, "STATE_MANAGER_ADDRESS=") {
+			log.Printf("%s", env)
+		}
 	}
 
-	// If DATABASE_URL is set in environment, override the config
-	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
-		log.Printf("Overriding database URL from environment: %s", dbURL)
-		cfg.Database.URL = dbURL
+	// Expand environment variables in the config
+	expandedData := os.ExpandEnv(string(data))
+	log.Printf("Config after env var expansion: %s", expandedData)
+
+	if err := yaml.Unmarshal([]byte(expandedData), &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	// Validate the configuration
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// Log final config for debugging
 	log.Printf("Final loaded config: %+v", cfg)
-	log.Printf("Final database config: %+v", cfg.Database)
 
-	// Set singleton instance
-	once.Do(func() {
-		config = cfg
-	})
+	return &cfg, nil
+}
 
-	return cfg, nil
+// validate performs validation of the configuration
+func (c *Config) validate() error {
+	if len(c.Chains) == 0 {
+		return fmt.Errorf("at least one chain configuration is required")
+	}
+
+	for chainID, chainCfg := range c.Chains {
+		if chainCfg.RPC == "" {
+			return fmt.Errorf("RPC URL is required for chain %d", chainID)
+		}
+		if chainCfg.Contracts.Registry == "" {
+			return fmt.Errorf("Registry address is required for chain %d", chainID)
+		}
+		if chainCfg.Contracts.EpochManager == "" {
+			return fmt.Errorf("EpochManager address is required for chain %d", chainID)
+		}
+		if chainCfg.Contracts.StateManager == "" {
+			return fmt.Errorf("StateManager address is required for chain %d", chainID)
+		}
+		if chainCfg.RequiredConfirmations <= 0 {
+			return fmt.Errorf("RequiredConfirmations must be positive for chain %d", chainID)
+		}
+		if chainCfg.AverageBlockTime <= 0 {
+			return fmt.Errorf("AverageBlockTime must be positive for chain %d", chainID)
+		}
+	}
+
+	return nil
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		Chain: struct {
-			ID             int    `yaml:"id"`
-			RPCURL         string `yaml:"rpc_url"`
-			RegistryAddr   string `yaml:"registry_address"`
-			StartBlock     int64  `yaml:"start_block"`
-		}{
-			ID:           31337, // Anvil chain ID
-			RPCURL:       "http://localhost:8545",
-			RegistryAddr: "",
-			StartBlock:   0,
-		},
-		Chains: map[string]*ChainConfig{
-			"ethereum": {
+		Chains: map[int64]*ChainConfig{
+			1: { // Ethereum mainnet
 				RPC: "http://localhost:8545",
-				Contracts: ContractConfig{
+				Contracts: ContractsConfig{
+					Registry:     "",
 					EpochManager: "",
-					Registry:    "",
 					StateManager: "",
 				},
-				RequiredConfirmations: 12, // Default for mainnet
+				RequiredConfirmations: 12,
+				AverageBlockTime: 12.5,
 			},
 		},
 		Database: DatabaseConfig{
 			URL:             "postgres://spotted:spotted@localhost:5432/operator1?sslmode=disable",
 			MaxOpenConns:    20,
 			MaxIdleConns:    5,
-			ConnMaxLifetime: "1h",
+			ConnMaxLifetime: 1 * time.Hour,
 		},
 		P2P: P2PConfig{
 			Port:           0, // Random port
@@ -167,7 +168,7 @@ func DefaultConfig() *Config {
 			Port: 8080,
 			Host: "0.0.0.0",
 		},
-		Logging: LogConfig{
+		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "json",
 		},

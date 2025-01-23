@@ -64,6 +64,11 @@ func (c *StateClient) GetLatestBlockNumber(ctx context.Context) (uint64, error) 
 	return blockNumber, nil
 }
 
+// GetEthClient returns the underlying ethclient.Client
+func (c *StateClient) GetEthClient() *ethclient.Client {
+	return c.ethClient
+}
+
 // Close closes the client connection
 func (c *StateClient) Close() error {
 	return nil

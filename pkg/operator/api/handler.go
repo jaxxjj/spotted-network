@@ -16,6 +16,7 @@ import (
 
 	"log"
 
+	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/config"
@@ -104,35 +105,54 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get state client for target chain
-	stateClient, err := h.chainClient.GetStateClient(fmt.Sprintf("%d", params.ChainID))
+	// Get state client for chain
+	stateClient, err := h.chainClient.GetStateClient(params.ChainID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get state client: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// Get latest block number
-	latestBlock, err := stateClient.GetLatestBlockNumber(r.Context())
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get latest block: %v", err), http.StatusInternalServerError)
-		return
+	// Convert timestamp to block number if provided
+	var blockNumber uint64
+	var timestamp *int64
+	if params.Timestamp != nil {
+		// Convert timestamp to block number for task ID generation
+		blockNumber, err = commonHelpers.TimestampToBlockNumber(r.Context(), stateClient, params.ChainID, *params.Timestamp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to convert timestamp to block number: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// Update params.BlockNumber for task ID generation
+		blockNumberInt64 := int64(blockNumber)
+		params.BlockNumber = &blockNumberInt64
+		timestamp = params.Timestamp
+		params.Timestamp = nil
+	} else {
+		// Use provided block number
+		blockNumber = uint64(*params.BlockNumber)
+		// Convert block number to timestamp for storage
+		timestampInt64, err := commonHelpers.BlockNumberToTimestamp(r.Context(), stateClient, params.ChainID, blockNumber)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to convert block number to timestamp: %v", err), http.StatusInternalServerError)
+			return
+		}
+		timestamp = &timestampInt64
 	}
 
+	// Generate task ID using block number
+	taskID := h.generateTaskID(&params, int64(currentEpoch), "0")
+
 	// Create task params
-	var blockNumber pgtype.Numeric
-	var timestamp pgtype.Numeric
-	if params.BlockNumber != nil {
-		blockNumber = pgtype.Numeric{
-			Int:   new(big.Int).SetInt64(*params.BlockNumber),
-			Valid: true,
-			Exp:   0, 
-		}
+	blockNumberNumeric := pgtype.Numeric{
+		Int:   new(big.Int).SetUint64(blockNumber),
+		Valid: true,
+		Exp:   0,
 	}
-	if params.Timestamp != nil {
-		timestamp = pgtype.Numeric{
-			Int:   new(big.Int).SetInt64(*params.Timestamp),
-			Valid: true,
-		}
+
+	timestampNumeric := pgtype.Numeric{
+		Int:   new(big.Int).SetInt64(*timestamp),
+		Valid: true,
+		Exp:   0,
 	}
 
 	// Convert key to big.Int
@@ -144,9 +164,6 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		Int:   keyBig,
 		Valid: true,
 	}
-
-	// Generate task ID first
-	taskID := h.generateTaskID(&params, int64(currentEpoch), "0")
 
 	// Check if task already exists
 	existingTask, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
@@ -169,6 +186,13 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	// Determine required confirmations
 	requiredConfirmations := h.getRequiredConfirmations(params.ChainID)
 
+	// Get latest block number for confirmation check
+	latestBlock, err := stateClient.GetLatestBlockNumber(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get latest block: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	// Determine initial status based on block confirmations
 	status := "pending"
 	if params.BlockNumber != nil {
@@ -188,8 +212,8 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		TaskID:        taskID,
 		TargetAddress: params.TargetAddress,
 		ChainID:       int32(params.ChainID),
-		BlockNumber:   blockNumber,
-		Timestamp:     timestamp,
+		BlockNumber:   blockNumberNumeric,
+		Timestamp:     timestampNumeric,
 		Epoch:        int32(currentEpoch),
 		Key:          keyNum,
 		Status:       status,
@@ -236,14 +260,13 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 	}
 
 	// Check if chain ID is supported in config
-	chainIDStr := fmt.Sprintf("%d", params.ChainID)
-	if _, ok := h.config.Chains[chainIDStr]; !ok {
+	if _, ok := h.config.Chains[params.ChainID]; !ok {
 		// Get list of supported chains for better error message
-		supportedChains := make([]string, 0, len(h.config.Chains))
+		supportedChains := make([]int64, 0, len(h.config.Chains))
 		for chainID := range h.config.Chains {
 			supportedChains = append(supportedChains, chainID)
 		}
-		return fmt.Errorf("unsupported chain ID %s. supported chains: %v", chainIDStr, supportedChains)
+		return fmt.Errorf("unsupported chain ID %d. supported chains: %v", params.ChainID, supportedChains)
 	}
 
 	// 2. Validate target address
@@ -273,7 +296,7 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 	// 5. If block number provided, validate it
 	if params.BlockNumber != nil {
 		// Get state client for target chain
-		stateClient, err := h.chainClient.GetStateClient(fmt.Sprintf("%d", params.ChainID))
+		stateClient, err := h.chainClient.GetStateClient(int64(params.ChainID))
 		if err != nil {
 			return fmt.Errorf("failed to get state client: %w", err)
 		}
@@ -307,16 +330,11 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 }
 
 func (h *Handler) generateTaskID(params *SendRequestParams, epoch int64, value string) string {
-	// Generate task ID using keccak256(abi.encodePacked(targetAddress, chainId, blockNumber, timestamp, epoch, key, value))
+	// Generate task ID using keccak256(abi.encodePacked(targetAddress, chainId, blockNumber, epoch, key, value))
 	data := []byte{}
 	data = append(data, common.HexToAddress(params.TargetAddress).Bytes()...)
 	data = append(data, byte(params.ChainID))
-	if params.BlockNumber != nil {
-		data = append(data, byte(*params.BlockNumber))
-	}
-	if params.Timestamp != nil {
-		data = append(data, byte(*params.Timestamp))
-	}
+	data = append(data, byte(*params.BlockNumber))
 	data = append(data, byte(epoch))
 	data = append(data, []byte(params.Key)...)
 	data = append(data, []byte(value)...)
@@ -483,14 +501,8 @@ func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 
 // getRequiredConfirmations returns the required confirmations for a chain
 func (h *Handler) getRequiredConfirmations(chainID int64) int32 {
-	// Convert chainID to string for config lookup
-	chainIDStr := fmt.Sprintf("%d", chainID)
-	
-	// Get chain config
-	if chainConfig, ok := h.config.Chains[chainIDStr]; ok {
-		return chainConfig.RequiredConfirmations
+	if chainConfig, ok := h.config.Chains[chainID]; ok {
+		return int32(chainConfig.RequiredConfirmations)
 	}
-	log.Printf("[API] Chain %s not found in config, using default value", chainIDStr)
-	// If chain not found in config, return default value
-	return 12 // Default to 12 confirmations
+	return 12 // Default to 12 confirmations for unknown chains
 } 

@@ -16,7 +16,6 @@ type TaskSignParams struct {
 	User        common.Address
 	ChainID     uint32
 	BlockNumber uint64
-	Timestamp   uint64
 	Key         *big.Int
 	Value       *big.Int
 }
@@ -117,7 +116,6 @@ func (s *LocalSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
 	msg = append(msg, params.User.Bytes()...)
 	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
 	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.Timestamp)).Bytes(), 32)...)
 	msg = append(msg, common.LeftPadBytes(params.Key.Bytes(), 32)...)
 	msg = append(msg, common.LeftPadBytes(params.Value.Bytes(), 32)...)
 
@@ -135,7 +133,6 @@ func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte
 	msg = append(msg, params.User.Bytes()...)
 	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
 	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.Timestamp)).Bytes(), 32)...)
 	msg = append(msg, common.LeftPadBytes(params.Key.Bytes(), 32)...)
 	msg = append(msg, common.LeftPadBytes(params.Value.Bytes(), 32)...)
 
@@ -169,7 +166,6 @@ func (s *LocalSigner) VerifySignature(signature []byte, params TaskSignParams) e
 	msg = append(msg, params.User.Bytes()...)
 	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
 	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.Timestamp)).Bytes(), 32)...)
 	msg = append(msg, common.LeftPadBytes(params.Key.Bytes(), 32)...)
 	msg = append(msg, common.LeftPadBytes(params.Value.Bytes(), 32)...)
 

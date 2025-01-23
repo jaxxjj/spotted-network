@@ -6,10 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
-	"github.com/galxe/spotted-network/internal/avs/config"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/operator"
@@ -111,29 +109,8 @@ func main() {
 
 	log.Printf("Final database URL: %s", cfg.Database.URL)
 
-	// Initialize chain clients with environment variables
-	chainConfig := &config.Config{
-		Chains: map[string]*config.ChainConfig{
-			"ethereum": {
-				RPC: os.Getenv("CHAIN_RPC_URL"),
-				Contracts: config.ContractConfig{
-					Registry:     os.Getenv("REGISTRY_ADDRESS"),
-					EpochManager: os.Getenv("EPOCH_MANAGER_ADDRESS"),
-					StateManager: os.Getenv("STATE_MANAGER_ADDRESS"),
-				},
-			},
-			"31337": {
-				RPC: os.Getenv("CHAIN_RPC_URL"),
-				Contracts: config.ContractConfig{
-					Registry:     os.Getenv("REGISTRY_ADDRESS"),
-					EpochManager: os.Getenv("EPOCH_MANAGER_ADDRESS"),
-					StateManager: os.Getenv("STATE_MANAGER_ADDRESS"),
-				},
-			},
-		},
-	}
-
-	chainClients, err := ethereum.NewChainClients(chainConfig)
+	// Initialize chain clients
+	chainClients, err := ethereum.NewChainClients(cfg)
 	if err != nil {
 		log.Fatal("Failed to initialize chain clients:", err)
 	}
