@@ -21,6 +21,7 @@ function create_operator_schema() {
             epoch INTEGER NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed', 'confirming')),
             required_confirmations INTEGER,
+            retry_count INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
         );

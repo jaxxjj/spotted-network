@@ -90,7 +90,6 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 	go tp.handleResponses(sub)
 	go tp.checkTimeouts(ctx)
 	go tp.checkConfirmations(ctx)
-	go tp.checkPendingTasks(ctx)
 
 	// Start periodic P2P status check
 	go func() {
@@ -137,6 +136,10 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 		return fmt.Errorf("task block number is nil")
 	}
 
+	// Validate block number
+	blockUint64 := task.BlockNumber.Uint64()
+	tp.logger.Printf("[ProcessTask] Processing task for block number: %d", blockUint64)
+
 	// Get state client for chain
 	stateClient, err := tp.node.chainClient.GetStateClient(int64(task.ChainID))
 	if err != nil {
@@ -149,7 +152,6 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	}
 
 	// Get state from chain
-	blockUint64 := task.BlockNumber.Uint64()
 	value, err := stateClient.GetStateAtBlock(
 		ctx,
 		ethcommon.HexToAddress(task.TargetAddress),
@@ -630,75 +632,58 @@ func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error
 	return big.NewInt(0), fmt.Errorf("[TaskProcessor] operator %s not found", operatorAddr)
 }
 
-// checkTimeouts periodically checks for timed out tasks
+// checkTimeouts periodically checks for pending tasks and retries them
 func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			// Get all tasks that might have timed out
-			tasks, err := tp.taskQueries.ListAllTasks(ctx)
+		case <-ticker.C:
+			tp.logger.Printf("[Timeout] Starting pending tasks check...")
+			
+			// Get all pending tasks
+			tasks, err := tp.taskQueries.ListPendingTasks(ctx)
 			if err != nil {
-				tp.logger.Printf("[Timeout] Failed to list tasks: %v", err)
+				tp.logger.Printf("[Timeout] Failed to list pending tasks: %v", err)
 				continue
 			}
 
 			for _, task := range tasks {
-				// Different timeout durations based on status
-				var timeoutDuration time.Duration
-				if task.Status == "confirming" {
-					timeoutDuration = 15 * time.Minute
+				tp.logger.Printf("[Timeout] Processing pending task %s (retry count: %d)", task.TaskID, task.RetryCount)
+				
+				// Try to process the task
+				if err := tp.ProcessPendingTask(ctx, &task); err != nil {
+					tp.logger.Printf("[Timeout] Failed to process task %s: %v", task.TaskID, err)
+					
+					// Increment retry count
+					if _, err := tp.taskQueries.IncrementRetryCount(ctx, task.TaskID); err != nil {
+						tp.logger.Printf("[Timeout] Failed to increment retry count: %v", err)
+						continue
+					}
+					
+					// If retry count reaches 3, delete the task
+					if task.RetryCount >= 2 { // Check for 2 since we just incremented
+						tp.logger.Printf("[Timeout] Task %s reached max retries, deleting", task.TaskID)
+						
+						if err := tp.taskQueries.DeleteTasksByRetryCount(ctx, 3); err != nil {
+							tp.logger.Printf("[Timeout] Failed to delete task: %v", err)
+							continue
+						}
+						
+						// Clean up memory
+						tp.responsesMutex.Lock()
+						delete(tp.responses, task.TaskID)
+						tp.responsesMutex.Unlock()
+
+						tp.weightsMutex.Lock()
+						delete(tp.taskWeights, task.TaskID)
+						tp.weightsMutex.Unlock()
+					}
 				} else {
-					timeoutDuration = 5 * time.Minute  // 增加到5分钟
-				}
-
-				// Check if task has timed out based on last update
-				if time.Since(task.UpdatedAt.Time) > timeoutDuration {
-					tp.logger.Printf("[Timeout] Task %s has timed out (status: %s)", task.TaskID, task.Status)
-					
-					// Create failed consensus response
-					consensusResp := consensus_responses.CreateConsensusResponseParams{
-						TaskID: task.TaskID,
-						Epoch:  task.Epoch,
-						Value:  task.Value,
-						BlockNumber: task.BlockNumber,
-						ChainID: task.ChainID,
-						TargetAddress: task.TargetAddress,
-						Key: task.Key,
-						AggregatedSignatures: []byte{},
-						OperatorSignatures: []byte("{}"),
-						TotalWeight: pgtype.Numeric{Int: big.NewInt(0), Exp: 0, Valid: true},
-						ConsensusReachedAt: pgtype.Timestamp{Time: time.Now(), Valid: true},
-					}
-					
-					if err := tp.storeConsensus(ctx, consensusResp); err != nil {
-						tp.logger.Printf("[Timeout] Failed to store failed consensus: %v", err)
-					}
-
-					// Update task status to failed
-					_, err = tp.taskQueries.UpdateTaskStatus(ctx, struct {
-						TaskID string `json:"task_id"`
-						Status string `json:"status"`
-					}{
-						TaskID: task.TaskID,
-						Status: "failed",
-					})
-					if err != nil {
-						tp.logger.Printf("[Timeout] Failed to update task status to failed: %v", err)
-					}
-
-					// Clean up memory if exists
-					tp.responsesMutex.Lock()
-					delete(tp.responses, task.TaskID)
-					tp.responsesMutex.Unlock()
-
-					tp.weightsMutex.Lock()
-					delete(tp.taskWeights, task.TaskID)
-					tp.weightsMutex.Unlock()
+					tp.logger.Printf("[Timeout] Successfully processed pending task %s", task.TaskID)
 				}
 			}
 		}
@@ -792,40 +777,6 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 					tp.logger.Printf("[Confirmation] Task %s needs more confirmations (latest: %d, target+confirmations: %d)", 
 						task.TaskID, latestBlock, requiredTarget)
 				}
-			}
-		}
-	}
-}
-
-// checkPendingTasks periodically checks and processes pending tasks
-func (tp *TaskProcessor) checkPendingTasks(ctx context.Context) {
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			log.Printf("[TaskProcessor] Starting pending tasks check...")
-			
-			// List all pending tasks
-			pendingTasks, err := tp.taskQueries.ListPendingTasks(ctx)
-			if err != nil {
-				log.Printf("[TaskProcessor] Failed to list pending tasks: %v", err)
-				continue
-			}
-			log.Printf("[TaskProcessor] Found %d pending tasks", len(pendingTasks))
-
-			for _, task := range pendingTasks {
-				log.Printf("[TaskProcessor] Processing pending task %s", task.TaskID)
-				
-				if err := tp.ProcessPendingTask(ctx, &task); err != nil {
-					log.Printf("[TaskProcessor] Failed to process task %s: %v", task.TaskID, err)
-					continue
-				}
-				
-				log.Printf("[TaskProcessor] Successfully processed pending task %s", task.TaskID)
 			}
 		}
 	}
@@ -971,6 +922,7 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 	// Process the task
 	return tp.ProcessTask(ctx, typesTask)
 }
+
 
 // ProcessNewTask processes a newly created task immediately if it has sufficient confirmations
 func (tp *TaskProcessor) ProcessNewTask(ctx context.Context, task *tasks.Task) error {
