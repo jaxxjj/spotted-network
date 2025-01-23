@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"os"
-	"strconv"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -15,22 +13,6 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	"github.com/jackc/pgx/v5/pgtype"
 )
-
-// getStartBlock returns the block number to start listening from
-func getStartBlock() uint64 {
-	startBlockStr := os.Getenv("START_BLOCK")
-	if startBlockStr == "" {
-		log.Printf("[EventListener] START_BLOCK not set, using default value 0")
-		return 0 // Default to 0 if not set
-	}
-	startBlock, err := strconv.ParseUint(startBlockStr, 10, 64)
-	if err != nil {
-		log.Printf("[EventListener] Invalid START_BLOCK value: %v, using 0", err)
-		return 0
-	}
-	log.Printf("[EventListener] Using START_BLOCK: %d", startBlock)
-	return startBlock
-}
 
 type EventListener struct {
 	chainClients *eth.ChainClients     // Chain clients manager
@@ -56,11 +38,11 @@ func (el *EventListener) StartListening(ctx context.Context) error {
 	}
 	log.Printf("[EventListener] Got mainnet client successfully")
 
-	startBlock := getStartBlock()
+	
 
 	// Create filter options
 	filterOpts := &bind.FilterOpts{
-		Start: startBlock,
+		Start: GenesisBlock,
 		Context: ctx,
 	}
 	log.Printf("[EventListener] Created filter options: start=%d", filterOpts.Start)
@@ -122,7 +104,7 @@ func (el *EventListener) StartListening(ctx context.Context) error {
 		}
 	}()
 
-	log.Printf("[EventListener] Started listening for operator events from block %d\n", startBlock)
+	log.Printf("[EventListener] Started listening for operator events from block %d\n", GenesisBlock)
 	return nil
 }
 
@@ -222,39 +204,50 @@ func (el *EventListener) updateStatusAfterOperations(ctx context.Context, operat
 		exitEpoch = 4294967295 // max uint32 value to indicate no exit epoch
 	}
 
+	// Calculate epoch block numbers
+	activeEpochStartBlock := GenesisBlock + uint64(activeEpoch) * EpochPeriod
+	exitEpochStartBlock := GenesisBlock + uint64(exitEpoch) * EpochPeriod
+
 	// Determine operator status
 	var status string
 	var weight *big.Int
 
 	if exitEpoch == 4294967295 {
 		// Case 1: Only has active epoch, no exit epoch
-		if currentBlock >= uint64(activeEpoch) {
+		if currentBlock >= activeEpochStartBlock {
 			status = "active"
-			log.Printf("[EventListener] Operator %s marked as active", operatorAddr)
+			log.Printf("[EventListener] Operator %s marked as active (block %d >= active epoch %d start block %d)", 
+				operatorAddr, currentBlock, activeEpoch, activeEpochStartBlock)
 		} else {
 			status = "waitingActive"
-			log.Printf("[EventListener] Operator %s marked as waitingActive", operatorAddr)
+			log.Printf("[EventListener] Operator %s marked as waitingActive (block %d < active epoch %d start block %d)", 
+				operatorAddr, currentBlock, activeEpoch, activeEpochStartBlock)
 		}
 	} else if exitEpoch > activeEpoch {
 		// Case 2: Has exit epoch and exit epoch > active epoch
-		if currentBlock < uint64(activeEpoch) {
+		if currentBlock < activeEpochStartBlock {
 			status = "waitingActive"
-			log.Printf("[EventListener] Operator %s marked as waitingActive", operatorAddr)
-		} else if currentBlock >= uint64(activeEpoch) && currentBlock < uint64(exitEpoch) {
+			log.Printf("[EventListener] Operator %s marked as waitingActive (block %d < active epoch %d start block %d)", 
+				operatorAddr, currentBlock, activeEpoch, activeEpochStartBlock)
+		} else if currentBlock >= activeEpochStartBlock && currentBlock < exitEpochStartBlock {
 			status = "active"
-			log.Printf("[EventListener] Operator %s marked as active", operatorAddr)
+			log.Printf("[EventListener] Operator %s marked as active (block %d in [%d, %d))", 
+				operatorAddr, currentBlock, activeEpochStartBlock, exitEpochStartBlock)
 		} else {
 			status = "inactive"
-			log.Printf("[EventListener] Operator %s marked as inactive", operatorAddr)
+			log.Printf("[EventListener] Operator %s marked as inactive (block %d >= exit epoch %d start block %d)", 
+				operatorAddr, currentBlock, exitEpoch, exitEpochStartBlock)
 		}
 	} else {
 		// Case 3: Has exit epoch and exit epoch <= active epoch
-		if currentBlock < uint64(activeEpoch) {
-			status = "waitingActive"
-			log.Printf("[EventListener] Operator %s marked as waitingActive", operatorAddr)
+		if currentBlock < exitEpochStartBlock {
+			status = "waitingExit"
+			log.Printf("[EventListener] Operator %s marked as waitingExit (block %d < exit epoch %d start block %d)", 
+				operatorAddr, currentBlock, exitEpoch, exitEpochStartBlock)
 		} else {
-			status = "active"
-			log.Printf("[EventListener] Operator %s marked as active", operatorAddr)
+			status = "inactive"
+			log.Printf("[EventListener] Operator %s marked as inactive (block %d >= exit epoch %d start block %d)", 
+				operatorAddr, currentBlock, exitEpoch, exitEpochStartBlock)
 		}
 	}
 
@@ -312,7 +305,7 @@ func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *
 			Exp:    0,
 			Valid:  true,
 		},
-		Status:    "waitingExit",
+		Status:    "waitingExit",  // Always set to waitingExit initially
 	})
 	if err != nil {
 		log.Printf("[EventListener] Failed to update operator exit epoch: %v", err)

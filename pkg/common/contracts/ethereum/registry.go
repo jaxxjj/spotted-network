@@ -158,7 +158,7 @@ func (c *RegistryClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, 
 				events, err := c.contract.FilterOperatorDeregistered(&bind.FilterOpts{
 					Start:   lastBlock + 1,
 					Context: filterOpts.Context,
-				}, nil, nil)
+				}, nil, nil, nil)
 				if err != nil {
 					continue
 				}
@@ -168,12 +168,12 @@ func (c *RegistryClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, 
 					event := events.Event
 					sink <- &contracts.OperatorDeregisteredEvent{
 						Operator:    event.Operator,
-						BlockNumber: big.NewInt(int64(event.Raw.BlockNumber)),
-						AVS:        event.Avs,
+						BlockNumber: event.BlockNumber,
+						AVS:         event.Avs,
 					}
 					// Update last block to the event's block number
-					if event.Raw.BlockNumber > lastBlock {
-						lastBlock = event.Raw.BlockNumber
+					if event.BlockNumber.Uint64() > lastBlock {
+						lastBlock = event.BlockNumber.Uint64()
 					}
 				}
 			}

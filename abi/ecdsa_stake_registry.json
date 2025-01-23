@@ -403,6 +403,12 @@
         "internalType": "address"
       },
       {
+        "name": "blockNumber",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
         "name": "_avs",
         "type": "address",
         "indexed": true,
