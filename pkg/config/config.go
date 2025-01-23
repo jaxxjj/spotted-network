@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -64,7 +63,6 @@ type LoggingConfig struct {
 
 var (
 	config *Config
-	once   sync.Once
 )
 
 // LoadConfig loads configuration from the specified file path
@@ -117,22 +115,22 @@ func (c *Config) validate() error {
 
 	for chainID, chainCfg := range c.Chains {
 		if chainCfg.RPC == "" {
-			return fmt.Errorf("RPC URL is required for chain %d", chainID)
+			return fmt.Errorf("rpc url is required for chain %d", chainID)
 		}
 		if chainCfg.Contracts.Registry == "" {
-			return fmt.Errorf("Registry address is required for chain %d", chainID)
+			return fmt.Errorf("registry address is required for chain %d", chainID)
 		}
 		if chainCfg.Contracts.EpochManager == "" {
-			return fmt.Errorf("EpochManager address is required for chain %d", chainID)
+			return fmt.Errorf("epoch manager address is required for chain %d", chainID)
 		}
 		if chainCfg.Contracts.StateManager == "" {
-			return fmt.Errorf("StateManager address is required for chain %d", chainID)
+			return fmt.Errorf("state manager address is required for chain %d", chainID)
 		}
 		if chainCfg.RequiredConfirmations <= 0 {
-			return fmt.Errorf("RequiredConfirmations must be positive for chain %d", chainID)
+			return fmt.Errorf("required confirmations must be positive for chain %d", chainID)
 		}
 		if chainCfg.AverageBlockTime <= 0 {
-			return fmt.Errorf("AverageBlockTime must be positive for chain %d", chainID)
+			return fmt.Errorf("average block time must be positive for chain %d", chainID)
 		}
 	}
 
@@ -165,7 +163,7 @@ func DefaultConfig() *Config {
 			ExternalIP:     "0.0.0.0",
 		},
 		HTTP: HTTPConfig{
-			Port: 8080,
+			Port: 8001,
 			Host: "0.0.0.0",
 		},
 		Logging: LoggingConfig{
