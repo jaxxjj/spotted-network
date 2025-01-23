@@ -10,8 +10,6 @@ CREATE TABLE IF NOT EXISTS tasks (
     epoch INTEGER NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed', 'confirming')),
     required_confirmations INTEGER,
-    current_confirmations INTEGER DEFAULT 0,
-    last_checked_block NUMERIC,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );

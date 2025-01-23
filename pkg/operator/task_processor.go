@@ -545,13 +545,12 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	consensus := consensus_responses.CreateConsensusResponseParams{
 		TaskID:              taskID,
 		Epoch:              int32(sampleResp.Epoch),
-		Status:             "completed",
 		Value:              types.NumericFromBigInt(sampleResp.Value),
 		BlockNumber:        types.NumericFromBigInt(sampleResp.BlockNumber),
 		ChainID:           int32(sampleResp.ChainID),
 		TargetAddress:     sampleResp.TargetAddress,
 		Key:               types.NumericFromBigInt(sampleResp.Key),
-		AggregatedSignatures: aggregatedSigs, // Use aggregated signatures
+		AggregatedSignatures: aggregatedSigs,
 		OperatorSignatures:  operatorSigsJSON,
 		TotalWeight:        pgtype.Numeric{Int: big.NewInt(0), Exp: 0, Valid: true},
 		ConsensusReachedAt:  pgtype.Timestamp{Time: time.Now(), Valid: true},
@@ -667,7 +666,6 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 					consensusResp := consensus_responses.CreateConsensusResponseParams{
 						TaskID: task.TaskID,
 						Epoch:  task.Epoch,
-						Status: "failed",
 						Value:  task.Value,
 						BlockNumber: task.BlockNumber,
 						ChainID: task.ChainID,
@@ -753,8 +751,15 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 					continue
 				}
 				tp.logger.Printf("[Confirmation] Raw block number from task: %v", task.BlockNumber)
-				targetBlock := task.BlockNumber.Int.Uint64()
-				tp.logger.Printf("[Confirmation] Target block: %d (from user request)", targetBlock)
+				
+				// Convert block number properly considering exponent
+				blockNumStr := common.NumericToString(task.BlockNumber)
+				targetBlock, _ := new(big.Int).SetString(blockNumStr, 10)
+				if targetBlock == nil {
+					tp.logger.Printf("[Confirmation] Failed to parse block number for task %s", task.TaskID)
+					continue
+				}
+				tp.logger.Printf("[Confirmation] Target block: %d (from user request)", targetBlock.Uint64())
 
 				// Get required confirmations
 				if !task.RequiredConfirmations.Valid {
@@ -765,9 +770,10 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 				tp.logger.Printf("[Confirmation] Required confirmations: %d", requiredConfirmations)
 
 				// Check if we have enough confirmations
-				if latestBlock >= targetBlock {
+				targetBlockUint64 := targetBlock.Uint64()
+				if latestBlock >= targetBlockUint64 {
 					tp.logger.Printf("[Confirmation] Task %s has reached required confirmations (latest: %d >= target: %d), changing status to pending", 
-						task.TaskID, latestBlock, targetBlock)
+						task.TaskID, latestBlock, targetBlockUint64)
 					
 					// Change task status to pending
 					err = tp.taskQueries.UpdateTaskToPending(ctx, task.TaskID)
@@ -784,27 +790,8 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 					}
 					tp.logger.Printf("[Confirmation] Successfully processed task %s immediately", task.TaskID)
 				} else {
-					// Update last checked block
-					lastCheckedBlockNumeric := pgtype.Numeric{
-						Int:   new(big.Int).SetUint64(latestBlock),
-						Valid: true,
-					}
-
-					err = tp.taskQueries.UpdateTaskConfirmations(ctx, struct {
-						CurrentConfirmations pgtype.Int4    `json:"current_confirmations"`
-						LastCheckedBlock     pgtype.Numeric `json:"last_checked_block"`
-						TaskID               string         `json:"task_id"`
-					}{
-						TaskID:               task.TaskID,
-						CurrentConfirmations: pgtype.Int4{Int32: int32(latestBlock - targetBlock), Valid: true},
-						LastCheckedBlock:     lastCheckedBlockNumeric,
-					})
-					if err != nil {
-						tp.logger.Printf("[Confirmation] Failed to update task confirmations: %v", err)
-						continue
-					}
 					tp.logger.Printf("[Confirmation] Task %s needs more confirmations (latest: %d, target: %d)", 
-						task.TaskID, latestBlock, targetBlock)
+						task.TaskID, latestBlock, targetBlockUint64)
 				}
 			}
 		}
@@ -990,10 +977,16 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 func (tp *TaskProcessor) ProcessNewTask(ctx context.Context, task *tasks.Task) error {
 	tp.logger.Printf("[TaskProcessor] Processing new task %s", task.TaskID)
 
-	// Get current confirmations
-	var currentConfirmations int32
-	if err := task.CurrentConfirmations.Scan(&currentConfirmations); err != nil {
-		return fmt.Errorf("[TaskProcessor] failed to scan current confirmations: %w", err)
+	// Get state client for the chain
+	stateClient, err := tp.node.chainClient.GetStateClient(fmt.Sprintf("%d", task.ChainID))
+	if err != nil {
+		return fmt.Errorf("[TaskProcessor] failed to get state client for chain %d: %w", task.ChainID, err)
+	}
+
+	// Get latest block number
+	latestBlock, err := stateClient.GetLatestBlockNumber(ctx)
+	if err != nil {
+		return fmt.Errorf("[TaskProcessor] failed to get latest block number: %w", err)
 	}
 
 	// Get required confirmations
@@ -1002,15 +995,21 @@ func (tp *TaskProcessor) ProcessNewTask(ctx context.Context, task *tasks.Task) e
 		return fmt.Errorf("failed to scan required confirmations: %w", err)
 	}
 
+	// Get task block number
+	if !task.BlockNumber.Valid || task.BlockNumber.Int == nil {
+		return fmt.Errorf("[TaskProcessor] block number is invalid")
+	}
+	taskBlock := task.BlockNumber.Int.Uint64()
+
 	// If task has sufficient confirmations, process it immediately
-	if currentConfirmations >= requiredConfirmations {
-		tp.logger.Printf("[TaskProcessor] Task %s has sufficient confirmations (%d/%d), processing immediately", 
-			task.TaskID, currentConfirmations, requiredConfirmations)
+	if latestBlock >= taskBlock {
+		tp.logger.Printf("[TaskProcessor] Task %s has sufficient confirmations (latest: %d >= task: %d), processing immediately", 
+			task.TaskID, latestBlock, taskBlock)
 		return tp.ProcessPendingTask(ctx, task)
 	}
 
-	tp.logger.Printf("[TaskProcessor] Task %s needs more confirmations (%d/%d), will process later", 
-		task.TaskID, currentConfirmations, requiredConfirmations)
+	tp.logger.Printf("[TaskProcessor] Task %s needs more confirmations (latest: %d < task: %d), will process later", 
+		task.TaskID, latestBlock, taskBlock)
 	return nil
 }
 

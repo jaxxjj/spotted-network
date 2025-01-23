@@ -13,7 +13,7 @@ type Querier interface {
 	DeleteConsensusResponse(ctx context.Context, taskID string) error
 	GetConsensusResponse(ctx context.Context, taskID string) (ConsensusResponse, error)
 	ListPendingConsensus(ctx context.Context) ([]ConsensusResponse, error)
-	UpdateConsensusStatus(ctx context.Context, arg UpdateConsensusStatusParams) (ConsensusResponse, error)
+	UpdateConsensusResponse(ctx context.Context, arg UpdateConsensusResponseParams) (ConsensusResponse, error)
 }
 
 var _ Querier = (*Queries)(nil)

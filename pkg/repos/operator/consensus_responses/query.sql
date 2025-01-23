@@ -2,7 +2,6 @@
 INSERT INTO consensus_responses (
     task_id,
     epoch,
-    status,
     value,
     block_number,
     chain_id,
@@ -13,19 +12,18 @@ INSERT INTO consensus_responses (
     total_weight,
     consensus_reached_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 ) RETURNING *;
 
 -- name: GetConsensusResponse :one
 SELECT * FROM consensus_responses
 WHERE task_id = $1 LIMIT 1;
 
--- name: UpdateConsensusStatus :one
+-- name: UpdateConsensusResponse :one
 UPDATE consensus_responses
-SET status = $2,
-    consensus_reached_at = $3,
-    aggregated_signatures = $4,
-    operator_signatures = $5
+SET consensus_reached_at = $2,
+    aggregated_signatures = $3,
+    operator_signatures = $4
 WHERE task_id = $1
 RETURNING *;
 

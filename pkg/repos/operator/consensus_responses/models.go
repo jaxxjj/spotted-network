@@ -12,7 +12,6 @@ type ConsensusResponse struct {
 	ID                   int64            `json:"id"`
 	TaskID               string           `json:"task_id"`
 	Epoch                int32            `json:"epoch"`
-	Status               string           `json:"status"`
 	Value                pgtype.Numeric   `json:"value"`
 	BlockNumber          pgtype.Numeric   `json:"block_number"`
 	ChainID              int32            `json:"chain_id"`

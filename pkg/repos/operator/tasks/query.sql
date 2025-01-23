@@ -48,13 +48,6 @@ SELECT * FROM tasks
 WHERE status = 'confirming'
 ORDER BY created_at DESC;
 
--- name: UpdateTaskConfirmations :exec
-UPDATE tasks 
-SET current_confirmations = $1,
-    last_checked_block = $2,
-    updated_at = NOW()
-WHERE task_id = $3;
-
 -- name: UpdateTaskCompleted :exec
 UPDATE tasks
 SET status = 'completed',
@@ -63,7 +56,8 @@ WHERE task_id = $1;
 
 -- name: UpdateTaskToPending :exec
 UPDATE tasks 
-SET status = 'pending', updated_at = NOW()
+SET status = 'pending', 
+    updated_at = NOW()
 WHERE task_id = $1;
 
 -- name: ListAllTasks :many

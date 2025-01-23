@@ -15,7 +15,6 @@ const createConsensusResponse = `-- name: CreateConsensusResponse :one
 INSERT INTO consensus_responses (
     task_id,
     epoch,
-    status,
     value,
     block_number,
     chain_id,
@@ -26,14 +25,13 @@ INSERT INTO consensus_responses (
     total_weight,
     consensus_reached_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-) RETURNING id, task_id, epoch, status, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+) RETURNING id, task_id, epoch, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at
 `
 
 type CreateConsensusResponseParams struct {
 	TaskID               string           `json:"task_id"`
 	Epoch                int32            `json:"epoch"`
-	Status               string           `json:"status"`
 	Value                pgtype.Numeric   `json:"value"`
 	BlockNumber          pgtype.Numeric   `json:"block_number"`
 	ChainID              int32            `json:"chain_id"`
@@ -49,7 +47,6 @@ func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsens
 	row := q.db.QueryRow(ctx, createConsensusResponse,
 		arg.TaskID,
 		arg.Epoch,
-		arg.Status,
 		arg.Value,
 		arg.BlockNumber,
 		arg.ChainID,
@@ -65,7 +62,6 @@ func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsens
 		&i.ID,
 		&i.TaskID,
 		&i.Epoch,
-		&i.Status,
 		&i.Value,
 		&i.BlockNumber,
 		&i.ChainID,
@@ -92,7 +88,7 @@ func (q *Queries) DeleteConsensusResponse(ctx context.Context, taskID string) er
 }
 
 const getConsensusResponse = `-- name: GetConsensusResponse :one
-SELECT id, task_id, epoch, status, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at FROM consensus_responses
+SELECT id, task_id, epoch, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at FROM consensus_responses
 WHERE task_id = $1 LIMIT 1
 `
 
@@ -103,7 +99,6 @@ func (q *Queries) GetConsensusResponse(ctx context.Context, taskID string) (Cons
 		&i.ID,
 		&i.TaskID,
 		&i.Epoch,
-		&i.Status,
 		&i.Value,
 		&i.BlockNumber,
 		&i.ChainID,
@@ -120,7 +115,7 @@ func (q *Queries) GetConsensusResponse(ctx context.Context, taskID string) (Cons
 }
 
 const listPendingConsensus = `-- name: ListPendingConsensus :many
-SELECT id, task_id, epoch, status, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at FROM consensus_responses
+SELECT id, task_id, epoch, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at FROM consensus_responses
 WHERE status = 'pending'
 ORDER BY created_at DESC
 `
@@ -138,7 +133,6 @@ func (q *Queries) ListPendingConsensus(ctx context.Context) ([]ConsensusResponse
 			&i.ID,
 			&i.TaskID,
 			&i.Epoch,
-			&i.Status,
 			&i.Value,
 			&i.BlockNumber,
 			&i.ChainID,
@@ -161,28 +155,25 @@ func (q *Queries) ListPendingConsensus(ctx context.Context) ([]ConsensusResponse
 	return items, nil
 }
 
-const updateConsensusStatus = `-- name: UpdateConsensusStatus :one
+const updateConsensusResponse = `-- name: UpdateConsensusResponse :one
 UPDATE consensus_responses
-SET status = $2,
-    consensus_reached_at = $3,
-    aggregated_signatures = $4,
-    operator_signatures = $5
+SET consensus_reached_at = $2,
+    aggregated_signatures = $3,
+    operator_signatures = $4
 WHERE task_id = $1
-RETURNING id, task_id, epoch, status, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at
+RETURNING id, task_id, epoch, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at
 `
 
-type UpdateConsensusStatusParams struct {
+type UpdateConsensusResponseParams struct {
 	TaskID               string           `json:"task_id"`
-	Status               string           `json:"status"`
 	ConsensusReachedAt   pgtype.Timestamp `json:"consensus_reached_at"`
 	AggregatedSignatures []byte           `json:"aggregated_signatures"`
 	OperatorSignatures   []byte           `json:"operator_signatures"`
 }
 
-func (q *Queries) UpdateConsensusStatus(ctx context.Context, arg UpdateConsensusStatusParams) (ConsensusResponse, error) {
-	row := q.db.QueryRow(ctx, updateConsensusStatus,
+func (q *Queries) UpdateConsensusResponse(ctx context.Context, arg UpdateConsensusResponseParams) (ConsensusResponse, error) {
+	row := q.db.QueryRow(ctx, updateConsensusResponse,
 		arg.TaskID,
-		arg.Status,
 		arg.ConsensusReachedAt,
 		arg.AggregatedSignatures,
 		arg.OperatorSignatures,
@@ -192,7 +183,6 @@ func (q *Queries) UpdateConsensusStatus(ctx context.Context, arg UpdateConsensus
 		&i.ID,
 		&i.TaskID,
 		&i.Epoch,
-		&i.Status,
 		&i.Value,
 		&i.BlockNumber,
 		&i.ChainID,

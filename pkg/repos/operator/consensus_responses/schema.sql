@@ -3,7 +3,6 @@ CREATE TABLE consensus_responses (
     id BIGSERIAL PRIMARY KEY,
     task_id TEXT NOT NULL,
     epoch INT NOT NULL,
-    status TEXT NOT NULL, -- pending, completed, failed
     value NUMERIC(78) NOT NULL, -- 添加value字段，记录最终共识的值
     block_number NUMERIC(78) NOT NULL, -- 添加block_number
     chain_id INT NOT NULL, -- 添加chain_id 
@@ -15,11 +14,8 @@ CREATE TABLE consensus_responses (
     consensus_reached_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT valid_status CHECK (status IN ('pending', 'completed', 'failed')),
     CONSTRAINT unique_task_consensus UNIQUE (task_id),
     CONSTRAINT fk_task FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
 );
 
-
-CREATE INDEX idx_consensus_status ON consensus_responses(status);
 CREATE INDEX idx_consensus_epoch ON consensus_responses(epoch); 

@@ -152,12 +152,10 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		response := struct {
 			TaskID string `json:"task_id"`
 			Status string `json:"status"`
-			CurrentConfirmations int32 `json:"current_confirmations,omitempty"`
 			RequiredConfirmations int32 `json:"required_confirmations,omitempty"`
 		}{
 			TaskID: existingTask.TaskID,
 			Status: existingTask.Status,
-			CurrentConfirmations: existingTask.CurrentConfirmations.Int32,
 			RequiredConfirmations: existingTask.RequiredConfirmations.Int32,
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -171,13 +169,14 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	// Determine initial status based on block confirmations
 	status := "pending"
 	if params.BlockNumber != nil {
-		// Calculate current confirmations
-		currentConfirmations := int32(latestBlock - uint64(*params.BlockNumber))
-		if currentConfirmations < int32(requiredConfirmations) {
+		// Check if task needs confirmations
+		if latestBlock < uint64(*params.BlockNumber) + uint64(requiredConfirmations) {
 			status = "confirming"
-			log.Printf("[API] Task requires %d confirmations, current confirmations: %d", requiredConfirmations, currentConfirmations)
+			log.Printf("[API] Task requires %d confirmations, waiting for block %d (current: %d)", 
+				requiredConfirmations, uint64(*params.BlockNumber) + uint64(requiredConfirmations), latestBlock)
 		} else {
-			log.Printf("[API] Task already has sufficient confirmations: %d/%d", currentConfirmations, requiredConfirmations)
+			log.Printf("[API] Task already has sufficient confirmations (target: %d, current: %d)", 
+				uint64(*params.BlockNumber) + uint64(requiredConfirmations), latestBlock)
 		}
 	}
 
@@ -313,7 +312,6 @@ func (h *Handler) GetTaskConsensus(w http.ResponseWriter, r *http.Request) {
 	response := struct {
 		TaskID              string          `json:"task_id"`
 		Epoch              int32           `json:"epoch"`
-		Status             string          `json:"status"`
 		Value              string          `json:"value"`
 		BlockNumber        string          `json:"block_number"`
 		ChainID            int32           `json:"chain_id"`
@@ -325,7 +323,6 @@ func (h *Handler) GetTaskConsensus(w http.ResponseWriter, r *http.Request) {
 	}{
 		TaskID:              consensus.TaskID,
 		Epoch:              consensus.Epoch,
-		Status:             consensus.Status,
 		Value:              value,
 		BlockNumber:        blockNumber,
 		ChainID:           task.ChainID,
@@ -406,7 +403,6 @@ func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 	response := &TaskFinalResponse{
 		TaskID:             taskID,
 		Epoch:             uint32(consensus.Epoch),
-		Status:            consensus.Status,
 		Value:             value,
 		BlockNumber:       blockNumber,
 		ChainID:          uint64(task.ChainID),

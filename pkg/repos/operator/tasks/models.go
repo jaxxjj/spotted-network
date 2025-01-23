@@ -19,8 +19,6 @@ type Task struct {
 	Epoch                 int32              `json:"epoch"`
 	Status                string             `json:"status"`
 	RequiredConfirmations pgtype.Int4        `json:"required_confirmations"`
-	CurrentConfirmations  pgtype.Int4        `json:"current_confirmations"`
-	LastCheckedBlock      pgtype.Numeric     `json:"last_checked_block"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 }
