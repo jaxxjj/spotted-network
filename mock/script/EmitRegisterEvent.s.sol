@@ -4,7 +4,7 @@ pragma solidity ^0.8.12;
 import "forge-std/Script.sol";
 import "../src/MockRegistry.sol";
 
-contract EmitEventScript is Script {
+contract EmitRegisterEvent is Script {
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         address registryAddress = vm.envAddress("REGISTRY_ADDRESS");
@@ -38,6 +38,5 @@ contract EmitEventScript is Script {
         }
 
         vm.stopBroadcast();
-        console.log("All events emitted successfully!");
     }
 } 

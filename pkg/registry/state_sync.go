@@ -70,19 +70,21 @@ func (s *StateSyncService) handleStateSync(stream network.Stream) {
 
 // handleGetFullState handles a request for full state
 func (s *StateSyncService) handleGetFullState(stream network.Stream) {
-	// Get all operators
-	operators, err := s.db.ListOperatorsByStatus(context.Background(), "active")
+	// Get all operators from database
+	allOperators, err := s.db.ListAllOperators(context.Background())
 	if err != nil {
 		log.Printf("[StateSync] Failed to get operators: %v", err)
 		stream.Reset()
 		return
 	}
 
+	log.Printf("[StateSync] Found %d total operators", len(allOperators))
+
 	// Create response
 	resp := &pb.GetFullStateResponse{
-		Operators: make([]*pb.OperatorState, len(operators)),
+		Operators: make([]*pb.OperatorState, len(allOperators)),
 	}
-	for i, op := range operators {
+	for i, op := range allOperators {
 		resp.Operators[i] = convertToProtoOperator(op)
 	}
 
@@ -115,7 +117,7 @@ func (s *StateSyncService) handleGetFullState(stream network.Stream) {
 		return
 	}
 
-	log.Printf("[StateSync] Sent full state with %d operators", len(operators))
+	log.Printf("[StateSync] Sent full state with %d operators", len(allOperators))
 }
 
 // Subscribe adds a new subscriber
@@ -211,6 +213,22 @@ func convertToProtoOperator(op operators.Operators) *pb.OperatorState {
 		exitEpoch = &val
 	}
 
+	// Handle weight conversion properly
+	var weightStr string
+	if op.Weight.Valid && op.Weight.Int != nil {
+		weight := new(big.Int).Set(op.Weight.Int)
+		if op.Weight.Exp > 0 {
+			// If scale is positive, multiply by 10^scale
+			multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(op.Weight.Exp)), nil)
+			weight.Mul(weight, multiplier)
+		} else if op.Weight.Exp < 0 {
+			// If scale is negative, divide by 10^(-scale)
+			divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(-op.Weight.Exp)), nil)
+			weight.Div(weight, divisor)
+		}
+		weightStr = weight.String()
+	}
+
 	return &pb.OperatorState{
 		Address:                op.Address,
 		SigningKey:            op.SigningKey,
@@ -219,24 +237,7 @@ func convertToProtoOperator(op operators.Operators) *pb.OperatorState {
 		ActiveEpoch:           int32(op.ActiveEpoch.Int.Int64()),
 		ExitEpoch:            exitEpoch,
 		Status:               op.Status,
-		Weight:               op.Weight.Int.String(),
+		Weight:               weightStr,
 	}
 }
 
-func readProtoMessage(stream network.Stream, msg proto.Message) error {
-	buf := make([]byte, 1024*1024) // 1MB buffer
-	n, err := stream.Read(buf)
-	if err != nil {
-		return err
-	}
-	return proto.Unmarshal(buf[:n], msg)
-}
-
-func writeProtoMessage(stream network.Stream, msg proto.Message) error {
-	data, err := proto.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	_, err = stream.Write(data)
-	return err
-}

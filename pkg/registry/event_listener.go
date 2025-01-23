@@ -258,14 +258,16 @@ func (el *EventListener) updateStatusAfterOperations(ctx context.Context, operat
 		}
 	}
 
-	// Get weight if status is active
-	if status == "active" {
+	// Get weight if status is active or waitingExit
+	if status == "active" || status == "waitingExit" {
 		weight, err = client.GetOperatorWeight(ctx, common.HexToAddress(operatorAddr))
 		if err != nil {
 			return fmt.Errorf("[EventListener] failed to get operator weight: %w", err)
 		}
+		log.Printf("[EventListener] Got weight for operator %s with status %s: %s", operatorAddr, status, weight.String())
 	} else {
 		weight = big.NewInt(0)
+		log.Printf("[EventListener] Set weight to 0 for operator %s with status %s", operatorAddr, status)
 	}
 
 	// Update operator state in database
