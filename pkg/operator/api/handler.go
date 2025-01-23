@@ -18,6 +18,7 @@ import (
 
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/types"
+	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 )
@@ -45,18 +46,20 @@ type Handler struct {
 		ProcessTask(ctx context.Context, task *types.Task) error
 		ProcessPendingTask(ctx context.Context, task *tasks.Task) error
 	}
+	config *config.Config
 }
 
 // NewHandler creates a new handler
 func NewHandler(taskQueries *tasks.Queries, chainClient *ethereum.ChainClients, consensusDB *consensus_responses.Queries, taskProcessor interface {
 	ProcessTask(ctx context.Context, task *types.Task) error
 	ProcessPendingTask(ctx context.Context, task *tasks.Task) error
-}) *Handler {
+}, config *config.Config) *Handler {
 	return &Handler{
 		taskQueries: taskQueries,
 		chainClient: chainClient,
 		consensusDB: consensusDB,
 		taskProcessor: taskProcessor,
+		config: config,
 	}
 }
 
@@ -423,14 +426,14 @@ func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 
 // getRequiredConfirmations returns the required confirmations for a chain
 func (h *Handler) getRequiredConfirmations(chainID int64) int32 {
-	switch chainID {
-	case 1: // Ethereum mainnet
-		return 12
-	case 137: // Polygon
-		return 256
-	case 56: // BSC
-		return 15
-	default:
-		return 12
+	// Convert chainID to string for config lookup
+	chainIDStr := fmt.Sprintf("%d", chainID)
+	
+	// Get chain config
+	if chainConfig, ok := h.config.Chains[chainIDStr]; ok {
+		return chainConfig.RequiredConfirmations
 	}
+	log.Printf("[API] Chain %s not found in config, using default value", chainIDStr)
+	// If chain not found in config, return default value
+	return 12 // Default to 12 confirmations
 } 

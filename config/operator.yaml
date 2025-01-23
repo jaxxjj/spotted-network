@@ -6,12 +6,28 @@ chains:
       registry: ${REGISTRY_ADDRESS}
       epochManager: ${EPOCH_MANAGER_ADDRESS}
       stateManager: ${STATE_MANAGER_ADDRESS}
-  "31337":  # Chain ID config
+    required_confirmations: 12  # Ethereum mainnet confirmations
+  "137":  # Polygon
+    rpc: "http://polygon-rpc.com"
+    contracts:
+      registry: ${POLYGON_REGISTRY_ADDRESS}
+      epochManager: ${POLYGON_EPOCH_MANAGER_ADDRESS}
+      stateManager: ${POLYGON_STATE_MANAGER_ADDRESS} 
+    required_confirmations: 256  # Polygon confirmations
+  "56":  # BSC
+    rpc: "http://bsc-rpc.com"
+    contracts:
+      registry: ${BSC_REGISTRY_ADDRESS}
+      epochManager: ${BSC_EPOCH_MANAGER_ADDRESS}
+      stateManager: ${BSC_STATE_MANAGER_ADDRESS}
+    required_confirmations: 15  # BSC confirmations
+  "31337":  # Chain ID config (local testnet)
     rpc: "http://host.docker.internal:8545"  # Default to local Anvil
     contracts:
       registry: ${REGISTRY_ADDRESS}
       epochManager: ${EPOCH_MANAGER_ADDRESS}
       stateManager: ${STATE_MANAGER_ADDRESS}
+    required_confirmations: 12  # Local testnet can use 1 confirmation
 
 # Database Config
 database:

@@ -141,7 +141,7 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 	node.taskProcessor = taskProcessor
 
 	// Initialize API handler and server with task processor
-	apiHandler := api.NewHandler(taskQueries, chainClients, consensusQueries, taskProcessor)
+	apiHandler := api.NewHandler(taskQueries, chainClients, consensusQueries, taskProcessor, cfg)
 	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
 	node.apiServer = apiServer
 	
