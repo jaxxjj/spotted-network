@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
@@ -14,7 +15,6 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "config/operator.yaml", "Path to config file")
 	registryAddr := flag.String("registry", "", "Registry node address")
 	keystorePath := flag.String("keystore", "", "Path to keystore file")
 	password := flag.String("password", "", "Password for keystore")
@@ -91,8 +91,14 @@ func main() {
 		return
 	}
 
+	// Get config path from environment variable
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "config/operator.yaml"  // default value
+	}
+
 	// Load config
-	cfg, err := operator.LoadConfig(*configPath)
+	cfg, err := operator.LoadConfig(configPath)
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
 	}

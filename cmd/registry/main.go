@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
@@ -110,14 +109,16 @@ func (s *registryServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Joi
 func main() {
 	ctx := context.Background()
 
-	// Get ports from environment
-	p2pPort := os.Getenv("P2P_PORT")
-	if p2pPort == "" {
-		p2pPort = "9000"
+	// Get config path from environment variable
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "config/registry.yaml"  // default value
 	}
-	httpPort := os.Getenv("HTTP_PORT")
-	if httpPort == "" {
-		httpPort = "8000"
+
+	// Load config
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		log.Fatal("Failed to load config:", err)
 	}
 
 	// Initialize database connection
@@ -130,43 +131,8 @@ func main() {
 	// Create database queries
 	queries := operators.New(dbConn)
 
-	// Load chain configuration
-	chainConfig := &config.Config{
-		Chains: map[int64]*config.ChainConfig{
-			31337: { // Local testnet (main chain)
-				RPC: os.Getenv("CHAIN_RPC_URL"),
-				Contracts: config.ContractsConfig{
-					Registry:     os.Getenv("REGISTRY_ADDRESS"),
-					EpochManager: os.Getenv("EPOCH_MANAGER_ADDRESS"),
-					StateManager: os.Getenv("STATE_MANAGER_ADDRESS"),
-				},
-				RequiredConfirmations: 12,
-				AverageBlockTime:      12.5,
-			},
-		},
-		Database: config.DatabaseConfig{
-			URL:             os.Getenv("DATABASE_URL"),
-			MaxOpenConns:    20,
-			MaxIdleConns:    5,
-			ConnMaxLifetime: time.Hour,
-		},
-		P2P: config.P2PConfig{
-			Port:            0, // Random port
-			BootstrapNodes: []string{},
-			ExternalIP:     "0.0.0.0",
-		},
-		HTTP: config.HTTPConfig{
-			Port: 8080,
-			Host: "0.0.0.0",
-		},
-		Logging: config.LoggingConfig{
-			Level:  "debug",
-			Format: "json",
-		},
-	}
-
 	// Initialize chain clients
-	chainClients, err := ethereum.NewChainClients(chainConfig)
+	chainClients, err := ethereum.NewChainClients(cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize chain clients: %v", err)
 	}
@@ -174,7 +140,7 @@ func main() {
 
 	// Create p2p host configuration
 	p2pConfig := &p2p.Config{
-		ListenAddrs: []string{fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", p2pPort)},
+		ListenAddrs: []string{fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", cfg.P2P.Port)},
 	}
 	
 	// Create Registry Node
@@ -190,7 +156,7 @@ func main() {
 	}
 
 	// Start gRPC server
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", httpPort))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.HTTP.Port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -198,7 +164,7 @@ func main() {
 	grpcServer := grpc.NewServer()
 	pb.RegisterRegistryServer(grpcServer, &registryServer{node: node})
 
-	log.Printf("Registry gRPC server listening on :%s", httpPort)
+	log.Printf("Registry gRPC server listening on :%d", cfg.HTTP.Port)
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
