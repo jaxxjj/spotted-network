@@ -41,7 +41,7 @@ ORDER BY created_at ASC;
 -- name: CleanupOldTasks :exec
 DELETE FROM tasks
 WHERE created_at < NOW() - INTERVAL '24 hours'
-AND status IN ('completed', 'failed');
+AND status IN ('completed');
 
 -- name: ListConfirmingTasks :many
 SELECT * FROM tasks 
@@ -62,3 +62,15 @@ WHERE task_id = $1;
 
 -- name: ListAllTasks :many
 SELECT * FROM tasks ORDER BY created_at DESC;
+
+-- name: IncrementRetryCount :one
+UPDATE tasks
+SET retry_count = retry_count + 1,
+    updated_at = NOW()
+WHERE task_id = $1
+RETURNING *;
+
+-- name: DeleteTasksByRetryCount :exec
+DELETE FROM tasks
+WHERE retry_count >= $1
+AND status = 'pending';

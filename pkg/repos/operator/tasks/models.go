@@ -19,6 +19,7 @@ type Task struct {
 	Epoch                 int32              `json:"epoch"`
 	Status                string             `json:"status"`
 	RequiredConfirmations pgtype.Int4        `json:"required_confirmations"`
+	RetryCount            int32              `json:"retry_count"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 }

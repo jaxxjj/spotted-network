@@ -11,7 +11,9 @@ import (
 type Querier interface {
 	CleanupOldTasks(ctx context.Context) error
 	CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error)
+	DeleteTasksByRetryCount(ctx context.Context, retryCount int32) error
 	GetTaskByID(ctx context.Context, taskID string) (Task, error)
+	IncrementRetryCount(ctx context.Context, taskID string) (Task, error)
 	ListAllTasks(ctx context.Context) ([]Task, error)
 	ListConfirmingTasks(ctx context.Context) ([]Task, error)
 	ListPendingTasks(ctx context.Context) ([]Task, error)

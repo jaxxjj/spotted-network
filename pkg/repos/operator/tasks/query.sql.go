@@ -14,7 +14,7 @@ import (
 const cleanupOldTasks = `-- name: CleanupOldTasks :exec
 DELETE FROM tasks
 WHERE created_at < NOW() - INTERVAL '24 hours'
-AND status IN ('completed', 'failed')
+AND status IN ('completed')
 `
 
 func (q *Queries) CleanupOldTasks(ctx context.Context) error {
@@ -36,7 +36,7 @@ INSERT INTO tasks (
     required_confirmations
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, created_at, updated_at
+) RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
 `
 
 type CreateTaskParams struct {
@@ -77,14 +77,26 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		&i.Epoch,
 		&i.Status,
 		&i.RequiredConfirmations,
+		&i.RetryCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
+const deleteTasksByRetryCount = `-- name: DeleteTasksByRetryCount :exec
+DELETE FROM tasks
+WHERE retry_count >= $1
+AND status = 'pending'
+`
+
+func (q *Queries) DeleteTasksByRetryCount(ctx context.Context, retryCount int32) error {
+	_, err := q.db.Exec(ctx, deleteTasksByRetryCount, retryCount)
+	return err
+}
+
 const getTaskByID = `-- name: GetTaskByID :one
-SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, created_at, updated_at FROM tasks
+SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks
 WHERE task_id = $1
 `
 
@@ -102,6 +114,36 @@ func (q *Queries) GetTaskByID(ctx context.Context, taskID string) (Task, error) 
 		&i.Epoch,
 		&i.Status,
 		&i.RequiredConfirmations,
+		&i.RetryCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const incrementRetryCount = `-- name: IncrementRetryCount :one
+UPDATE tasks
+SET retry_count = retry_count + 1,
+    updated_at = NOW()
+WHERE task_id = $1
+RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
+`
+
+func (q *Queries) IncrementRetryCount(ctx context.Context, taskID string) (Task, error) {
+	row := q.db.QueryRow(ctx, incrementRetryCount, taskID)
+	var i Task
+	err := row.Scan(
+		&i.TaskID,
+		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
+		&i.BlockNumber,
+		&i.Timestamp,
+		&i.Value,
+		&i.Epoch,
+		&i.Status,
+		&i.RequiredConfirmations,
+		&i.RetryCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -109,7 +151,7 @@ func (q *Queries) GetTaskByID(ctx context.Context, taskID string) (Task, error) 
 }
 
 const listAllTasks = `-- name: ListAllTasks :many
-SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, created_at, updated_at FROM tasks ORDER BY created_at DESC
+SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAllTasks(ctx context.Context) ([]Task, error) {
@@ -132,6 +174,7 @@ func (q *Queries) ListAllTasks(ctx context.Context) ([]Task, error) {
 			&i.Epoch,
 			&i.Status,
 			&i.RequiredConfirmations,
+			&i.RetryCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -146,7 +189,7 @@ func (q *Queries) ListAllTasks(ctx context.Context) ([]Task, error) {
 }
 
 const listConfirmingTasks = `-- name: ListConfirmingTasks :many
-SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, created_at, updated_at FROM tasks 
+SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks 
 WHERE status = 'confirming'
 ORDER BY created_at DESC
 `
@@ -171,6 +214,7 @@ func (q *Queries) ListConfirmingTasks(ctx context.Context) ([]Task, error) {
 			&i.Epoch,
 			&i.Status,
 			&i.RequiredConfirmations,
+			&i.RetryCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -185,7 +229,7 @@ func (q *Queries) ListConfirmingTasks(ctx context.Context) ([]Task, error) {
 }
 
 const listPendingTasks = `-- name: ListPendingTasks :many
-SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, created_at, updated_at FROM tasks
+SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks
 WHERE status = 'pending'
 ORDER BY created_at ASC
 `
@@ -210,6 +254,7 @@ func (q *Queries) ListPendingTasks(ctx context.Context) ([]Task, error) {
 			&i.Epoch,
 			&i.Status,
 			&i.RequiredConfirmations,
+			&i.RetryCount,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -240,7 +285,7 @@ UPDATE tasks
 SET status = $2,
     updated_at = NOW()
 WHERE task_id = $1
-RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, created_at, updated_at
+RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
 `
 
 type UpdateTaskStatusParams struct {
@@ -262,6 +307,7 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 		&i.Epoch,
 		&i.Status,
 		&i.RequiredConfirmations,
+		&i.RetryCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -286,7 +332,7 @@ SET value = $2,
     status = 'pending',
     updated_at = NOW()
 WHERE task_id = $1
-RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, created_at, updated_at
+RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
 `
 
 type UpdateTaskValueParams struct {
@@ -308,6 +354,7 @@ func (q *Queries) UpdateTaskValue(ctx context.Context, arg UpdateTaskValueParams
 		&i.Epoch,
 		&i.Status,
 		&i.RequiredConfirmations,
+		&i.RetryCount,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
