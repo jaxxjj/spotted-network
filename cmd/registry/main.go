@@ -170,6 +170,11 @@ func main() {
 	}
 	defer node.Stop()
 
+	// Start the node
+	if err := node.Start(ctx); err != nil {
+		log.Fatalf("Failed to start registry node: %v", err)
+	}
+
 	// Start gRPC server
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", httpPort))
 	if err != nil {

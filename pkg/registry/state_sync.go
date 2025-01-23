@@ -5,7 +5,6 @@ import (
 	"log"
 	"math/big"
 	"sync"
-	"time"
 
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
@@ -22,16 +21,16 @@ type StateSyncService struct {
 	db   *operators.Queries
 	
 	// Subscribers for state updates
-	subscribers   map[peer.ID]chan *pb.OperatorStateUpdate
+	subscribers   map[peer.ID]network.Stream
 	subscribersMu sync.RWMutex
 }
 
+// NewStateSyncService creates a new state sync service
 func NewStateSyncService(h host.Host, db *operators.Queries) *StateSyncService {
-	log.Printf("[StateSync] Initializing state sync service")
 	return &StateSyncService{
 		host:        h,
 		db:          db,
-		subscribers: make(map[peer.ID]chan *pb.OperatorStateUpdate),
+		subscribers: make(map[peer.ID]network.Stream),
 	}
 }
 
@@ -40,126 +39,161 @@ func (s *StateSyncService) Start(ctx context.Context) error {
 	// Set up protocol handler for state sync requests
 	s.host.SetStreamHandler("/state-sync/1.0.0", s.handleStateSync)
 	
-	// Start broadcasting state updates
-	go s.broadcastStateUpdates(ctx)
-	
 	log.Printf("[StateSync] Service started successfully")
 	return nil
 }
 
 // handleStateSync handles incoming state sync requests
 func (s *StateSyncService) handleStateSync(stream network.Stream) {
-	defer stream.Close()
-	
-	peer := stream.Conn().RemotePeer()
-	log.Printf("[StateSync] Received state sync request from peer %s", peer.String())
-	
-	// Read request
-	var req pb.GetFullStateRequest
-	if err := readProtoMessage(stream, &req); err != nil {
-		log.Printf("[StateSync] Failed to read request from peer %s: %v", peer.String(), err)
+	remotePeer := stream.Conn().RemotePeer()
+	log.Printf("[StateSync] New state sync request from %s", remotePeer)
+
+	// Read message type
+	msgType := make([]byte, 1)
+	if _, err := stream.Read(msgType); err != nil {
+		log.Printf("[StateSync] Error reading message type from %s: %v", remotePeer, err)
+		stream.Reset()
 		return
 	}
-	
-	// Get all operators from database
+
+	switch msgType[0] {
+	case 0x01: // GetFullStateRequest
+		s.handleGetFullState(stream)
+	case 0x02: // SubscribeRequest
+		s.Subscribe(remotePeer, stream)
+		log.Printf("[StateSync] Subscribed %s to state updates", remotePeer)
+	default:
+		log.Printf("[StateSync] Unknown message type from %s: %x", remotePeer, msgType[0])
+		stream.Reset()
+	}
+}
+
+// handleGetFullState handles a request for full state
+func (s *StateSyncService) handleGetFullState(stream network.Stream) {
+	// Get all operators
 	operators, err := s.db.ListOperatorsByStatus(context.Background(), "active")
 	if err != nil {
-		log.Printf("[StateSync] Failed to get operators from database: %v", err)
+		log.Printf("[StateSync] Failed to get operators: %v", err)
+		stream.Reset()
 		return
 	}
-	
-	// Convert to proto message
+
+	// Create response
 	resp := &pb.GetFullStateResponse{
 		Operators: make([]*pb.OperatorState, len(operators)),
 	}
 	for i, op := range operators {
 		resp.Operators[i] = convertToProtoOperator(op)
 	}
-	
-	// Send response
-	if err := writeProtoMessage(stream, resp); err != nil {
-		log.Printf("[StateSync] Failed to send response to peer %s: %v", peer.String(), err)
+
+	// Marshal response
+	data, err := proto.Marshal(resp)
+	if err != nil {
+		log.Printf("[StateSync] Failed to marshal response: %v", err)
+		stream.Reset()
 		return
 	}
-	
-	log.Printf("[StateSync] Successfully sent state response to peer %s with %d operators", peer.String(), len(operators))
+
+	// Write length prefix
+	length := uint32(len(data))
+	lengthBytes := make([]byte, 4)
+	lengthBytes[0] = byte(length >> 24)
+	lengthBytes[1] = byte(length >> 16)
+	lengthBytes[2] = byte(length >> 8)
+	lengthBytes[3] = byte(length)
+
+	if _, err := stream.Write(lengthBytes); err != nil {
+		log.Printf("[StateSync] Failed to write length prefix: %v", err)
+		stream.Reset()
+		return
+	}
+
+	// Write response
+	if _, err := stream.Write(data); err != nil {
+		log.Printf("[StateSync] Failed to write response: %v", err)
+		stream.Reset()
+		return
+	}
+
+	log.Printf("[StateSync] Sent full state with %d operators", len(operators))
 }
 
-// Subscribe adds a new subscriber for state updates
-func (s *StateSyncService) Subscribe(peerID peer.ID) chan *pb.OperatorStateUpdate {
+// Subscribe adds a new subscriber
+func (s *StateSyncService) Subscribe(peerID peer.ID, stream network.Stream) {
 	s.subscribersMu.Lock()
 	defer s.subscribersMu.Unlock()
-	
-	ch := make(chan *pb.OperatorStateUpdate, 100)
-	s.subscribers[peerID] = ch
-	log.Printf("[StateSync] Peer %s subscribed to state updates. Total subscribers: %d", peerID.String(), len(s.subscribers))
-	return ch
+
+	// Close and delete existing stream if any
+	if existingStream, ok := s.subscribers[peerID]; ok {
+		existingStream.Reset()
+		delete(s.subscribers, peerID)
+	}
+
+	s.subscribers[peerID] = stream
+	log.Printf("[StateSync] New subscriber added: %s", peerID)
 }
 
 // Unsubscribe removes a subscriber
 func (s *StateSyncService) Unsubscribe(peerID peer.ID) {
 	s.subscribersMu.Lock()
 	defer s.subscribersMu.Unlock()
-	
-	if ch, ok := s.subscribers[peerID]; ok {
-		close(ch)
+
+	if stream, ok := s.subscribers[peerID]; ok {
+		stream.Reset()
 		delete(s.subscribers, peerID)
-		log.Printf("[StateSync] Peer %s unsubscribed from state updates. Remaining subscribers: %d", peerID.String(), len(s.subscribers))
+		log.Printf("[StateSync] Subscriber removed: %s", peerID)
 	}
 }
 
-// BroadcastUpdate sends an update to all subscribers
-func (s *StateSyncService) BroadcastUpdate(update *pb.OperatorStateUpdate) {
+// BroadcastUpdate sends an update to all subscribed operators
+func (s *StateSyncService) BroadcastUpdate(operators []*pb.OperatorState) {
 	s.subscribersMu.RLock()
 	defer s.subscribersMu.RUnlock()
-	
-	successCount := 0
-	for peerID, ch := range s.subscribers {
-		select {
-		case ch <- update:
-			successCount++
-		default:
-			log.Printf("[StateSync] Failed to send update to peer %s: channel full", peerID.String())
-		}
-	}
-	
-	log.Printf("[StateSync] Broadcasted state update type %s to %d/%d subscribers", update.Type, successCount, len(s.subscribers))
-}
 
-// broadcastStateUpdates periodically broadcasts full state
-func (s *StateSyncService) broadcastStateUpdates(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	
-	log.Printf("[StateSync] Starting periodic state broadcast (interval: 5m)")
-	
-	for {
-		select {
-		case <-ctx.Done():
-			log.Printf("[StateSync] Stopping periodic state broadcast")
-			return
-		case <-ticker.C:
-			// Get all operators
-			operators, err := s.db.ListOperatorsByStatus(ctx, "active")
-			if err != nil {
-				log.Printf("[StateSync] Failed to get operators for periodic broadcast: %v", err)
-				continue
-			}
-			
-			log.Printf("[StateSync] Preparing periodic state broadcast with %d operators", len(operators))
-			
-			// Create update message
-			update := &pb.OperatorStateUpdate{
-				Type:      "FULL",
-				Operators: make([]*pb.OperatorState, len(operators)),
-			}
-			for i, op := range operators {
-				update.Operators[i] = convertToProtoOperator(op)
-			}
-			
-			// Broadcast to all subscribers
-			s.BroadcastUpdate(update)
+	if len(operators) == 0 {
+		log.Printf("[StateSync] No operators to broadcast")
+		return
+	}
+
+	// Create update message
+	update := &pb.OperatorStateUpdate{
+		Operators: operators,
+	}
+
+	// Marshal update
+	data, err := proto.Marshal(update)
+	if err != nil {
+		log.Printf("[StateSync] Failed to marshal state update: %v", err)
+		return
+	}
+
+	// Write length prefix
+	length := uint32(len(data))
+	lengthBytes := make([]byte, 4)
+	lengthBytes[0] = byte(length >> 24)
+	lengthBytes[1] = byte(length >> 16)
+	lengthBytes[2] = byte(length >> 8)
+	lengthBytes[3] = byte(length)
+
+	// Broadcast to all subscribers
+	for peer, stream := range s.subscribers {
+		// Write length prefix
+		if _, err := stream.Write(lengthBytes); err != nil {
+			log.Printf("[StateSync] Error sending length prefix to %s: %v", peer, err)
+			stream.Reset()
+			delete(s.subscribers, peer)
+			continue
 		}
+
+		// Write update data
+		if _, err := stream.Write(data); err != nil {
+			log.Printf("[StateSync] Error sending update to %s: %v", peer, err)
+			stream.Reset()
+			delete(s.subscribers, peer)
+			continue
+		}
+
+		log.Printf("[StateSync] Sent state update to %s with %d operators", peer, len(operators))
 	}
 }
 

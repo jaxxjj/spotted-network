@@ -148,7 +148,7 @@ func (h *Host) ConnectPeer(ctx context.Context, peerAddr string) error {
 // Ping a peer with timeout
 func (h *Host) PingPeer(ctx context.Context, p peer.ID) error {
 	// Add ping timeout
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
 	defer cancel()
 
 	fmt.Printf("Pinging peer: %s\n", p)

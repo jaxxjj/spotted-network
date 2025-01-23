@@ -57,19 +57,42 @@ contract MockRegistry {
         address _operator,
         uint32 _epochNumber
     ) external view returns (uint256) {
-        if (_epochNumber == 0) {
-            return 0;
+        if (_epochNumber == 1) {
+            if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
+                return 333; // Return fixed weight for testing
+            }
+            if (_operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
+                return 444;
+            }
+            if (_operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
+                return 555;
+            }
         }
 
-        if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
-            return 333; // Return fixed weight for testing
+        if (_epochNumber == 2) {
+            if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
+                return 345; // Return fixed weight for testing
+            }
+            if (_operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
+                return 456;
+            }
+            if (_operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
+                return 567;
+            }
         }
-        if (_operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
-            return 444;
+
+        if (_epochNumber == 3) {
+            if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
+                return 300; // Return fixed weight for testing
+            }
+            if (_operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
+                return 400;
+            }
+            if (_operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
+                return 500;
+            }
         }
-        if (_operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
-            return 555;
-        }
+
         return 100;
     }
 

@@ -812,7 +812,7 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 
 // checkPendingTasks periodically checks and processes pending tasks
 func (tp *TaskProcessor) checkPendingTasks(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
 	for {

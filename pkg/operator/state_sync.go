@@ -22,7 +22,7 @@ const (
 )
 
 func (node *Node) subscribeToStateUpdates() error {
-	log.Printf("Opening state sync stream to registry...")
+	log.Printf("[Operator] Opening state sync stream to registry...")
 	stream, err := node.host.NewStream(context.Background(), node.registryID, "/state-sync/1.0.0")
 	if err != nil {
 		return fmt.Errorf("failed to open state sync stream: %w", err)
@@ -53,13 +53,14 @@ func (node *Node) subscribeToStateUpdates() error {
 		return fmt.Errorf("failed to write length prefix: %w", err)
 	}
 
-	log.Printf("Sending state sync subscribe request (type: 0x02, length: %d)...", length)
+	log.Printf("[Operator] Sending state sync subscribe request (type: 0x02, length: %d)...", length)
 	bytesWritten, err := stream.Write(data)
 	if err != nil {
 		return fmt.Errorf("failed to send subscribe request: %w", err)
 	}
-	log.Printf("Sent %d bytes to registry", bytesWritten)
-	log.Printf("Successfully subscribed to state updates")
+	log.Printf("[Operator] Sent %d bytes to registry", bytesWritten)
+	log.Printf("[Operator] Successfully subscribed to state updates")
+	log.Printf("[Operator] Starting state update handler...")
 
 	// Handle updates in background
 	go node.handleStateUpdates(stream)
@@ -157,17 +158,37 @@ func (node *Node) getFullState() error {
 }
 
 func (node *Node) handleStateUpdates(stream network.Stream) {
-	defer stream.Close()
-	log.Printf("Started handling state updates from registry")
+	defer func() {
+		log.Printf("[Operator] State update handler stopping, closing stream...")
+		stream.Close()
+	}()
+	
+	log.Printf("[Operator] Started handling state updates from registry")
+	log.Printf("[Operator] Stream ID: %s", stream.ID())
 
 	for {
-		// Read length prefix first
+		// Read message type first
+		msgType := make([]byte, 1)
+		if _, err := io.ReadFull(stream, msgType); err != nil {
+			if err != io.EOF {
+				log.Printf("[Operator] Error reading message type: %v", err)
+			} else {
+				log.Printf("[Operator] State update stream closed by registry")
+			}
+			return
+		}
+
+		// Validate message type
+		if msgType[0] != 0x02 {
+			log.Printf("[Operator] Invalid message type: 0x%02x, expected 0x02", msgType[0])
+			return
+		}
+		
+		// Read length prefix
 		lengthBytes := make([]byte, 4)
 		if _, err := io.ReadFull(stream, lengthBytes); err != nil {
 			if err != io.EOF {
-				log.Printf("Error reading update length: %v", err)
-			} else {
-				log.Printf("State update stream closed by registry")
+				log.Printf("[Operator] Error reading update length: %v", err)
 			}
 			return
 		}
@@ -177,37 +198,53 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 			uint32(lengthBytes[2])<<8 | 
 			uint32(lengthBytes[3])
 			
-			
-		log.Printf("Received state update with length: %d bytes", length)
+		// Validate message length (max 1MB)
+		const maxMessageSize = 1024 * 1024 // 1MB
+		if length > maxMessageSize {
+			log.Printf("[Operator] Message too large (%d bytes), max allowed size is %d bytes", length, maxMessageSize)
+			return
+		}
+
+		log.Printf("[Operator] Received state update - Type: 0x%02x, Length: %d bytes", msgType[0], length)
 		
-		// Read the full update
+		// Read the full update with timeout
 		data := make([]byte, length)
+		if err := stream.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+			log.Printf("[Operator] Failed to set read deadline: %v", err)
+			return
+		}
+		
 		if _, err := io.ReadFull(stream, data); err != nil {
-			if err != io.EOF {
-				log.Printf("Error reading state update data: %v", err)
-			}
+			log.Printf("[Operator] Error reading state update data: %v", err)
+			return
+		}
+
+		// Reset deadline
+		if err := stream.SetReadDeadline(time.Time{}); err != nil {
+			log.Printf("[Operator] Failed to reset read deadline: %v", err)
 			return
 		}
 
 		var update pb.OperatorStateUpdate
 		if err := proto.Unmarshal(data, &update); err != nil {
-			log.Printf("Error unmarshaling state update: %v", err)
+			log.Printf("[Operator] Error unmarshaling state update: %v", err)
 			continue
 		}
 
-		log.Printf("Received state update - Type: %s, Operators count: %d", update.Type, len(update.Operators))
-
-		// Handle the update based on type
-		if update.Type == "FULL" {
-			log.Printf("Processing full state update...")
-			node.updateOperatorStates(update.Operators)
-			log.Printf("Full state update processed, total operators: %d", len(update.Operators))
-		} else {
-			log.Printf("Processing delta state update...")
-			// For delta updates, merge with existing state
-			node.mergeOperatorStates(update.Operators)
-			log.Printf("Delta state update processed, updated operators: %d", len(update.Operators))
-		}
+		log.Printf("[Operator] Successfully unmarshaled update with %d operators", len(update.Operators))
+		
+		// Print detailed operator states before update
+		log.Printf("\n[Operator] === Current Operator States Before Update ===")
+		node.PrintOperatorStates()
+		
+		// Update states
+		node.updateOperatorStates(update.Operators)
+		
+		// Print detailed operator states after update
+		log.Printf("\n[Operator] === Updated Operator States ===")
+		node.PrintOperatorStates()
+		
+		log.Printf("[Operator] State update processed successfully")
 	}
 }
 
@@ -215,43 +252,26 @@ func (node *Node) updateOperatorStates(operators []*pb.OperatorState) {
 	node.statesMu.Lock()
 	defer node.statesMu.Unlock()
 
-	log.Printf("Updating operator states in memory...")
-	log.Printf("Current operator count before update: %d", len(node.operatorStates))
+	log.Printf("[Operator] Updating operator states in memory...")
+	log.Printf("[Operator] Current operator count before update: %d", len(node.operatorStates))
 	
 	// Update memory state
-	node.operatorStates = make(map[string]*pb.OperatorState)
 	for _, op := range operators {
+		prevState := node.operatorStates[op.Address]
 		node.operatorStates[op.Address] = op
-		log.Printf("Added/Updated operator in memory - Address: %s, Status: %s, ActiveEpoch: %d, Weight: %s", 
-			op.Address, op.Status, op.ActiveEpoch, op.Weight)
-	}
-	
-	log.Printf("Memory state updated - New operator count: %d", len(node.operatorStates))
-	
-	// Print current state of operatorStates map
-	log.Printf("\nCurrent Operator States in Memory:")
-	for addr, state := range node.operatorStates {
-		log.Printf("Address: %s, Status: %s, ActiveEpoch: %d, Weight: %s",
-			addr, state.Status, state.ActiveEpoch, state.Weight)
-	}
-}
-
-func (node *Node) mergeOperatorStates(operators []*pb.OperatorState) {
-	node.statesMu.Lock()
-	defer node.statesMu.Unlock()
-
-	// Update or add operators
-	for _, op := range operators {
-		node.operatorStates[op.Address] = op
-		log.Printf("Merged operator state - Address: %s, Status: %s, ActiveEpoch: %d", 
-			op.Address, op.Status, op.ActiveEpoch)
-	}
-	log.Printf("Memory state merged with %d operators, total operators: %d", 
-		len(operators), len(node.operatorStates))
 		
-	// Print current state table
-	log.Printf("\nOperator State Table:")
-	node.PrintOperatorStates()
+		if prevState != nil {
+			log.Printf("[Operator] Updated operator state - Address: %s\n  Old: Status=%s, ActiveEpoch=%d, Weight=%s\n  New: Status=%s, ActiveEpoch=%d, Weight=%s", 
+				op.Address, 
+				prevState.Status, prevState.ActiveEpoch, prevState.Weight,
+				op.Status, op.ActiveEpoch, op.Weight)
+		} else {
+			log.Printf("[Operator] Added new operator - Address: %s, Status: %s, ActiveEpoch: %d, Weight: %s", 
+				op.Address, op.Status, op.ActiveEpoch, op.Weight)
+		}
+	}
+	
+	log.Printf("[Operator] Memory state updated - Current operator count: %d", len(node.operatorStates))
 }
 
 // PrintOperatorStates prints all operator states stored in memory
@@ -293,9 +313,7 @@ func (n *Node) calculateEpochNumber(blockNumber uint64) uint32 {
 	return uint32((blockNumber - GenesisBlock) / EpochPeriod)
 }
 
-func (n *Node) updateEpochState(ctx context.Context, blockNumber uint64) error {
-	epochNumber := n.calculateEpochNumber(blockNumber)
-	
+func (n *Node) updateEpochState(ctx context.Context, epochNumber uint32) error {
 	// Get mainnet client
 	mainnetClient := n.chainClient.GetMainnetClient()
 	
@@ -317,15 +335,14 @@ func (n *Node) updateEpochState(ctx context.Context, blockNumber uint64) error {
 
 	// Update epoch state in database
 	now := time.Now()
-	epochNum := uint32(epochNumber)
 	
 	updatedAt := pgtype.Timestamptz{}
 	updatedAt.Scan(now)
 	
 	_, err = n.epochStates.UpsertEpochState(ctx, epoch_states.UpsertEpochStateParams{
-		EpochNumber: epochNum,
+		EpochNumber: epochNumber,
 		BlockNumber: pgtype.Numeric{
-			Int:    big.NewInt(int64(blockNumber)),
+			Int:    big.NewInt(int64(epochNumber * EpochPeriod)),
 			Valid:  true,
 			Exp:    0,
 		},
@@ -350,8 +367,8 @@ func (n *Node) updateEpochState(ctx context.Context, blockNumber uint64) error {
 		return fmt.Errorf("failed to update epoch state: %w", err)
 	}
 
-	log.Printf("[Epoch] Updated epoch %d state at block %d (minimum stake: %s, total weight: %s, threshold weight: %s)", 
-		epochNumber, blockNumber, minimumStake.String(), totalWeight.String(), thresholdWeight.String())
+	log.Printf("[Epoch] Updated epoch %d state (minimum stake: %s, total weight: %s, threshold weight: %s)", 
+		epochNumber, minimumStake.String(), totalWeight.String(), thresholdWeight.String())
 	return nil
 }
 
@@ -379,13 +396,12 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 
 			// If we're in a new epoch, update the state
 			if currentEpoch > lastProcessedEpoch {
-				epochStartBlock := uint64(currentEpoch * EpochPeriod)
-				if err := n.updateEpochState(ctx, epochStartBlock); err != nil {
+				if err := n.updateEpochState(ctx, currentEpoch); err != nil {
 					log.Printf("[Epoch] Failed to update epoch state: %v", err)
 					continue
 				}
 				lastProcessedEpoch = currentEpoch
-				log.Printf("[Epoch] Successfully updated epoch")
+				log.Printf("[Epoch] Successfully updated epoch %d", currentEpoch)
 			}	
 		}
 	}

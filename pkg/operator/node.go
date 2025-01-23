@@ -165,6 +165,16 @@ func (n *Node) Start(ctx context.Context) error {
 	}
 	log.Printf("[Node] Successfully connected to registry")
 
+	// Start message handler and health check
+	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
+	// Set up state sync handler
+	n.host.SetStreamHandler("/state-sync/1.0.0", n.handleStateUpdates)
+	go n.healthCheck()
+	log.Printf("[Node] Message handler and health check started")
+
+	// Start epoch monitoring
+	go n.monitorEpochUpdates(ctx)
+
 	// Subscribe to state updates first
 	if err := n.subscribeToStateUpdates(); err != nil {
 		return fmt.Errorf("failed to subscribe to state updates: %w", err)
@@ -225,14 +235,6 @@ func (n *Node) Start(ctx context.Context) error {
 		addrs := n.host.Network().Peerstore().Addrs(peer)
 		log.Printf("[Node] - Peer %s at %v", peer.String(), addrs)
 	}
-
-	// Start message handler and health check
-	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
-	go n.healthCheck()
-	log.Printf("[Node] Message handler and health check started")
-
-	// Start epoch monitoring
-	go n.monitorEpochUpdates(ctx)
 
 	return nil
 }
