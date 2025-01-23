@@ -1,5 +1,5 @@
 -- Schema for consensus_responses table
-CREATE TABLE consensus_responses (
+CREATE TABLE IF NOT EXISTS consensus_responses (
     id BIGSERIAL PRIMARY KEY,
     task_id TEXT NOT NULL,
     epoch INT NOT NULL,
@@ -14,8 +14,7 @@ CREATE TABLE consensus_responses (
     consensus_reached_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_task_consensus UNIQUE (task_id),
-    CONSTRAINT fk_task FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE CASCADE
+    CONSTRAINT unique_task_consensus UNIQUE (task_id)
 );
 
-CREATE INDEX idx_consensus_epoch ON consensus_responses(epoch); 
+CREATE INDEX IF NOT EXISTS idx_consensus_epoch ON consensus_responses(epoch); 

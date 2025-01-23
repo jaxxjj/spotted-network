@@ -8,7 +8,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/galxe/spotted-network/pkg/common/contracts"
-	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -63,14 +62,18 @@ func TimestampToBlockNumber(ctx context.Context, client contracts.StateClient, c
 		return 0, fmt.Errorf("failed to get current block: %w", err)
 	}
 
-	// Get chain config for average block time
-	chainConfig, ok := config.GetConfig().Chains[chainID]
-	if !ok {
-		return 0, fmt.Errorf("chain %d not found in config", chainID)
+	// Use default average block time based on chain ID
+	var averageBlockTime float64
+	switch chainID {
+	case 1: // Ethereum mainnet
+		averageBlockTime = 12.5
+	case 137: // Polygon
+		averageBlockTime = 2.0
+	case 56: // BSC
+		averageBlockTime = 3.0
+	default:
+		averageBlockTime = 12.5 // Default to Ethereum-like chains
 	}
-
-	// Use the average block time from config
-	averageBlockTime := chainConfig.AverageBlockTime
 
 	blockNumber := currentBlockNumber
 	block := currentBlock

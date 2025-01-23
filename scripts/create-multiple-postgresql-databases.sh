@@ -9,29 +9,25 @@ function create_operator_schema() {
     
     # Create tasks table
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$database" <<-EOSQL
-        -- Tasks table to store task information
+        -- Tasks table stores task information
         CREATE TABLE IF NOT EXISTS tasks (
-            id BIGSERIAL PRIMARY KEY,
-            task_id TEXT NOT NULL UNIQUE,
+            task_id TEXT PRIMARY KEY,
+            chain_id INTEGER NOT NULL,
             target_address TEXT NOT NULL,
-            chain_id INT NOT NULL,
-            block_number NUMERIC(78),
-            timestamp NUMERIC(78),
-            epoch INT NOT NULL,
-            key NUMERIC(78) NOT NULL,
-            value NUMERIC(78),
-            retries INT DEFAULT 0,
-            required_confirmations INT,          
-            current_confirmations INT DEFAULT 0,  
-            last_checked_block NUMERIC(78),      
-            status TEXT NOT NULL CHECK (status IN ('pending', 'confirming', 'completed', 'expired', 'failed')),
-            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            key NUMERIC NOT NULL,
+            block_number NUMERIC,
+            timestamp NUMERIC,
+            value NUMERIC,
+            epoch INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed', 'confirming')),
+            required_confirmations INTEGER,
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
         );
 
+        -- Add indexes for query performance
         CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
         CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
-        CREATE INDEX IF NOT EXISTS idx_tasks_confirming ON tasks(status, current_confirmations) WHERE status = 'confirming';
 
         -- Task responses table to store individual operator responses
         CREATE TABLE IF NOT EXISTS task_responses (
@@ -57,28 +53,27 @@ function create_operator_schema() {
         -- Index for querying responses by operator
         CREATE INDEX IF NOT EXISTS idx_task_responses_operator ON task_responses(operator_address);
 
-        -- Consensus responses table to store consensus results
-        CREATE TABLE IF NOT EXISTS consensus_responses (
+
+        -- Schema for consensus_responses table
+        CREATE TABLE consensus_responses (
             id BIGSERIAL PRIMARY KEY,
-            task_id TEXT NOT NULL UNIQUE,
-            epoch INTEGER NOT NULL,
-            status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),
-            value NUMERIC NOT NULL,
-            block_number NUMERIC NOT NULL,
-            chain_id INTEGER NOT NULL,
+            task_id TEXT NOT NULL,
+            epoch INT NOT NULL,
+            value NUMERIC(78) NOT NULL,
+            block_number NUMERIC(78) NOT NULL,
+            chain_id INT NOT NULL,
             target_address TEXT NOT NULL,
-            key NUMERIC NOT NULL,
+            key NUMERIC(78) NOT NULL,
             aggregated_signatures BYTEA,
-            operator_signatures JSONB,
-            total_weight NUMERIC NOT NULL,
-            consensus_reached_at TIMESTAMP WITH TIME ZONE,
-            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            operator_signatures JSONB, -- {operator_address: {signature: bytes, weight: string}}
+            total_weight NUMERIC(78) NOT NULL,
+            consensus_reached_at TIMESTAMP,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            CONSTRAINT unique_task_consensus UNIQUE (task_id)
         );
 
-        -- Index for querying consensus responses
-        CREATE INDEX IF NOT EXISTS idx_consensus_responses_task_id ON consensus_responses(task_id);
-        CREATE INDEX IF NOT EXISTS idx_consensus_responses_status ON consensus_responses(status);
+        CREATE INDEX idx_consensus_epoch ON consensus_responses(epoch); 
 
         -- Epoch states table
         CREATE TABLE IF NOT EXISTS epoch_states (
@@ -90,7 +85,7 @@ function create_operator_schema() {
             updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
         );
 
-        CREATE INDEX IF NOT EXISTS idx_epoch_states_block_number ON epoch_states(block_number);
+        CREATE INDEX IF NOT EXISTS idx_epoch_states_block_number ON epoch_states(block_number); 
 EOSQL
 }
 

@@ -789,8 +789,8 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 					}
 					tp.logger.Printf("[Confirmation] Successfully processed task %s immediately", task.TaskID)
 				} else {
-					tp.logger.Printf("[Confirmation] Task %s needs more confirmations (latest: %d, target: %d)", 
-						task.TaskID, latestBlock, targetBlockUint64)
+					tp.logger.Printf("[Confirmation] Task %s needs more confirmations (latest: %d, target+confirmations: %d)", 
+						task.TaskID, latestBlock, requiredTarget)
 				}
 			}
 		}
