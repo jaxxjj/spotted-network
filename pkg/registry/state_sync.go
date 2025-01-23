@@ -205,11 +205,9 @@ func (s *StateSyncService) BroadcastUpdate(operators []*pb.OperatorState) {
 func convertToProtoOperator(op operators.Operators) *pb.OperatorState {
 	var exitEpoch *int32
 	defaultExitEpoch := pgtype.Numeric{
-		Int:    new(big.Int).SetUint64(4294967295),
-		Exp:    0,
-		Valid:  true,
+		Int: new(big.Int).SetUint64(4294967295),
 	}
-	if op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if not default max value
+	if op.ExitEpoch.Valid && op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if valid and not default max value
 		val := int32(op.ExitEpoch.Int.Int64())
 		exitEpoch = &val
 	}

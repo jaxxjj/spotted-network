@@ -150,11 +150,9 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 	log.Printf("Broadcasting state update for operator %s", req.Address)
 	var exitEpoch *int32
 	defaultExitEpoch := pgtype.Numeric{
-		Int:    new(big.Int).SetUint64(4294967295),
-		Valid:  true,
-		Exp:    0,
+		Int: new(big.Int).SetUint64(4294967295),
 	}
-	if op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if not default max value
+	if op.ExitEpoch.Valid && op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if valid and not default max value
 		val := int32(op.ExitEpoch.Int.Int64())
 		exitEpoch = &val
 	}
@@ -272,11 +270,9 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 	for _, op := range operators {
 		var exitEpoch *int32
 		defaultExitEpoch := pgtype.Numeric{
-			Int:    new(big.Int).SetUint64(4294967295),
-			Valid:  true,
-			Exp:    0,
+			Int: new(big.Int).SetUint64(4294967295),
 		}
-		if op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if not default max value
+		if op.ExitEpoch.Valid && op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if valid and not default max value
 			val := int32(op.ExitEpoch.Int.Int64())
 			exitEpoch = &val
 		}
