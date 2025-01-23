@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/big"
 	"strings"
 	"time"
@@ -20,7 +21,7 @@ func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, stateClient co
 		// Get latest block for validation
 		latestBlock, err := stateClient.GetLatestBlockNumber(ctx)
 		if err != nil {
-			tp.logger.Printf("[StateCheck] Failed to get latest block: %v", err)
+			log.Printf("[StateCheck] Failed to get latest block: %v", err)
 			time.Sleep(retryDelay)
 			continue
 		}
@@ -44,7 +45,7 @@ func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, stateClient co
 				return nil, fmt.Errorf("no state history found for block %d and key %s", blockNumber, key.String())
 			}
 
-			tp.logger.Printf("[StateCheck] Attempt %d failed: %v", i+1, err)
+			log.Printf("[StateCheck] Attempt %d failed: %v", i+1, err)
 			time.Sleep(retryDelay)
 			continue
 		}
@@ -64,12 +65,12 @@ func (tp *TaskProcessor) isActiveOperator(signingKey string) bool {
 	// Check each operator's state
 	for _, state := range tp.node.operatorStates {
 		if state.Status == "active" {
-			tp.logger.Printf("[Operator] Found active operator %s with status %s", state.Address, state.Status)
+			log.Printf("[StateCheck] Found active operator %s with status %s", state.Address, state.Status)
 			return true
 		}
 	}
 
-	tp.logger.Printf("[Operator] No active operator found for signing key %s", signingKey)
+	log.Printf("[StateCheck] No active operator found for signing key %s", signingKey)
 	return false
 }
 
@@ -82,11 +83,11 @@ func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error
 		weight := new(big.Int)
 		// Parse the weight string directly
 		if _, ok := weight.SetString(state.Weight, 10); !ok {
-			return big.NewInt(0), fmt.Errorf("[TaskProcessor] failed to parse weight for operator %s", operatorAddr)
+			return big.NewInt(0), fmt.Errorf("[StateCheck] failed to parse weight for operator %s", operatorAddr)
 		}
 		// Log the actual weight value directly
-		tp.logger.Printf("[TaskProcessor] Got operator %s weight: %v", operatorAddr, weight)
+		log.Printf("[StateCheck] Got operator %s weight: %v", operatorAddr, weight)
 		return weight, nil
 	}
-	return big.NewInt(0), fmt.Errorf("[TaskProcessor] operator %s not found", operatorAddr)
+	return big.NewInt(0), fmt.Errorf("[StateCheck] operator %s not found", operatorAddr)
 }

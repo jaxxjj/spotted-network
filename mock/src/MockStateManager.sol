@@ -46,13 +46,7 @@ contract StateManager is IStateManager {
         // add history record
         History[] storage keyHistory = histories[user][key];
 
-        keyHistory.push(
-            History({
-                value: value,
-                blockNumber: uint64(block.number),
-                timestamp: uint48(block.timestamp)
-            })
-        );
+        keyHistory.push(History({value: value, blockNumber: uint64(block.number), timestamp: uint48(block.timestamp)}));
 
         emit HistoryCommitted(user, key, value, block.timestamp, block.number);
     }
@@ -61,10 +55,7 @@ contract StateManager is IStateManager {
     /// @param user The address to set the values for
     /// @param params Array of key-value pairs to set
     /// @dev Enforces MAX_BATCH_SIZE limit
-    function batchSetValues(
-        address user,
-        SetValueParams[] calldata params
-    ) external {
+    function batchSetValues(address user, SetValueParams[] calldata params) external {
         uint256 length = params.length;
         if (length > MAX_BATCH_SIZE) {
             revert StateManager__BatchTooLarge();
@@ -86,11 +77,7 @@ contract StateManager is IStateManager {
             History[] storage keyHistory = histories[user][param.key];
 
             keyHistory.push(
-                History({
-                    value: param.value,
-                    blockNumber: uint64(block.number),
-                    timestamp: uint48(block.timestamp)
-                })
+                History({value: param.value, blockNumber: uint64(block.number), timestamp: uint48(block.timestamp)})
             );
 
             emit HistoryCommitted(user, param.key, param.value, block.timestamp, block.number);
@@ -108,9 +95,7 @@ contract StateManager is IStateManager {
     /// @notice Gets all keys used by a user
     /// @param user The user address to query
     /// @return Array of keys used by the user
-    function getUsedKeys(
-        address user
-    ) external view returns (uint256[] memory) {
+    function getUsedKeys(address user) external view returns (uint256[] memory) {
         return userKeys[user];
     }
 
@@ -120,11 +105,11 @@ contract StateManager is IStateManager {
     /// @param searchType Type of search (block number or timestamp)
     /// @return Index of the found position
     /// @dev Returns the last position less than or equal to target
-    function _binarySearch(
-        History[] storage history,
-        uint256 target,
-        SearchType searchType
-    ) private view returns (uint256) {
+    function _binarySearch(History[] storage history, uint256 target, SearchType searchType)
+        private
+        view
+        returns (uint256)
+    {
         if (history.length == 0) {
             return 0;
         }
@@ -134,9 +119,7 @@ contract StateManager is IStateManager {
 
         while (low < high) {
             uint256 mid = Math.average(low, high);
-            uint256 current = searchType == SearchType.BLOCK_NUMBER
-                ? history[mid].blockNumber
-                : history[mid].timestamp;
+            uint256 current = searchType == SearchType.BLOCK_NUMBER ? history[mid].blockNumber : history[mid].timestamp;
 
             if (current > target) {
                 high = mid;
@@ -155,12 +138,11 @@ contract StateManager is IStateManager {
     /// @param fromBlock Start block number
     /// @param toBlock End block number
     /// @return Array of historical values
-    function getHistoryBetweenBlockNumbers(
-        address user,
-        uint256 key,
-        uint256 fromBlock,
-        uint256 toBlock
-    ) external view returns (History[] memory) {
+    function getHistoryBetweenBlockNumbers(address user, uint256 key, uint256 fromBlock, uint256 toBlock)
+        external
+        view
+        returns (History[] memory)
+    {
         if (fromBlock >= toBlock) {
             revert StateManager__InvalidBlockRange();
         }
@@ -207,12 +189,11 @@ contract StateManager is IStateManager {
     /// @param fromTimestamp Start timestamp
     /// @param toTimestamp End timestamp
     /// @return Array of historical values within the timestamp range
-    function getHistoryBetweenTimestamps(
-        address user,
-        uint256 key,
-        uint256 fromTimestamp,
-        uint256 toTimestamp
-    ) external view returns (History[] memory) {
+    function getHistoryBetweenTimestamps(address user, uint256 key, uint256 fromTimestamp, uint256 toTimestamp)
+        external
+        view
+        returns (History[] memory)
+    {
         if (fromTimestamp >= toTimestamp) {
             revert StateManager__InvalidTimeRange();
         }
@@ -228,8 +209,7 @@ contract StateManager is IStateManager {
             startIndex = keyHistory.length - 1;
         }
         // if the timestamp at current position is less than fromTimestamp, move to next position
-        if (keyHistory[startIndex].timestamp < fromTimestamp && startIndex < keyHistory.length - 1)
-        {
+        if (keyHistory[startIndex].timestamp < fromTimestamp && startIndex < keyHistory.length - 1) {
             startIndex++;
         }
 
@@ -259,11 +239,11 @@ contract StateManager is IStateManager {
     /// @param key The key to query
     /// @param blockNumber The block number to query before
     /// @return Array of historical values before the specified block
-    function getHistoryBeforeBlockNumber(
-        address user,
-        uint256 key,
-        uint256 blockNumber
-    ) external view returns (History[] memory) {
+    function getHistoryBeforeBlockNumber(address user, uint256 key, uint256 blockNumber)
+        external
+        view
+        returns (History[] memory)
+    {
         History[] storage keyHistory = histories[user][key];
         if (keyHistory.length == 0) {
             revert StateManager__NoHistoryFound();
@@ -291,11 +271,11 @@ contract StateManager is IStateManager {
     /// @param key The key to query
     /// @param blockNumber The block number to query after
     /// @return Array of historical values after the specified block
-    function getHistoryAfterBlockNumber(
-        address user,
-        uint256 key,
-        uint256 blockNumber
-    ) external view returns (History[] memory) {
+    function getHistoryAfterBlockNumber(address user, uint256 key, uint256 blockNumber)
+        external
+        view
+        returns (History[] memory)
+    {
         History[] storage keyHistory = histories[user][key];
         if (keyHistory.length == 0) {
             revert StateManager__NoHistoryFound();
@@ -326,11 +306,11 @@ contract StateManager is IStateManager {
     /// @param key The key to query
     /// @param timestamp The timestamp to query before
     /// @return Array of historical values before the specified timestamp
-    function getHistoryBeforeTimestamp(
-        address user,
-        uint256 key,
-        uint256 timestamp
-    ) external view returns (History[] memory) {
+    function getHistoryBeforeTimestamp(address user, uint256 key, uint256 timestamp)
+        external
+        view
+        returns (History[] memory)
+    {
         History[] storage keyHistory = histories[user][key];
         if (keyHistory.length == 0) {
             revert StateManager__NoHistoryFound();
@@ -358,11 +338,11 @@ contract StateManager is IStateManager {
     /// @param key The key to query
     /// @param timestamp The timestamp to query after
     /// @return Array of historical values after the specified timestamp
-    function getHistoryAfterTimestamp(
-        address user,
-        uint256 key,
-        uint256 timestamp
-    ) external view returns (History[] memory) {
+    function getHistoryAfterTimestamp(address user, uint256 key, uint256 timestamp)
+        external
+        view
+        returns (History[] memory)
+    {
         History[] storage keyHistory = histories[user][key];
         if (keyHistory.length == 0) {
             revert StateManager__NoHistoryFound();
@@ -393,11 +373,7 @@ contract StateManager is IStateManager {
     /// @param key The key to query
     /// @param blockNumber The specific block number to query
     /// @return History The historical value at the specified block
-    function getHistoryAtBlock(
-        address user,
-        uint256 key,
-        uint256 blockNumber
-    ) external view returns (History memory) {
+    function getHistoryAtBlock(address user, uint256 key, uint256 blockNumber) external view returns (History memory) {
         History[] storage keyHistory = histories[user][key];
         if (keyHistory.length == 0) {
             revert StateManager__NoHistoryFound();
@@ -417,11 +393,11 @@ contract StateManager is IStateManager {
     /// @param key The key to query
     /// @param timestamp The specific timestamp to query
     /// @return History The historical value at the specified timestamp
-    function getHistoryAtTimestamp(
-        address user,
-        uint256 key,
-        uint256 timestamp
-    ) external view returns (History memory) {
+    function getHistoryAtTimestamp(address user, uint256 key, uint256 timestamp)
+        external
+        view
+        returns (History memory)
+    {
         History[] storage keyHistory = histories[user][key];
         if (keyHistory.length == 0) {
             revert StateManager__NoHistoryFound();
@@ -448,11 +424,7 @@ contract StateManager is IStateManager {
     /// @param key The key to query
     /// @param index The index in the history array
     /// @return History The historical value at the specified index
-    function getHistoryAt(
-        address user,
-        uint256 key,
-        uint256 index
-    ) external view returns (History memory) {
+    function getHistoryAt(address user, uint256 key, uint256 index) external view returns (History memory) {
         History[] storage keyHistory = histories[user][key];
         if (index >= keyHistory.length) {
             revert StateManager__IndexOutOfBounds();
@@ -503,10 +475,7 @@ contract StateManager is IStateManager {
     /// @param user The user address to query
     /// @param keys Array of keys to query
     /// @return values Array of current values corresponding to the keys
-    function getCurrentValues(
-        address user,
-        uint256[] calldata keys
-    ) external view returns (uint256[] memory values) {
+    function getCurrentValues(address user, uint256[] calldata keys) external view returns (uint256[] memory values) {
         values = new uint256[](keys.length);
         for (uint256 i = 0; i < keys.length; i++) {
             values[i] = currentValues[user][keys[i]];

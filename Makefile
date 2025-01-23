@@ -74,8 +74,8 @@ mine-15:
 
 # Get final task
 get-final-task:
-	@curl -X GET "http://localhost:8001/api/v1/task/827c41edd51a9ad4da0ce4218eb42c7f62c09563d74123214493a069655934fb/final" 
-	
+	@curl -X GET "http://localhost:8001/api/v1/task/a404c1c5339c1061627aa2b6ea5ded82f1aa15aaa96173d79aa5dd7d88541193/final" 
+
 # Build both binaries
 build:
 	@echo "Building registry and operator..."

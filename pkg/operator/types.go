@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"log"
 	"math/big"
 	"sync"
 	"time"
@@ -93,5 +92,4 @@ type TaskProcessor struct {
 	responses      map[string]map[string]*types.TaskResponse // taskID -> operatorAddr -> response
 	weightsMutex   sync.RWMutex
 	taskWeights    map[string]map[string]*big.Int // taskID -> operatorAddr -> weight
-	logger         *log.Logger
 } 

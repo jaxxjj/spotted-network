@@ -32,11 +32,11 @@ func (c *RegistryClient) GetOperatorWeight(ctx context.Context, operator common.
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.epochManager.GetCurrentEpoch(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current epoch: %w", err)
+		return nil, fmt.Errorf("[RegistryClient] failed to get current epoch: %w", err)
 	}
 	weight, err := c.contract.GetOperatorWeightAtEpoch(opts, operator, epoch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get operator weight: %w", err)
+		return nil, fmt.Errorf("[RegistryClient] failed to get operator weight: %w", err)
 	}
 	return weight, nil
 }
@@ -46,11 +46,11 @@ func (c *RegistryClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.epochManager.GetCurrentEpoch(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current epoch: %w", err)
+		return nil, fmt.Errorf("[RegistryClient] failed to get current epoch: %w", err)
 	}
 	weight, err := c.contract.GetTotalWeightAtEpoch(opts, epoch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get total weight: %w", err)
+		return nil, fmt.Errorf("[RegistryClient] failed to get total weight: %w", err)
 	}
 	return weight, nil
 }
@@ -60,7 +60,7 @@ func (c *RegistryClient) GetMinimumStake(ctx context.Context) (*big.Int, error) 
 	opts := &bind.CallOpts{Context: ctx}
 	stake, err := c.contract.MinimumWeight(opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get minimum stake: %w", err)
+		return nil, fmt.Errorf("[RegistryClient] failed to get minimum stake: %w", err)
 	}
 	return stake, nil
 }
@@ -70,11 +70,11 @@ func (c *RegistryClient) GetThresholdWeight(ctx context.Context) (*big.Int, erro
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.epochManager.GetCurrentEpoch(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current epoch: %w", err)
+		return nil, fmt.Errorf("[RegistryClient] failed to get current epoch: %w", err)
 	}
 	weight, err := c.contract.GetThresholdWeightAtEpoch(opts, epoch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get threshold weight: %w", err)
+		return nil, fmt.Errorf("[RegistryClient] failed to get threshold weight: %w", err)
 	}
 	return weight, nil
 }
@@ -84,7 +84,7 @@ func (c *RegistryClient) IsOperatorRegistered(ctx context.Context, operator comm
 	opts := &bind.CallOpts{Context: ctx}
 	registered, err := c.contract.OperatorRegistered(opts, operator)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if operator is registered: %w", err)
+		return false, fmt.Errorf("[RegistryClient] failed to check if operator is registered: %w", err)
 	}
 	return registered, nil
 }

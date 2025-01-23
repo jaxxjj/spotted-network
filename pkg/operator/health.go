@@ -13,10 +13,10 @@ func (n *Node) healthCheck() {
 
 	result := <-n.pingService.Ping(ctx, n.registryID)
 	if result.Error != nil {
-		log.Printf("Failed to ping registry: %v\n", result.Error)
+		log.Printf("[HealthCheck] Failed to ping registry: %v\n", result.Error)
 		return
 	}
-	log.Printf("Successfully pinged registry (RTT: %v)\n", result.RTT)
+	log.Printf("[HealthCheck] Successfully pinged registry (RTT: %v)\n", result.RTT)
 
 	// Ping all known operators
 	n.operatorsMu.RLock()
@@ -28,16 +28,16 @@ func (n *Node) healthCheck() {
 
 		// Try to connect if not connected
 		if err := n.host.Connect(ctx, *peerInfo); err != nil {
-			log.Printf("Failed to connect to operator %s: %v\n", operatorID, err)
+			log.Printf("[HealthCheck] Failed to connect to operator %s: %v\n", operatorID, err)
 			continue
 		}
 
 		// Ping the operator
 		result := <-n.pingService.Ping(ctx, operatorID)
 		if result.Error != nil {
-			log.Printf("Failed to ping operator %s: %v\n", operatorID, result.Error)
+			log.Printf("[HealthCheck] Failed to ping operator %s: %v\n", operatorID, result.Error)
 			continue
 		}
-		log.Printf("Successfully pinged operator %s (RTT: %v)\n", operatorID, result.RTT)
+		log.Printf("[HealthCheck] Successfully pinged operator %s (RTT: %v)\n", operatorID, result.RTT)
 	}
 } 

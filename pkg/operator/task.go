@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/big"
 	"strings"
 	"time"
@@ -20,14 +21,14 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	if task == nil {
 		return fmt.Errorf("task is nil")
 	}
-	tp.logger.Printf("[ProcessTask] Starting to process task %s", task.ID)
+	log.Printf("[Task] Starting to process task %s", task.ID)
 
 	// Check if we have already processed this task
 	tp.responsesMutex.RLock()
 	if responses, exists := tp.responses[task.ID]; exists {
 		if _, processed := responses[tp.signer.Address()]; processed {
 			tp.responsesMutex.RUnlock()
-			tp.logger.Printf("[ProcessTask] Task %s already processed by this operator", task.ID)
+			log.Printf("[Task] Task %s already processed by this operator", task.ID)
 			return nil
 		}
 	}
@@ -39,7 +40,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 		OperatorAddress: tp.signer.Address(),
 	})
 	if err == nil {
-		tp.logger.Printf("[ProcessTask] Task %s already processed and stored in database", task.ID)
+		log.Printf("[Task] Task %s already processed and stored in database", task.ID)
 		return nil
 	}
 	
@@ -49,14 +50,14 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 
 	// Validate block number
 	blockUint64 := task.BlockNumber.Uint64()
-	tp.logger.Printf("[ProcessTask] Processing task for block number: %d", blockUint64)
+	log.Printf("[Task] Processing task for block number: %d", blockUint64)
 
 	// Get state client for chain
 	stateClient, err := tp.node.chainClient.GetStateClient(int64(task.ChainID))
 	if err != nil {
 		return fmt.Errorf("failed to get state client: %v", err)
 	}
-	tp.logger.Printf("[ProcessTask] Got state client for chain %d", task.ChainID)
+	log.Printf("[Task] Got state client for chain %d", task.ChainID)
 
 	if task.Key == nil {
 		return fmt.Errorf("task key is nil")
@@ -72,13 +73,13 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	if err != nil {
 		return fmt.Errorf("failed to get state: %w", err)
 	}
-	tp.logger.Printf("[ProcessTask] Retrieved state value: %s", value.String())
+	log.Printf("[Task] Retrieved state value: %s", value.String())
 
 	// Verify the state matches
 	if value.Cmp(task.Value) != 0 {
 		return fmt.Errorf("state value mismatch: expected %s, got %s", task.Value, value)
 	}
-	tp.logger.Printf("[ProcessTask] Verified state value matches expected value")
+	log.Printf("[Task] Verified state value matches expected value")
 
 	// Sign the response with all required fields
 	signParams := signer.TaskSignParams{
@@ -93,7 +94,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	if err != nil {
 		return fmt.Errorf("failed to sign response: %w", err)
 	}
-	tp.logger.Printf("[ProcessTask] Signed task response")
+	log.Printf("[Task] Signed task response")
 
 	// Create response
 	response := &types.TaskResponse{
@@ -114,12 +115,12 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	// Store response in database
 	if err := tp.storeResponse(ctx, response); err != nil {
 		if strings.Contains(err.Error(), "duplicate key value") {
-			tp.logger.Printf("[ProcessTask] Task %s already processed (duplicate key)", task.ID)
+			log.Printf("[Task] Task %s already processed (duplicate key)", task.ID)
 			return nil
 		}
 		return fmt.Errorf("failed to store response: %w", err)
 	}
-	tp.logger.Printf("[ProcessTask] Stored response in database")
+	log.Printf("[Task] Stored response in database")
 
 	// Store in local map
 	tp.responsesMutex.Lock()
@@ -140,65 +141,65 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *types.Task) erro
 	}
 	tp.taskWeights[task.ID][tp.signer.Address()] = weight
 	tp.weightsMutex.Unlock()
-	tp.logger.Printf("[ProcessTask] Stored own weight %s for task %s", weight.String(), task.ID)
+	log.Printf("[Task] Stored own weight %s for task %s", weight.String(), task.ID)
 
 	// Broadcast response
 	if err := tp.broadcastResponse(response); err != nil {
 		return fmt.Errorf("failed to broadcast response: %w", err)
 	}
-	tp.logger.Printf("[ProcessTask] Broadcasted response")
+	log.Printf("[Task] Broadcasted response")
 
 	return nil
 }
 
 // ProcessPendingTask processes a single pending task immediately
 func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Task) error {
-	tp.logger.Printf("[TaskProcessor] Processing pending task %s immediately", task.TaskID)
+	log.Printf("[Task] Processing pending task %s immediately", task.TaskID)
 	
 	// Get state client for the chain
 	stateClient, err := tp.node.chainClient.GetStateClient(int64(task.ChainID))
 	if err != nil {
-		return fmt.Errorf("[TaskProcessor]failed to get state client for chain %d: %w", task.ChainID, err)
+		return fmt.Errorf("[Task] failed to get state client for chain %d: %w", task.ChainID, err)
 	}
 
 	// Convert block number to big.Int
 	blockNumNumeric := task.BlockNumber
 	if !blockNumNumeric.Valid {
-		return fmt.Errorf("[TaskProcessor] block number is null")
+		return fmt.Errorf("[Task] block number is null")
 	}
 	if blockNumNumeric.Int == nil {
-		return fmt.Errorf("[TaskProcessor] block number Int value is null")
+		return fmt.Errorf("[Task] block number Int value is null")
 	}
 
 	// Handle numeric scale properly
 	blockNumStr := common.NumericToString(blockNumNumeric)
 	blockNum, _ := new(big.Int).SetString(blockNumStr, 10)
 
-	tp.logger.Printf("[TaskProcessor] Using block number: %s", blockNum.String())
+	log.Printf("[Task] Using block number: %s", blockNum.String())
 
 	// Convert key to big.Int
 	if !task.Key.Valid {
-		return fmt.Errorf("[TaskProcessor] key is null")
+		return fmt.Errorf("[Task] key is null")
 	}
 	keyBig := new(big.Int)
 	if task.Key.Int == nil {
-		return fmt.Errorf("[TaskProcessor] key Int value is null") 
+		return fmt.Errorf("[Task] key Int value is null") 
 	}
 	if _, ok := keyBig.SetString(task.Key.Int.String(), 10); !ok {
-		return fmt.Errorf("[TaskProcessor] failed to parse key: %s", task.Key.Int.String())
+		return fmt.Errorf("[Task] failed to parse key: %s", task.Key.Int.String())
 	}
-	tp.logger.Printf("[TaskProcessor] Using key: %s", keyBig.String())
+	log.Printf("[Task] Using key: %s", keyBig.String())
 
 	// Get state at block with retries
 	blockUint64 := blockNum.Uint64()
 	targetAddr := ethcommon.HexToAddress(task.TargetAddress)
-	tp.logger.Printf("[TaskProcessor] Getting state for address %s at block %d", targetAddr.Hex(), blockUint64)
+	log.Printf("[Task] Getting state for address %s at block %d", targetAddr.Hex(), blockUint64)
 	
 	state, err := tp.getStateWithRetries(ctx, stateClient, targetAddr, keyBig, blockUint64)
 	if err != nil {
-		return fmt.Errorf("[TaskProcessor] failed to get state: %w", err)
+		return fmt.Errorf("[Task] failed to get state: %w", err)
 	}
-	tp.logger.Printf("[TaskProcessor] Successfully retrieved state value: %s", state.String())
+	log.Printf("[Task] Successfully retrieved state value: %s", state.String())
 
 	// Create types.Task
 	typesTask := &types.Task{
@@ -221,40 +222,40 @@ func (tp *TaskProcessor) ProcessPendingTask(ctx context.Context, task *tasks.Tas
 
 // ProcessNewTask processes a newly created task immediately if it has sufficient confirmations
 func (tp *TaskProcessor) ProcessNewTask(ctx context.Context, task *tasks.Task) error {
-	tp.logger.Printf("[TaskProcessor] Processing new task %s", task.TaskID)
+	log.Printf("[Task] Processing new task %s", task.TaskID)
 
 	// Get state client for the chain
 	stateClient, err := tp.node.chainClient.GetStateClient(int64(task.ChainID))
 	if err != nil {
-		return fmt.Errorf("[TaskProcessor] failed to get state client for chain %d: %w", task.ChainID, err)
+		return fmt.Errorf("[Task] failed to get state client for chain %d: %w", task.ChainID, err)
 	}
 
 	// Get latest block number
 	latestBlock, err := stateClient.GetLatestBlockNumber(ctx)
 	if err != nil {
-		return fmt.Errorf("[TaskProcessor] failed to get latest block number: %w", err)
+		return fmt.Errorf("[Task] failed to get latest block number: %w", err)
 	}
 
 	// Get required confirmations
 	var requiredConfirmations int32
 	if err := task.RequiredConfirmations.Scan(&requiredConfirmations); err != nil {
-		return fmt.Errorf("failed to scan required confirmations: %w", err)
+		return fmt.Errorf("[Task] failed to scan required confirmations: %w", err)
 	}
 
 	// Get task block number
 	if !task.BlockNumber.Valid || task.BlockNumber.Int == nil {
-		return fmt.Errorf("[TaskProcessor] block number is invalid")
+		return fmt.Errorf("[Task] block number is invalid")
 	}
 	taskBlock := task.BlockNumber.Int.Uint64()
 
 	// If task has sufficient confirmations, process it immediately
 	if latestBlock >= taskBlock {
-		tp.logger.Printf("[TaskProcessor] Task %s has sufficient confirmations (latest: %d >= task: %d), processing immediately", 
+		log.Printf("[Task] Task %s has sufficient confirmations (latest: %d >= task: %d), processing immediately", 
 			task.TaskID, latestBlock, taskBlock)
 		return tp.ProcessPendingTask(ctx, task)
 	}
 
-	tp.logger.Printf("[TaskProcessor] Task %s needs more confirmations (latest: %d < task: %d), will process later", 
+	log.Printf("[Task] Task %s needs more confirmations (latest: %d < task: %d), will process later", 
 		task.TaskID, latestBlock, taskBlock)
 	return nil
 }

@@ -19,7 +19,7 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 
 	var lastProcessedEpoch uint32
 
-	log.Printf("[Registry] Starting epoch monitoring...")
+	log.Printf("[Epoch] Starting epoch monitoring...")
 
 	for {
 		select {
@@ -30,7 +30,7 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 			mainnetClient := n.chainClients.GetMainnetClient()
 			blockNumber, err := mainnetClient.GetLatestBlockNumber(ctx)
 			if err != nil {
-				log.Printf("[Registry] Failed to get latest block number: %v", err)
+				log.Printf("[Epoch] Failed to get latest block number: %v", err)
 				continue
 			}
 
@@ -40,11 +40,11 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 			// If we're in a new epoch, update operator states
 			if currentEpoch > lastProcessedEpoch {
 				if err := n.updateOperatorStates(ctx, currentEpoch); err != nil {
-					log.Printf("[Registry] Failed to update operator states for epoch %d: %v", currentEpoch, err)
+					log.Printf("[Epoch] Failed to update operator states for epoch %d: %v", currentEpoch, err)
 					continue
 				}
 				lastProcessedEpoch = currentEpoch
-				log.Printf("[Registry] Updated operator states for epoch %d", currentEpoch)
+				log.Printf("[Epoch] Updated operator states for epoch %d", currentEpoch)
 			}
 		}
 	}
@@ -64,7 +64,7 @@ func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) er
 		return fmt.Errorf("failed to get all operators: %w", err)
 	}
 
-	log.Printf("[Registry] Processing %d operators for epoch %d (block %d)", len(allOps), currentEpoch, currentBlock)
+	log.Printf("[Epoch] Processing %d operators for epoch %d (block %d)", len(allOps), currentEpoch, currentBlock)
 
 	for _, op := range allOps {
 		activeEpoch := uint32(op.ActiveEpoch.Int.Int64())
@@ -82,7 +82,7 @@ func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) er
 				Status:  newStatus,
 			})
 			if err != nil {
-				log.Printf("[Registry] Failed to update operator %s state: %v", op.Address, err)
+				log.Printf("[Epoch] Failed to update operator %s state: %v", op.Address, err)
 				continue
 			}
 
@@ -91,7 +91,7 @@ func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) er
 			if newStatus == "active" {
 				weight, err = mainnetClient.GetOperatorWeight(ctx, ethcommon.HexToAddress(op.Address))
 				if err != nil {
-					log.Printf("[Registry] Failed to get weight for operator %s: %v", op.Address, err)
+					log.Printf("[Epoch] Failed to get weight for operator %s: %v", op.Address, err)
 					continue
 				}
 			} else {
@@ -116,7 +116,7 @@ func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) er
 				Weight:                 weight.String(),
 			})
 
-			log.Printf("[Registry] Updated operator %s status from %s to %s at epoch %d (block %d)", 
+			log.Printf("[Epoch] Updated operator %s status from %s to %s at epoch %d (block %d)", 
 				op.Address, op.Status, newStatus, currentEpoch, currentBlock)
 		}
 	}
@@ -124,9 +124,9 @@ func (n *Node) updateOperatorStates(ctx context.Context, currentEpoch uint32) er
 	// Broadcast updates if any operators were updated
 	if len(updatedOperators) > 0 {
 		n.BroadcastStateUpdate(updatedOperators, "state_update")
-		log.Printf("[Registry] Broadcast state update for %d operators at epoch %d", len(updatedOperators), currentEpoch)
+		log.Printf("[Epoch] Broadcast state update for %d operators at epoch %d", len(updatedOperators), currentEpoch)
 	} else {
-		log.Printf("[Registry] No operator state changes needed for epoch %d", currentEpoch)
+		log.Printf("[Epoch] No operator state changes needed for epoch %d", currentEpoch)
 	}
 
 	return nil

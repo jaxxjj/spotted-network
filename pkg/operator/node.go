@@ -207,7 +207,7 @@ func (n *Node) Start(ctx context.Context) error {
 func (n *Node) Stop() error {
 	// Stop API server
 	if err := n.apiServer.Stop(context.Background()); err != nil {
-		log.Printf("Error stopping API server: %v", err)
+		log.Printf("[Node] Error stopping API server: %v", err)
 	}
 	
 	// Close database connection
@@ -215,7 +215,7 @@ func (n *Node) Stop() error {
 	
 	// Close chain clients
 	if err := n.chainClient.Close(); err != nil {
-		log.Printf("Error closing chain clients: %v", err)
+		log.Printf("[Node] Error closing chain clients: %v", err)
 	}
 
 	// Clean up task processor resources
@@ -227,38 +227,38 @@ func (n *Node) Stop() error {
 }
 
 func (n *Node) connectToRegistry() error {
-	log.Printf("Attempting to connect to Registry Node at address: %s\n", n.registryAddr)
+	log.Printf("[Node] Attempting to connect to Registry Node at address: %s\n", n.registryAddr)
 
 	// Create multiaddr from the provided address
 	addr, err := multiaddr.NewMultiaddr(n.registryAddr)
 	if err != nil {
-		return fmt.Errorf("invalid registry address: %s", n.registryAddr)
+		return fmt.Errorf("[Node] invalid registry address: %s", n.registryAddr)
 	}
 
 	// Parse peer info from multiaddr
 	peerInfo, err := peer.AddrInfoFromP2pAddr(addr)
 	if err != nil {
-		return fmt.Errorf("failed to parse peer info from address: %v", err)
+		return fmt.Errorf("[Node] failed to parse peer info from address: %v", err)
 	}
 
 	// Connect to registry
 	if err := n.host.Connect(context.Background(), *peerInfo); err != nil {
-		return fmt.Errorf("failed to connect to registry: %v", err)
+		return fmt.Errorf("[Node] failed to connect to registry: %v", err)
 	}
 
 	// Save the registry ID
 	n.registryID = peerInfo.ID
 
-	log.Printf("Successfully connected to Registry Node with ID: %s\n", n.registryID)
+	log.Printf("[Node] Successfully connected to Registry Node with ID: %s\n", n.registryID)
 	return nil
 }
 
 func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
 	// Check if database is accessible
 	if err := db.Ping(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %w", err)
+		return fmt.Errorf("[Node] failed to ping database: %w", err)
 	}
-	log.Printf("Successfully connected to database")
+	log.Printf("[Node] Successfully connected to database")
 	return nil
 }
 

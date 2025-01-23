@@ -13,24 +13,11 @@ contract MockRegistry {
     event OperatorDeregistered(address indexed _operator, uint256 indexed blockNumber, address indexed _avs);
 
     // Mock function to emit operator registered event
-    function emitOperatorRegistered(
-        address operator,
-        address signingKey,
-        address avs
-    ) external {
-        emit OperatorRegistered(
-            operator,
-            block.number,
-            signingKey,
-            block.timestamp,
-            avs
-        );
+    function emitOperatorRegistered(address operator, address signingKey, address avs) external {
+        emit OperatorRegistered(operator, block.number, signingKey, block.timestamp, avs);
     }
 
-    function emitOperatorDeregistered(
-        address operator,
-        address avs
-    ) external {
+    function emitOperatorDeregistered(address operator, address avs) external {
         emit OperatorDeregistered(operator, block.number, avs);
     }
 
@@ -53,10 +40,7 @@ contract MockRegistry {
         return 0;
     }
 
-    function getOperatorWeightAtEpoch(
-        address _operator,
-        uint32 _epochNumber
-    ) external view returns (uint256) {
+    function getOperatorWeightAtEpoch(address _operator, uint32 _epochNumber) external view returns (uint256) {
         if (_epochNumber == 1) {
             if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
                 return 333; // Return fixed weight for testing
@@ -97,22 +81,18 @@ contract MockRegistry {
     }
 
     // Mock function to get total weight
-    function getTotalWeightAtEpoch(
-        uint32 _epochNumber
-    ) external pure returns (uint256) {
+    function getTotalWeightAtEpoch(uint32 _epochNumber) external pure returns (uint256) {
         return 1332;
     }
 
-    function getThresholdWeightAtEpoch(
-        uint32 _epochNumber
-    ) external view returns (uint256) {
+    function getThresholdWeightAtEpoch(uint32 _epochNumber) external view returns (uint256) {
         if (_epochNumber == 0) {
             return 0;
         }
         if (_epochNumber == 1) {
             return 666;
         }
-    
+
         if (_epochNumber == 2) {
             return 999;
         }
@@ -122,7 +102,8 @@ contract MockRegistry {
         return 0;
     }
     // Mock function to get minimum weight
+
     function minimumWeight() external pure returns (uint256) {
         return 10; // Return fixed minimum weight for testing
     }
-} 
+}

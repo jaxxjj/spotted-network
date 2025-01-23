@@ -429,23 +429,16 @@ func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get task details
-	task, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get task: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	// Convert numeric values
 	var value, key string
 	var blockNumber uint64
-	if err := task.Value.Scan(&value); err != nil {
+	if err := consensus.Value.Scan(&value); err != nil {
 		value = "0"
 	}
-	if err := task.BlockNumber.Scan(&blockNumber); err != nil {
+	if err := consensus.BlockNumber.Scan(&blockNumber); err != nil {
 		blockNumber = 0
 	}
-	if err := task.Key.Scan(&key); err != nil {
+	if err := consensus.Key.Scan(&key); err != nil {
 		key = "0"
 	}
 
@@ -483,8 +476,8 @@ func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 		Epoch:             uint32(consensus.Epoch),
 		Value:             value,
 		BlockNumber:       blockNumber,
-		ChainID:          uint64(task.ChainID),
-		TargetAddress:     task.TargetAddress,
+		ChainID:          uint64(consensus.ChainID),
+		TargetAddress:     consensus.TargetAddress,
 		Key:              key,
 		OperatorSignatures: finalOperatorSigs,
 		TotalWeight:       totalWeight.String(),

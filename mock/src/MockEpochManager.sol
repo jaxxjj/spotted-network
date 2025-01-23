@@ -24,9 +24,11 @@ contract MockEpochManager {
     }
 
     /// @notice Gets epoch interval details
-    function getEpochInterval(
-        uint32 epoch
-    ) external view returns (uint64 startBlock, uint64 graceBlock, uint64 endBlock) {
+    function getEpochInterval(uint32 epoch)
+        external
+        view
+        returns (uint64 startBlock, uint64 graceBlock, uint64 endBlock)
+    {
         startBlock = GENESIS_BLOCK + (epoch * EPOCH_LENGTH);
         endBlock = startBlock + EPOCH_LENGTH;
         graceBlock = endBlock - GRACE_PERIOD;
@@ -50,12 +52,12 @@ contract MockEpochManager {
     function getEffectiveEpochForBlock(uint64 blockNumber) public view returns (uint32) {
         uint64 blocksSinceGenesis = blockNumber - GENESIS_BLOCK;
         uint32 absoluteEpoch = uint32(blocksSinceGenesis / EPOCH_LENGTH);
-        
+
         uint64 epochStartBlock = GENESIS_BLOCK + (uint64(absoluteEpoch) * EPOCH_LENGTH);
         uint64 epochEndBlock = epochStartBlock + EPOCH_LENGTH;
-        
+
         bool isGracePeriod = blockNumber >= (epochEndBlock - GRACE_PERIOD);
-        
+
         return absoluteEpoch + (isGracePeriod ? 2 : 1);
     }
 
@@ -68,4 +70,4 @@ contract MockEpochManager {
     function getNextEpochBlock() public view returns (uint64) {
         return getCurrentEpochBlock() + EPOCH_LENGTH;
     }
-} 
+}

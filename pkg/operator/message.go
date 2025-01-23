@@ -132,13 +132,13 @@ func (n *Node) announceToRegistry() ([]*peer.AddrInfo, error) {
 	// Read response with length prefix
 	msgType, respData, err := p2p.ReadLengthPrefixed(stream)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response (timeout 30s): %w", err)
+		return nil, fmt.Errorf("[Announce] failed to read response (timeout 30s): %w", err)
 	}
 	log.Printf("[Announce] Received response data of length: %d bytes", len(respData))
 
 	// Verify message type
 	if msgType != p2p.MsgTypeJoinResponse {
-		return nil, fmt.Errorf("unexpected response message type: %d", msgType)
+		return nil, fmt.Errorf("[Announce] unexpected response message type: %d", msgType)
 	}
 
 	// Reset read deadline
@@ -149,14 +149,14 @@ func (n *Node) announceToRegistry() ([]*peer.AddrInfo, error) {
 	// Unmarshal response
 	resp := &pb.JoinResponse{}
 	if err := proto.Unmarshal(respData, resp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		return nil, fmt.Errorf("[Announce] failed to unmarshal response: %w", err)
 	}
 	log.Printf("[Announce] Successfully unmarshaled response: success=%v, error=%s, active_operators=%d",
 		resp.Success, resp.Error, len(resp.ActiveOperators))
 
 	// Handle join response
 	if !resp.Success {
-		return nil, fmt.Errorf("join request failed: %s", resp.Error)
+		return nil, fmt.Errorf("[Announce] join request failed: %s", resp.Error)
 	}
 
 	// Convert active operators to AddrInfo

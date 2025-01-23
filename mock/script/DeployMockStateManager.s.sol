@@ -54,14 +54,8 @@ contract DeployMockStateManager is Script {
 
         // Test batch set values
         IStateManager.SetValueParams[] memory params = new IStateManager.SetValueParams[](2);
-        params[0] = IStateManager.SetValueParams({
-            key: BALANCE_KEY,
-            value: 1200 ether
-        });
-        params[1] = IStateManager.SetValueParams({
-            key: STAKE_KEY,
-            value: 500 ether
-        });
+        params[0] = IStateManager.SetValueParams({key: BALANCE_KEY, value: 1200 ether});
+        params[1] = IStateManager.SetValueParams({key: STAKE_KEY, value: 500 ether});
         stateManager.batchSetValues(CHARLIE, params);
 
         vm.stopBroadcast();
@@ -77,4 +71,4 @@ contract DeployMockStateManager is Script {
         console.log("CHARLIE stake:", stateManager.getCurrentValue(CHARLIE, STAKE_KEY));
         console.log("CHARLIE reward:", stateManager.getCurrentValue(CHARLIE, REWARD_KEY));
     }
-} 
+}

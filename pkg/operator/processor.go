@@ -18,7 +18,7 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 	// Create response topic
 	responseTopic, err := node.PubSub.Join(TaskResponseTopic)
 	if err != nil {
-		return nil, fmt.Errorf("failed to join response topic: %w", err)
+		return nil, fmt.Errorf("[TaskProcessor] failed to join response topic: %w", err)
 	}
 	log.Printf("[TaskProcessor] Joined response topic: %s", TaskResponseTopic)
 
@@ -31,13 +31,12 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 		responseTopic: responseTopic,
 		responses:     make(map[string]map[string]*types.TaskResponse),
 		taskWeights:   make(map[string]map[string]*big.Int),
-		logger:        log.Default(),
 	}
 
 	// Subscribe to response topic
 	sub, err := responseTopic.Subscribe()
 	if err != nil {
-		return nil, fmt.Errorf("failed to subscribe to response topic: %w", err)
+		return nil, fmt.Errorf("[TaskProcessor] failed to subscribe to response topic: %w", err)
 	}
 	log.Printf("[TaskProcessor] Subscribed to response topic")
 
@@ -47,9 +46,9 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 
 	// Check initial topic subscription status
 	peers := responseTopic.ListPeers()
-	tp.logger.Printf("[TaskProcessor] Initial topic subscription: %d peers", len(peers))
+	log.Printf("[TaskProcessor] Initial topic subscription: %d peers", len(peers))
 	for _, peer := range peers {
-		tp.logger.Printf("[TaskProcessor] - Subscribed peer: %s", peer.String())
+		log.Printf("[TaskProcessor] - Subscribed peer: %s", peer.String())
 	}
 
 	// Start goroutines
@@ -73,30 +72,30 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 
 // Stop gracefully stops the task processor
 func (tp *TaskProcessor) Stop() {
-	tp.logger.Printf("[TaskProcessor] Stopping task processor")
+	log.Printf("[TaskProcessor] Stopping task processor")
 	
 	// Clean up responses map
 	tp.responsesMutex.Lock()
 	tp.responses = make(map[string]map[string]*types.TaskResponse)
 	tp.responsesMutex.Unlock()
 	
-	tp.logger.Printf("[TaskProcessor] Task processor stopped")
+	log.Printf("[TaskProcessor] Task processor stopped")
 }
 
 
 // checkP2PStatus checks the status of P2P connections
 func (tp *TaskProcessor) checkP2PStatus() {
 	peers := tp.node.host.Network().Peers()
-	tp.logger.Printf("[P2P] Connected to %d peers:", len(peers))
+	log.Printf("[P2P] Connected to %d peers:", len(peers))
 	for _, peer := range peers {
 		addrs := tp.node.host.Network().Peerstore().Addrs(peer)
-		tp.logger.Printf("[P2P] - Peer %s at %v", peer.String(), addrs)
+		log.Printf("[P2P] - Peer %s at %v", peer.String(), addrs)
 	}
 
 	// Check pubsub topic
 	peers = tp.responseTopic.ListPeers()
-	tp.logger.Printf("[P2P] %d peers subscribed to response topic:", len(peers))
+	log.Printf("[P2P] %d peers subscribed to response topic:", len(peers))
 	for _, peer := range peers {
-		tp.logger.Printf("[P2P] - Subscribed peer: %s", peer.String())
+		log.Printf("[P2P] - Subscribed peer: %s", peer.String())
 	}
 }

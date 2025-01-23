@@ -25,7 +25,7 @@ func (c *EpochClient) GetCurrentEpoch(ctx context.Context) (uint32, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.contract.GetCurrentEpoch(opts)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get current epoch: %w", err)
+		return 0, fmt.Errorf("[EpochClient] failed to get current epoch: %w", err)
 	}
 	return epoch, nil
 }
@@ -35,7 +35,7 @@ func (c *EpochClient) GetEpochInterval(ctx context.Context, epoch uint32) (start
 	opts := &bind.CallOpts{Context: ctx}
 	interval, err := c.contract.GetEpochInterval(opts, epoch)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to get epoch interval: %w", err)
+		return 0, 0, 0, fmt.Errorf("[EpochClient] failed to get epoch interval: %w", err)
 	}
 	return interval.StartBlock, interval.GraceBlock, interval.EndBlock, nil
 }
@@ -45,7 +45,7 @@ func (c *EpochClient) CanAdvanceEpoch(ctx context.Context) (bool, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	can, err := c.contract.CanAdvanceEpoch(opts)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if can advance epoch: %w", err)
+		return false, fmt.Errorf("[EpochClient] failed to check if can advance epoch: %w", err)
 	}
 	return can, nil
 }
@@ -55,7 +55,7 @@ func (c *EpochClient) BlocksUntilNextEpoch(ctx context.Context) (uint64, error) 
 	opts := &bind.CallOpts{Context: ctx}
 	blocks, err := c.contract.BlocksUntilNextEpoch(opts)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get blocks until next epoch: %w", err)
+		return 0, fmt.Errorf("[EpochClient] failed to get blocks until next epoch: %w", err)
 	}
 	return blocks, nil
 }
@@ -65,7 +65,7 @@ func (c *EpochClient) IsInGracePeriod(ctx context.Context) (bool, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	inGrace, err := c.contract.IsInGracePeriod(opts)
 	if err != nil {
-		return false, fmt.Errorf("failed to check if in grace period: %w", err)
+		return false, fmt.Errorf("[EpochClient] failed to check if in grace period: %w", err)
 	}
 	return inGrace, nil
 }
@@ -75,7 +75,7 @@ func (c *EpochClient) GetEffectiveEpochForBlock(ctx context.Context, blockNumber
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.contract.GetEffectiveEpochForBlock(opts, blockNumber)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get effective epoch for block: %w", err)
+		return 0, fmt.Errorf("[EpochClient] failed to get effective epoch for block: %w", err)
 	}
 	return epoch, nil
 } 

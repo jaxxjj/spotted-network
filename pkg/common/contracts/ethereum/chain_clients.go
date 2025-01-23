@@ -15,8 +15,8 @@ const (
 
 // ChainClients manages multiple chain clients
 type ChainClients struct {
-	mainnetClient contracts.Client                    // 主网客户端，包含所有合约
-	stateClients  map[int64]contracts.StateClient    // 其他链的状态客户端
+	mainnetClient contracts.Client                    // mainnet client
+	stateClients  map[int64]contracts.StateClient    // state clients for other chains
 	mu            sync.RWMutex
 }
 
@@ -26,10 +26,10 @@ func NewChainClients(cfg *config.Config) (*ChainClients, error) {
 		stateClients: make(map[int64]contracts.StateClient),
 	}
 
-	// 初始化每个链的客户端
+	// Initialize clients for each chain
 	for chainID, chainCfg := range cfg.Chains {
 		if chainID == MainnetChainID {
-			// 为主网创建完整客户端
+			// Create full client for mainnet
 			clientCfg := &Config{
 				EpochManagerAddress:      common.HexToAddress(chainCfg.Contracts.EpochManager),
 				RegistryAddress:         common.HexToAddress(chainCfg.Contracts.Registry),
@@ -44,7 +44,7 @@ func NewChainClients(cfg *config.Config) (*ChainClients, error) {
 			}
 			chainClients.mainnetClient = client
 		} else {
-			// 为其他链只创建 StateManager 客户端
+			// Create StateManager client for other chains
 			stateClient, err := NewStateOnlyClient(chainCfg.RPC, common.HexToAddress(chainCfg.Contracts.StateManager))
 			if err != nil {
 				chainClients.Close()

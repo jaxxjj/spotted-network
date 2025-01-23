@@ -10,9 +10,9 @@ contract DeployEpochManagerScript is Script {
         vm.startBroadcast(deployerPrivateKey);
 
         MockEpochManager epochManager = new MockEpochManager();
-        
+
         vm.stopBroadcast();
 
         console.log("MockEpochManager deployed at:", address(epochManager));
     }
-} 
+}

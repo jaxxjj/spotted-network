@@ -22,7 +22,7 @@ const (
 )
 
 func (node *Node) subscribeToStateUpdates() error {
-	log.Printf("[Operator] Opening state sync stream to registry...")
+	log.Printf("[StateSync] Opening state sync stream to registry...")
 	stream, err := node.host.NewStream(context.Background(), node.registryID, "/state-sync/1.0.0")
 	if err != nil {
 		return fmt.Errorf("failed to open state sync stream: %w", err)
@@ -53,14 +53,14 @@ func (node *Node) subscribeToStateUpdates() error {
 		return fmt.Errorf("failed to write length prefix: %w", err)
 	}
 
-	log.Printf("[Operator] Sending state sync subscribe request (type: 0x02, length: %d)...", length)
+	log.Printf("[StateSync] Sending state sync subscribe request (type: 0x02, length: %d)...", length)
 	bytesWritten, err := stream.Write(data)
 	if err != nil {
 		return fmt.Errorf("failed to send subscribe request: %w", err)
 	}
-	log.Printf("[Operator] Sent %d bytes to registry", bytesWritten)
-	log.Printf("[Operator] Successfully subscribed to state updates")
-	log.Printf("[Operator] Starting state update handler...")
+	log.Printf("[StateSync] Sent %d bytes to registry", bytesWritten)
+	log.Printf("[StateSync] Successfully subscribed to state updates")
+	log.Printf("[StateSync] Starting state update handler...")
 
 	// Handle updates in background
 	go node.handleStateUpdates(stream)
@@ -68,24 +68,24 @@ func (node *Node) subscribeToStateUpdates() error {
 }
 
 func (node *Node) getFullState() error {
-	log.Printf("Requesting full operator state from registry...")
+	log.Printf("[StateSync] Requesting full operator state from registry...")
 	stream, err := node.host.NewStream(context.Background(), node.registryID, "/state-sync/1.0.0")
 	if err != nil {
-		return fmt.Errorf("failed to open state sync stream: %w", err)
+		return fmt.Errorf("[StateSync] failed to open state sync stream: %w", err)
 	}
 	defer stream.Close()
 
 	// Send get full state request with message type
 	msgType := []byte{0x01} // 0x01 for GetFullStateRequest
 	if _, err := stream.Write(msgType); err != nil {
-		return fmt.Errorf("failed to write message type: %w", err)
+		return fmt.Errorf("[StateSync] failed to write message type: %w", err)
 	}
 
 	// Send get full state request
 	req := &pb.GetFullStateRequest{}
 	data, err := proto.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("failed to marshal get state request: %w", err)
+		return fmt.Errorf("[StateSync] failed to marshal get state request: %w", err)
 	}
 
 	// Send length prefix
@@ -97,18 +97,18 @@ func (node *Node) getFullState() error {
 	lengthBytes[3] = byte(length)
 	
 	if _, err := stream.Write(lengthBytes); err != nil {
-		return fmt.Errorf("failed to write length prefix: %w", err)
+		return fmt.Errorf("[StateSync] failed to write length prefix: %w", err)
 	}
 
-	log.Printf("Sending GetFullState request to registry (type: 0x01, length: %d)...", length)
+	log.Printf("[StateSync] Sending GetFullState request to registry (type: 0x01, length: %d)...", length)
 	bytesWritten, err := stream.Write(data)
 	if err != nil {
-		return fmt.Errorf("failed to send get state request: %w", err)
+		return fmt.Errorf("[StateSync] failed to send get state request: %w", err)
 	}
-	log.Printf("Sent %d bytes to registry", bytesWritten)
+	log.Printf("[StateSync] Sent %d bytes to registry", bytesWritten)
 
 	// Read response
-	log.Printf("Waiting for response from registry...")
+	log.Printf("[StateSync] Waiting for response from registry...")
 	
 	// Read length prefix first
 	respLengthBytes := make([]byte, 4)
@@ -126,12 +126,12 @@ func (node *Node) getFullState() error {
 	// Read the full response
 	respData := make([]byte, respLength)
 	if _, err := io.ReadFull(stream, respData); err != nil {
-		return fmt.Errorf("failed to read response data: %w", err)
+		return fmt.Errorf("[StateSync] failed to read response data: %w", err)
 	}
 
 	var resp pb.GetFullStateResponse
 	if err := proto.Unmarshal(respData, &resp); err != nil {
-		return fmt.Errorf("failed to unmarshal state response: %w", err)
+		return fmt.Errorf("[StateSync] failed to unmarshal state response: %w", err)
 	}
 
 	log.Printf("Successfully unmarshaled response with %d operators", len(resp.Operators))
@@ -152,35 +152,34 @@ func (node *Node) getFullState() error {
 		}
 	}
 	node.PrintOperatorStates()
-	log.Printf("===================================\n")
 	
 	return nil
 }
 
 func (node *Node) handleStateUpdates(stream network.Stream) {
 	defer func() {
-		log.Printf("[Operator] State update handler stopping, closing stream...")
+		log.Printf("[StateSync] State update handler stopping, closing stream...")
 		stream.Close()
 	}()
 	
-	log.Printf("[Operator] Started handling state updates from registry")
-	log.Printf("[Operator] Stream ID: %s", stream.ID())
+	log.Printf("[StateSync] Started handling state updates from registry")
+	log.Printf("[StateSync] Stream ID: %s", stream.ID())
 
 	for {
 		// Read message type first
 		msgType := make([]byte, 1)
 		if _, err := io.ReadFull(stream, msgType); err != nil {
 			if err != io.EOF {
-				log.Printf("[Operator] Error reading message type: %v", err)
+				log.Printf("[StateSync] Error reading message type: %v", err)
 			} else {
-				log.Printf("[Operator] State update stream closed by registry")
+				log.Printf("[StateSync] State update stream closed by registry")
 			}
 			return
 		}
 
 		// Validate message type
 		if msgType[0] != 0x02 {
-			log.Printf("[Operator] Invalid message type: 0x%02x, expected 0x02", msgType[0])
+			log.Printf("[StateSync] Invalid message type: 0x%02x, expected 0x02", msgType[0])
 			return
 		}
 		
@@ -188,7 +187,7 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 		lengthBytes := make([]byte, 4)
 		if _, err := io.ReadFull(stream, lengthBytes); err != nil {
 			if err != io.EOF {
-				log.Printf("[Operator] Error reading update length: %v", err)
+				log.Printf("[StateSync] Error reading update length: %v", err)
 			}
 			return
 		}
@@ -201,50 +200,50 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 		// Validate message length (max 1MB)
 		const maxMessageSize = 1024 * 1024 // 1MB
 		if length > maxMessageSize {
-			log.Printf("[Operator] Message too large (%d bytes), max allowed size is %d bytes", length, maxMessageSize)
+			log.Printf("[StateSync] Message too large (%d bytes), max allowed size is %d bytes", length, maxMessageSize)
 			return
 		}
 
-		log.Printf("[Operator] Received state update - Type: 0x%02x, Length: %d bytes", msgType[0], length)
+		log.Printf("[StateSync] Received state update - Type: 0x%02x, Length: %d bytes", msgType[0], length)
 		
 		// Read the full update with timeout
 		data := make([]byte, length)
 		if err := stream.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
-			log.Printf("[Operator] Failed to set read deadline: %v", err)
+			log.Printf("[StateSync] Failed to set read deadline: %v", err)
 			return
 		}
 		
 		if _, err := io.ReadFull(stream, data); err != nil {
-			log.Printf("[Operator] Error reading state update data: %v", err)
+			log.Printf("[StateSync] Error reading state update data: %v", err)
 			return
 		}
 
 		// Reset deadline
 		if err := stream.SetReadDeadline(time.Time{}); err != nil {
-			log.Printf("[Operator] Failed to reset read deadline: %v", err)
+			log.Printf("[StateSync] Failed to reset read deadline: %v", err)
 			return
 		}
 
 		var update pb.OperatorStateUpdate
 		if err := proto.Unmarshal(data, &update); err != nil {
-			log.Printf("[Operator] Error unmarshaling state update: %v", err)
+			log.Printf("[StateSync] Error unmarshaling state update: %v", err)
 			continue
 		}
 
-		log.Printf("[Operator] Successfully unmarshaled update with %d operators", len(update.Operators))
+		log.Printf("[StateSync] Successfully unmarshaled update with %d operators", len(update.Operators))
 		
 		// Print detailed operator states before update
-		log.Printf("\n[Operator] === Current Operator States Before Update ===")
+		log.Printf("\n[StateSync] === Current Operator States Before Update ===")
 		node.PrintOperatorStates()
 		
 		// Update states
 		node.updateOperatorStates(update.Operators)
 		
 		// Print detailed operator states after update
-		log.Printf("\n[Operator] === Updated Operator States ===")
+		log.Printf("\n[StateSync] === Updated Operator States ===")
 		node.PrintOperatorStates()
 		
-		log.Printf("[Operator] State update processed successfully")
+		log.Printf("[StateSync] State update processed successfully")
 	}
 }
 
@@ -252,8 +251,8 @@ func (node *Node) updateOperatorStates(operators []*pb.OperatorState) {
 	node.statesMu.Lock()
 	defer node.statesMu.Unlock()
 
-	log.Printf("[Operator] Updating operator states in memory...")
-	log.Printf("[Operator] Current operator count before update: %d", len(node.operatorStates))
+	log.Printf("[StateSync] Updating operator states in memory...")
+	log.Printf("[StateSync] Current operator count before update: %d", len(node.operatorStates))
 	
 	// Update memory state
 	for _, op := range operators {
@@ -261,17 +260,17 @@ func (node *Node) updateOperatorStates(operators []*pb.OperatorState) {
 		node.operatorStates[op.Address] = op
 		
 		if prevState != nil {
-			log.Printf("[Operator] Updated operator state - Address: %s\n  Old: Status=%s, ActiveEpoch=%d, Weight=%s\n  New: Status=%s, ActiveEpoch=%d, Weight=%s", 
+			log.Printf("[StateSync] Updated operator state - Address: %s\n  Old: Status=%s, ActiveEpoch=%d, Weight=%s\n  New: Status=%s, ActiveEpoch=%d, Weight=%s", 
 				op.Address, 
 				prevState.Status, prevState.ActiveEpoch, prevState.Weight,
 				op.Status, op.ActiveEpoch, op.Weight)
 		} else {
-			log.Printf("[Operator] Added new operator - Address: %s, Status: %s, ActiveEpoch: %d, Weight: %s", 
+			log.Printf("[StateSync] Added new operator - Address: %s, Status: %s, ActiveEpoch: %d, Weight: %s", 
 				op.Address, op.Status, op.ActiveEpoch, op.Weight)
 		}
 	}
 	
-	log.Printf("[Operator] Memory state updated - Current operator count: %d", len(node.operatorStates))
+	log.Printf("[StateSync] Memory state updated - Current operator count: %d", len(node.operatorStates))
 }
 
 // PrintOperatorStates prints all operator states stored in memory

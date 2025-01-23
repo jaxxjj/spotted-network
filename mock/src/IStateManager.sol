@@ -37,76 +37,47 @@ interface IStateManager {
 
     // events
     event HistoryCommitted(
-        address indexed user,
-        uint256 indexed key,
-        uint256 value,
-        uint256 timestamp,
-        uint256 blockNumber
+        address indexed user, uint256 indexed key, uint256 value, uint256 timestamp, uint256 blockNumber
     );
 
     // core functions
     function setValue(address user, uint256 key, uint256 value) external;
-    function batchSetValues(
-        address user,
-        SetValueParams[] calldata params
-    ) external;
+    function batchSetValues(address user, SetValueParams[] calldata params) external;
 
     // query functions
     function getCurrentValue(address user, uint256 key) external view returns (uint256);
-    function getHistoryBetweenBlockNumbers(
-        address user,
-        uint256 key,
-        uint256 fromBlock,
-        uint256 toBlock
-    ) external view returns (History[] memory);
-    function getHistoryBetweenTimestamps(
-        address user,
-        uint256 key,
-        uint256 fromTimestamp,
-        uint256 toTimestamp
-    ) external view returns (History[] memory);
-    function getHistoryBeforeBlockNumber(
-        address user,
-        uint256 key,
-        uint256 blockNumber
-    ) external view returns (History[] memory);
-    function getHistoryAfterBlockNumber(
-        address user,
-        uint256 key,
-        uint256 blockNumber
-    ) external view returns (History[] memory);
-    function getHistoryBeforeTimestamp(
-        address user,
-        uint256 key,
-        uint256 timestamp
-    ) external view returns (History[] memory);
-    function getHistoryAfterTimestamp(
-        address user,
-        uint256 key,
-        uint256 timestamp
-    ) external view returns (History[] memory);
-    function getHistoryAtBlock(
-        address user,
-        uint256 key,
-        uint256 blockNumber
-    ) external view returns (History memory);
-    function getHistoryAtTimestamp(
-        address user,
-        uint256 key,
-        uint256 timestamp
-    ) external view returns (History memory);
+    function getHistoryBetweenBlockNumbers(address user, uint256 key, uint256 fromBlock, uint256 toBlock)
+        external
+        view
+        returns (History[] memory);
+    function getHistoryBetweenTimestamps(address user, uint256 key, uint256 fromTimestamp, uint256 toTimestamp)
+        external
+        view
+        returns (History[] memory);
+    function getHistoryBeforeBlockNumber(address user, uint256 key, uint256 blockNumber)
+        external
+        view
+        returns (History[] memory);
+    function getHistoryAfterBlockNumber(address user, uint256 key, uint256 blockNumber)
+        external
+        view
+        returns (History[] memory);
+    function getHistoryBeforeTimestamp(address user, uint256 key, uint256 timestamp)
+        external
+        view
+        returns (History[] memory);
+    function getHistoryAfterTimestamp(address user, uint256 key, uint256 timestamp)
+        external
+        view
+        returns (History[] memory);
+    function getHistoryAtBlock(address user, uint256 key, uint256 blockNumber) external view returns (History memory);
+    function getHistoryAtTimestamp(address user, uint256 key, uint256 timestamp)
+        external
+        view
+        returns (History memory);
     function getHistoryCount(address user, uint256 key) external view returns (uint256);
-    function getHistoryAt(
-        address user,
-        uint256 key,
-        uint256 index
-    ) external view returns (History memory);
+    function getHistoryAt(address user, uint256 key, uint256 index) external view returns (History memory);
     function getLatestHistory(address user, uint256 n) external view returns (History[] memory);
-    function getUsedKeys(
-        address user
-    ) external view returns (uint256[] memory);
-    function getCurrentValues(
-        address user,
-        uint256[] calldata keys
-    ) external view returns (uint256[] memory values);
+    function getUsedKeys(address user) external view returns (uint256[] memory);
+    function getCurrentValues(address user, uint256[] calldata keys) external view returns (uint256[] memory values);
 }

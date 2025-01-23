@@ -3,14 +3,14 @@ CREATE TABLE IF NOT EXISTS consensus_responses (
     id BIGSERIAL PRIMARY KEY,
     task_id TEXT NOT NULL,
     epoch INT NOT NULL,
-    value NUMERIC(78) NOT NULL, -- 添加value字段，记录最终共识的值
-    block_number NUMERIC(78) NOT NULL, -- 添加block_number
-    chain_id INT NOT NULL, -- 添加chain_id 
-    target_address TEXT NOT NULL, -- 添加target_address
-    key NUMERIC(78) NOT NULL, -- 添加key
+    value NUMERIC(78) NOT NULL, 
+    block_number NUMERIC(78) NOT NULL,
+    chain_id INT NOT NULL,
+    target_address TEXT NOT NULL,
+    key NUMERIC(78) NOT NULL,
     aggregated_signatures BYTEA,
-    operator_signatures JSONB, -- {operator_address: {signature: bytes, weight: string}}
-    total_weight NUMERIC(78) NOT NULL, -- 添加total_weight字段
+    operator_signatures JSONB,
+    total_weight NUMERIC(78) NOT NULL,
     consensus_reached_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
