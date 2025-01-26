@@ -1,0 +1,38 @@
+FROM golang:1.23.3-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    git
+
+# Set Go environment variables
+ENV GO111MODULE=on
+ENV GOSUMDB=off
+
+WORKDIR /app
+
+# Copy go.mod and go.sum first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the code
+COPY . .
+RUN go build -o operator ./cmd/operator
+
+FROM alpine:latest
+WORKDIR /app
+
+# Install required tools
+RUN apk add --no-cache \
+    wget \
+    curl \
+    jq \
+    netcat-openbsd \
+    postgresql-client
+
+COPY --from=builder /app/operator .
+COPY scripts/start-operator.sh .
+RUN chmod +x start-operator.sh
+
+ENTRYPOINT ["/bin/sh", "/app/start-operator.sh"] 

@@ -1,0 +1,431 @@
+[
+  {
+    "type": "function",
+    "name": "batchSetValues",
+    "inputs": [
+      {
+        "name": "params",
+        "type": "tuple[]",
+        "internalType": "struct IStateManager.SetValueParams[]",
+        "components": [
+          { "name": "key", "type": "uint256", "internalType": "uint256" },
+          { "name": "value", "type": "uint256", "internalType": "uint256" }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getCurrentValue",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getCurrentValues",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "keys", "type": "uint256[]", "internalType": "uint256[]" }
+    ],
+    "outputs": [
+      { "name": "values", "type": "uint256[]", "internalType": "uint256[]" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistory",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IStateManager.History[]",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryAfterBlockNumber",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      { "name": "blockNumber", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IStateManager.History[]",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryAfterTimestamp",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      { "name": "timestamp", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IStateManager.History[]",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryAt",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      { "name": "index", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IStateManager.History",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryAtBlock",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      { "name": "blockNumber", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IStateManager.History",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryAtTimestamp",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      { "name": "timestamp", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct IStateManager.History",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryBeforeBlockNumber",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      { "name": "blockNumber", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IStateManager.History[]",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryBeforeTimestamp",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      { "name": "timestamp", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IStateManager.History[]",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryBetweenBlockNumbers",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      { "name": "fromBlock", "type": "uint256", "internalType": "uint256" },
+      { "name": "toBlock", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IStateManager.History[]",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryBetweenTimestamps",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      {
+        "name": "fromTimestamp",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      { "name": "toTimestamp", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IStateManager.History[]",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getHistoryCount",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "key", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getLatestHistory",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" },
+      { "name": "n", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct IStateManager.History[]",
+        "components": [
+          { "name": "value", "type": "uint256", "internalType": "uint256" },
+          {
+            "name": "blockNumber",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          { "name": "timestamp", "type": "uint48", "internalType": "uint48" }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getUsedKeys",
+    "inputs": [
+      { "name": "user", "type": "address", "internalType": "address" }
+    ],
+    "outputs": [
+      { "name": "", "type": "uint256[]", "internalType": "uint256[]" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setValue",
+    "inputs": [
+      { "name": "key", "type": "uint256", "internalType": "uint256" },
+      { "name": "value", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "HistoryCommitted",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "key",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "timestamp",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "blockNumber",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  { "type": "error", "name": "StateManager__BatchTooLarge", "inputs": [] },
+  { "type": "error", "name": "StateManager__BlockNotFound", "inputs": [] },
+  {
+    "type": "error",
+    "name": "StateManager__ImmutableStateCannotBeModified",
+    "inputs": []
+  },
+  { "type": "error", "name": "StateManager__IndexOutOfBounds", "inputs": [] },
+  {
+    "type": "error",
+    "name": "StateManager__InvalidBlockRange",
+    "inputs": []
+  },
+  { "type": "error", "name": "StateManager__InvalidStateType", "inputs": [] },
+  { "type": "error", "name": "StateManager__InvalidTimeRange", "inputs": [] },
+  { "type": "error", "name": "StateManager__KeyNotFound", "inputs": [] },
+  { "type": "error", "name": "StateManager__NoHistoryFound", "inputs": [] },
+  {
+    "type": "error",
+    "name": "StateManager__TimestampNotFound",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StateManager__ValueNotMonotonicDecreasing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StateManager__ValueNotMonotonicIncreasing",
+    "inputs": []
+  }
+]

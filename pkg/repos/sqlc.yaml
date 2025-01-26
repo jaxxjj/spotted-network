@@ -1,0 +1,89 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: 
+      - "registry/operators/query.sql"
+    schema: 
+      - "registry/operators/schema.sql"
+    gen:
+      go:
+        package: "operators"
+        out: "registry/operators"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_prepared_queries: true
+        emit_interface: true
+        emit_exact_table_names: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "pg_catalog.numeric"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric"
+          - db_type: "pg_catalog.timestamp with time zone"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Timestamptz"
+            
+  - schema: "operator/tasks/schema.sql"
+    queries: "operator/tasks/query.sql"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "tasks"
+        out: "operator/tasks"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "pg_catalog.numeric"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric"
+          - db_type: "pg_catalog.timestamp"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Timestamp"
+  - schema: "operator/task_responses/schema.sql"
+    queries: "operator/task_responses/query.sql"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "task_responses"
+        out: "operator/task_responses"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "pg_catalog.numeric"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric"
+  - schema: "operator/consensus_responses/schema.sql"
+    queries: "operator/consensus_responses/query.sql"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "consensus_responses"
+        out: "operator/consensus_responses"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "pg_catalog.numeric"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric"
+  - schema: "operator/epoch_states/schema.sql"
+    queries: "operator/epoch_states/query.sql"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "epoch_states"
+        out: "operator/epoch_states"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "pg_catalog.numeric"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric"
+          - db_type: "pg_catalog.int8"
+            go_type: "uint64"
+          - db_type: "int4"
+            go_type: "uint32"
+          - db_type: "pg_catalog.int4"
+            go_type: "uint32"
+          - db_type: "pg_catalog.timestamp with time zone"
+            go_type: "github.com/jackc/pgx/v5/pgtype.Timestamptz" 

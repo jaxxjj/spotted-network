@@ -1,0 +1,262 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    platform: linux/arm64
+    environment:
+      POSTGRES_USER: spotted
+      POSTGRES_PASSWORD: spotted
+      POSTGRES_DB: spotted
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./pkg/repos/registry/operators/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - spotted-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spotted"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres_operator1:
+    image: postgres:14-alpine
+    platform: linux/arm64
+    environment:
+      POSTGRES_USER: spotted
+      POSTGRES_PASSWORD: spotted
+      POSTGRES_DB: operator1
+      POSTGRES_MULTIPLE_DATABASES: "operator1,postgres"
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_operator1_data:/var/lib/postgresql/data
+      - ./pkg/repos/operator/tasks/schema.sql:/docker-entrypoint-initdb.d/01-tasks-schema.sql
+      - ./pkg/repos/operator/task_responses/schema.sql:/docker-entrypoint-initdb.d/02-task-responses-schema.sql
+      - ./pkg/repos/operator/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/03-consensus-responses-schema.sql
+      - ./pkg/repos/operator/epoch_states/schema.sql:/docker-entrypoint-initdb.d/04-epoch-states-schema.sql
+    networks:
+      - spotted-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spotted -d operator1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres_operator2:
+    image: postgres:14-alpine
+    platform: linux/arm64
+    environment:
+      POSTGRES_USER: spotted
+      POSTGRES_PASSWORD: spotted
+      POSTGRES_DB: operator2
+      POSTGRES_MULTIPLE_DATABASES: "operator2,postgres"
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_operator2_data:/var/lib/postgresql/data
+      - ./pkg/repos/operator/tasks/schema.sql:/docker-entrypoint-initdb.d/01-tasks-schema.sql
+      - ./pkg/repos/operator/task_responses/schema.sql:/docker-entrypoint-initdb.d/02-task-responses-schema.sql
+      - ./pkg/repos/operator/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/03-consensus-responses-schema.sql
+      - ./pkg/repos/operator/epoch_states/schema.sql:/docker-entrypoint-initdb.d/04-epoch-states-schema.sql
+    networks:
+      - spotted-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spotted -d operator2"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres_operator3:
+    image: postgres:14-alpine
+    platform: linux/arm64
+    environment:
+      POSTGRES_USER: spotted
+      POSTGRES_PASSWORD: spotted
+      POSTGRES_DB: operator3
+      POSTGRES_MULTIPLE_DATABASES: "operator3,postgres"
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_operator3_data:/var/lib/postgresql/data
+      - ./pkg/repos/operator/tasks/schema.sql:/docker-entrypoint-initdb.d/01-tasks-schema.sql
+      - ./pkg/repos/operator/task_responses/schema.sql:/docker-entrypoint-initdb.d/02-task-responses-schema.sql
+      - ./pkg/repos/operator/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/03-consensus-responses-schema.sql
+      - ./pkg/repos/operator/epoch_states/schema.sql:/docker-entrypoint-initdb.d/04-epoch-states-schema.sql
+    networks:
+      - spotted-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spotted -d operator3"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  registry:
+    build:
+      context: .
+      dockerfile: Dockerfile.registry
+      platforms:
+        - linux/arm64
+    ports:
+      - "9000:9000"  # P2P port
+      - "8000:8000"  # HTTP port
+    environment:
+      - DATABASE_URL=postgresql://spotted:spotted@postgres:5432/spotted?sslmode=disable
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
+      - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
+      - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
+      - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
+      - LOG_LEVEL=debug
+      - CHAIN_ID=31337
+      - P2P_PORT=9000
+      - HTTP_PORT=8000
+      - CONFIG_PATH=/app/config/registry.yaml
+    volumes:
+      - ./config:/app/config
+    networks:
+      spotted-net:
+        aliases:
+          - registry
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "grpcurl", "-plaintext", "-import-path", "/app/proto", "-proto", "/app/proto/registry.proto", "localhost:8000", "registry.Registry/GetRegistryID"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  operator1:
+    build:
+      context: .
+      dockerfile: Dockerfile.operator
+    ports:
+      - "10000:10000"  # P2P port
+      - "8001:8001"    # HTTP port
+    environment:
+      - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
+      - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
+      - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
+      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator1:5432/operator1?sslmode=disable
+      - KEYSTORE_PATH=/app/keys/operator1.key.json
+      - KEYSTORE_PASSWORD=testpassword
+      - CONFIG_PATH=/app/config/operator.yaml
+      - LOG_LEVEL=debug
+      - P2P_PORT=10000
+      - HTTP_PORT=8001
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
+    volumes:
+      - ./keys/operator1.key.json:/app/keys/operator1.key.json
+      - ./config:/app/config
+      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
+    networks:
+      spotted-net:
+        aliases:
+          - operator1
+    depends_on:
+      postgres_operator1:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "spotted", "-d", "operator1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    entrypoint: ["/bin/sh", "/app/scripts/start-operator.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  operator2:
+    build:
+      context: .
+      dockerfile: Dockerfile.operator
+    ports:
+      - "10001:10001"  # P2P port
+      - "8002:8002"    # HTTP port
+    environment:
+      - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
+      - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
+      - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
+      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator2:5432/operator2?sslmode=disable
+      - P2P_PORT=10001
+      - HTTP_PORT=8002
+      - LOG_LEVEL=debug
+      - KEYSTORE_PATH=/app/keys/operator2.key.json
+      - KEYSTORE_PASSWORD=testpassword
+      - CONFIG_PATH=/app/config/operator.yaml
+    volumes:
+      - ./keys/operator2.key.json:/app/keys/operator2.key.json
+      - ./config:/app/config
+      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
+    networks:
+      spotted-net:
+        aliases:
+          - operator2
+    depends_on:
+      postgres_operator2:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "spotted", "-d", "operator2"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    entrypoint: ["/bin/sh", "/app/scripts/start-operator.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  operator3:
+    build:
+      context: .
+      dockerfile: Dockerfile.operator
+    ports:
+      - "10002:10002"  # P2P port
+      - "8003:8003"    # HTTP port
+    environment:
+      - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
+      - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
+      - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
+      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator3:5432/operator3?sslmode=disable
+      - P2P_PORT=10002
+      - HTTP_PORT=8003
+      - LOG_LEVEL=debug
+      - KEYSTORE_PATH=/app/keys/operator3.key.json
+      - KEYSTORE_PASSWORD=testpassword
+      - CONFIG_PATH=/app/config/operator.yaml
+    volumes:
+      - ./keys/operator3.key.json:/app/keys/operator3.key.json
+      - ./config:/app/config
+      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
+    networks:
+      spotted-net:
+        aliases:
+          - operator3
+    depends_on:
+      postgres_operator3:
+        condition: service_healthy
+      registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "spotted", "-d", "operator3"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    entrypoint: ["/bin/sh", "/app/scripts/start-operator.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  spotted-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  postgres_operator1_data:
+  postgres_operator2_data:
+  postgres_operator3_data: 
