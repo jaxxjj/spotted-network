@@ -10,7 +10,7 @@ import (
 
 type EpochState struct {
 	EpochNumber     uint32             `json:"epoch_number"`
-	BlockNumber     pgtype.Numeric     `json:"block_number"`
+	BlockNumber     uint64             `json:"block_number"`
 	MinimumWeight   pgtype.Numeric     `json:"minimum_weight"`
 	TotalWeight     pgtype.Numeric     `json:"total_weight"`
 	ThresholdWeight pgtype.Numeric     `json:"threshold_weight"`

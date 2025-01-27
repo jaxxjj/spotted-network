@@ -9,18 +9,18 @@ import (
 )
 
 type ConsensusResponse struct {
-	ID                   int64            `json:"id"`
-	TaskID               string           `json:"task_id"`
-	Epoch                int32            `json:"epoch"`
-	Value                pgtype.Numeric   `json:"value"`
-	BlockNumber          pgtype.Numeric   `json:"block_number"`
-	ChainID              int32            `json:"chain_id"`
-	TargetAddress        string           `json:"target_address"`
-	Key                  pgtype.Numeric   `json:"key"`
-	AggregatedSignatures []byte           `json:"aggregated_signatures"`
-	OperatorSignatures   []byte           `json:"operator_signatures"`
-	TotalWeight          pgtype.Numeric   `json:"total_weight"`
-	ConsensusReachedAt   pgtype.Timestamp `json:"consensus_reached_at"`
-	CreatedAt            pgtype.Timestamp `json:"created_at"`
-	UpdatedAt            pgtype.Timestamp `json:"updated_at"`
+	ID                   int64              `json:"id"`
+	TaskID               string             `json:"task_id"`
+	Epoch                uint32             `json:"epoch"`
+	Value                pgtype.Numeric     `json:"value"`
+	Key                  pgtype.Numeric     `json:"key"`
+	TotalWeight          pgtype.Numeric     `json:"total_weight"`
+	ChainID              uint32             `json:"chain_id"`
+	BlockNumber          uint64             `json:"block_number"`
+	TargetAddress        string             `json:"target_address"`
+	AggregatedSignatures []byte             `json:"aggregated_signatures"`
+	OperatorSignatures   []byte             `json:"operator_signatures"`
+	ConsensusReachedAt   pgtype.Timestamptz `json:"consensus_reached_at"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }

@@ -36,6 +36,126 @@ CREATE TABLE IF NOT EXISTS books (
 CREATE INDEX IF NOT EXISTS books_name_idx ON books (name);
 ```
 
+### Blockchain Data Types and Patterns
+
+#### Address Types
+```sql
+-- Ethereum addresses (0x + 40 hex chars)
+address VARCHAR(42) NOT NULL
+
+-- Solana addresses (Base58)
+address VARCHAR(44) NOT NULL
+
+-- Cosmos addresses (Bech32)
+address VARCHAR(98) NOT NULL
+```
+
+#### Numeric Types
+```sql
+-- Large numbers (uint256, token amounts)
+amount NUMERIC NOT NULL
+
+-- Block numbers, timestamps (uint64)
+block_number BIGINT NOT NULL
+
+-- Chain IDs and small identifiers
+chain_id INT8 NOT NULL
+
+-- Fixed precision amounts (e.g. token price)
+price DECIMAL(36,18) NOT NULL
+```
+
+#### Time-Related Types
+```sql
+-- Standard timestamps with timezone
+created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
+-- Time intervals
+duration INTERVAL NOT NULL
+
+-- Block timestamps
+block_timestamp BIGINT NOT NULL
+```
+
+#### Hash Values
+```sql
+-- Raw byte storage (tx hash, block hash)
+hash BYTEA NOT NULL
+
+-- Hex encoded hash (0x + 64 hex chars)
+hash VARCHAR(66) NOT NULL
+```
+
+#### Status and Flags
+```sql
+-- Boolean flags
+is_active BOOLEAN NOT NULL DEFAULT false
+
+-- Multi-state flags
+status SMALLINT NOT NULL DEFAULT 0
+
+-- Fixed state enums
+status_type VARCHAR(20) NOT NULL CHECK (status_type IN ('pending', 'active', 'completed'))
+```
+
+#### Signature Data
+```sql
+-- Long hex strings (ECDSA signatures)
+signature TEXT NOT NULL
+
+-- Raw signature bytes
+signature BYTEA NOT NULL
+
+-- Fixed length signatures (0x + 130 hex chars)
+signature VARCHAR(132) NOT NULL
+```
+
+#### Gas Related
+```sql
+-- Gas price (potentially large values)
+gas_price NUMERIC NOT NULL
+
+-- Gas used (uint64 range)
+gas_used BIGINT NOT NULL
+
+-- Gas limit
+gas_limit BIGINT NOT NULL
+```
+
+#### Complex Data Types
+```sql
+-- Dynamic JSON data
+metadata JSONB
+
+-- String arrays
+tags TEXT[]
+
+-- Numeric arrays
+amounts NUMERIC[]
+```
+
+#### Index Patterns
+```sql
+-- Address indexing
+CREATE INDEX IF NOT EXISTS tx_from_addr_idx ON transactions (from_address);
+
+-- Block number range queries
+CREATE INDEX IF NOT EXISTS tx_block_number_idx ON transactions (block_number);
+
+-- Timestamp range queries
+CREATE INDEX IF NOT EXISTS tx_timestamp_idx ON transactions (created_at);
+
+-- Composite queries
+CREATE INDEX IF NOT EXISTS tx_addr_block_idx ON transactions (from_address, block_number);
+```
+
+#### Performance Considerations
+1. Minimize NUMERIC usage in frequently queried tables
+2. Use materialized views for complex aggregations
+3. Consider compression for large fields
+4. Use appropriate index types based on query patterns
+5. Partition large tables by time or block ranges
+
 ### Schema Dependencies
 
 List dependencies in topological order

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -17,12 +18,38 @@ import (
 	"log"
 
 	commonHelpers "github.com/galxe/spotted-network/pkg/common"
-	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 )
+
+// BlockGetter defines the interface for getting blocks
+type BlockGetter interface {
+	BlockNumber(ctx context.Context) (uint64, error)
+	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
+}
+
+// StateClient defines the interface for state-related operations
+// that the API handler needs
+type ChainClient interface {
+	BlockGetter
+	GetStateAtBlock(ctx context.Context, target common.Address, key *big.Int, blockNumber uint64) (*big.Int, error)
+	Close()
+	GetCurrentEpoch(ctx context.Context) (uint32, error)
+}
+
+type TaskProcessor interface {
+	ProcessPendingTask(ctx context.Context, task *tasks.Task) error
+}
+
+// ChainManager defines the interface for managing chain clients
+// that the API handler needs
+type ChainManager interface {
+	// GetMainnetClient returns the mainnet client
+	GetMainnetClient() (ChainClient, error)
+	// GetClientByChainId returns the appropriate client for a given chain ID
+	GetClientByChainId(chainID int64) (ChainClient, error)
+}
 
 type TaskFinalResponse struct {
 	TaskID              string            `json:"task_id"`
@@ -40,28 +67,11 @@ type TaskFinalResponse struct {
 
 // Handler handles HTTP requests
 type Handler struct {
-	taskQueries *tasks.Queries
-	chainClient *ethereum.ChainClients
-	consensusDB *consensus_responses.Queries
-	taskProcessor interface {
-		ProcessTask(ctx context.Context, task *types.Task) error
-		ProcessPendingTask(ctx context.Context, task *tasks.Task) error
-	}
-	config *config.Config
-}
-
-// NewHandler creates a new handler
-func NewHandler(taskQueries *tasks.Queries, chainClient *ethereum.ChainClients, consensusDB *consensus_responses.Queries, taskProcessor interface {
-	ProcessTask(ctx context.Context, task *types.Task) error
-	ProcessPendingTask(ctx context.Context, task *tasks.Task) error
-}, config *config.Config) *Handler {
-	return &Handler{
-		taskQueries: taskQueries,
-		chainClient: chainClient,
-		consensusDB: consensusDB,
-		taskProcessor: taskProcessor,
-		config: config,
-	}
+	taskQueries    *tasks.Queries
+	chainManager   ChainManager
+	consensusDB    *consensus_responses.Queries
+	taskProcessor  TaskProcessor
+	config        *config.Config
 }
 
 type SendRequestParams struct {
@@ -75,7 +85,27 @@ type SendRequestParams struct {
 
 type SendRequestResponse struct {
 	TaskID string `json:"task_id"`
+	Status string `json:"status"`
+	RequiredConfirmations int32 `json:"required_confirmations,omitempty"`
 }
+
+// NewHandler creates a new handler
+func NewHandler(
+	taskQueries *tasks.Queries,
+	chainManager ChainManager,
+	consensusDB *consensus_responses.Queries,
+	taskProcessor TaskProcessor,
+	config *config.Config,
+) *Handler {
+	return &Handler{
+		taskQueries:   taskQueries,
+		chainManager:  chainManager,
+		consensusDB:   consensusDB,
+		taskProcessor: taskProcessor,
+		config:       config,
+	}
+}
+
 
 func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -95,10 +125,12 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get mainnet client for epoch
-	mainnetClient := h.chainClient.GetMainnetClient()
-	
-	// Get current epoch
+	// Get current epoch from mainnet client
+	mainnetClient, err := h.chainManager.GetMainnetClient()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get mainnet client: %v", err), http.StatusInternalServerError)
+		return
+	}
 	currentEpoch, err := mainnetClient.GetCurrentEpoch(r.Context())
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get current epoch: %v", err), http.StatusInternalServerError)
@@ -106,9 +138,9 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get state client for chain
-	stateClient, err := h.chainClient.GetStateClient(params.ChainID)
+	stateClient, err := h.chainManager.GetClientByChainId(params.ChainID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get state client: %v", err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("Failed to get state client for chain %d: %v", params.ChainID, err), http.StatusBadRequest)
 		return
 	}
 
@@ -138,9 +170,15 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		}
 		timestamp = &timestampInt64
 	}
+	value, err := stateClient.GetStateAtBlock(r.Context(), params.TargetAddress, params.Key, blockNumber)
+
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get state at block: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	// Generate task ID using block number
-	taskID := h.generateTaskID(&params, int64(currentEpoch), "0")
+	taskID := h.generateTaskID(&params, value)
 
 	// Create task params
 	blockNumberNumeric := pgtype.Numeric{
@@ -169,11 +207,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	existingTask, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
 	if err == nil {
 		// Task exists, return its current status
-		response := struct {
-			TaskID string `json:"task_id"`
-			Status string `json:"status"`
-			RequiredConfirmations int32 `json:"required_confirmations,omitempty"`
-		}{
+		response := SendRequestResponse{
 			TaskID: existingTask.TaskID,
 			Status: existingTask.Status,
 			RequiredConfirmations: existingTask.RequiredConfirmations.Int32,
@@ -187,7 +221,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	requiredConfirmations := h.getRequiredConfirmations(params.ChainID)
 
 	// Get latest block number for confirmation check
-	latestBlock, err := stateClient.GetLatestBlockNumber(r.Context())
+	latestBlock, err := stateClient.BlockNumber(r.Context())
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get latest block: %v", err), http.StatusInternalServerError)
 		return
@@ -271,7 +305,7 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 
 	// 2. Validate target address
 	if !common.IsHexAddress(params.TargetAddress) {
-		return fmt.Errorf("invalid target address: must be valid Ethereum address")
+		return fmt.Errorf("invalid target address: must be valid EVM address")
 	}
 
 	// 3. Validate key (must be valid uint256)
@@ -296,17 +330,16 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 	// 5. If block number provided, validate it
 	if params.BlockNumber != nil {
 		// Get state client for target chain
-		stateClient, err := h.chainClient.GetStateClient(int64(params.ChainID))
+		chainClient, err := h.chainManager.GetClientByChainId(int64(params.ChainID))
 		if err != nil {
 			return fmt.Errorf("failed to get state client: %w", err)
 		}
 
 		// Get latest block number
-		latestBlock, err := stateClient.GetLatestBlockNumber(context.Background())
+		latestBlock, err := chainClient.BlockNumber(context.Background())
 		if err != nil {
 			return fmt.Errorf("failed to get latest block: %w", err)
 		}
-
 
 		// Validate block number range
 		blockNum := uint64(*params.BlockNumber)
@@ -329,13 +362,12 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 	return nil
 }
 
-func (h *Handler) generateTaskID(params *SendRequestParams, epoch int64, value string) string {
+func (h *Handler) generateTaskID(params *SendRequestParams, value string) string {
 	// Generate task ID using keccak256(abi.encodePacked(targetAddress, chainId, blockNumber, epoch, key, value))
 	data := []byte{}
 	data = append(data, common.HexToAddress(params.TargetAddress).Bytes()...)
 	data = append(data, byte(params.ChainID))
 	data = append(data, byte(*params.BlockNumber))
-	data = append(data, byte(epoch))
 	data = append(data, []byte(params.Key)...)
 	data = append(data, []byte(value)...)
 

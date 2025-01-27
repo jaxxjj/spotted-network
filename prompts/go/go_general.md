@@ -248,7 +248,17 @@ func (s *Service) ProcessCredential(ctx context.Context, cred *Credential) error
    - Complex type conversions in marshal layer
    - Conditional logic based on business states
    - Data validation beyond structure validation
-
-> Claude must follow this protocol in implementing Go files.
+  
+5. Code style
+   - Write code for human readability first - use meaningful names, clear structure, and helpful comments
+   - Choose simple, straightforward solutions over clever or complex ones
+   - Maintain high signal-to-noise ratio - avoid redundant code and unnecessary abstractions
+   - Write maintainable code - document assumptions, write tests, use clear error handling
+   - Follow consistent patterns across the codebase in naming, structure, and style
+   - Use standard Go formatting tools (gofmt, goimports)
+   - Follow golint and go vet recommendations
+   - Write godoc comments for exported items
+   - Keep functions short and focused on a single responsibility
+   - Organize code in logical package structures
 
 </anthropic_go_protocol>

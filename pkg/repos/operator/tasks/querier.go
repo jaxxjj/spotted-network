@@ -10,17 +10,17 @@ import (
 
 type Querier interface {
 	CleanupOldTasks(ctx context.Context) error
-	CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error)
+	CreateTask(ctx context.Context, arg CreateTaskParams) (Tasks, error)
 	DeleteTaskByID(ctx context.Context, taskID string) error
-	GetTaskByID(ctx context.Context, taskID string) (Task, error)
-	IncrementRetryCount(ctx context.Context, taskID string) (Task, error)
-	ListAllTasks(ctx context.Context) ([]Task, error)
-	ListConfirmingTasks(ctx context.Context) ([]Task, error)
-	ListPendingTasks(ctx context.Context) ([]Task, error)
+	GetTaskByID(ctx context.Context, taskID string) (Tasks, error)
+	IncrementRetryCount(ctx context.Context, taskID string) (Tasks, error)
+	ListAllTasks(ctx context.Context) ([]Tasks, error)
+	ListConfirmingTasks(ctx context.Context) ([]Tasks, error)
+	ListPendingTasks(ctx context.Context) ([]Tasks, error)
 	UpdateTaskCompleted(ctx context.Context, taskID string) error
-	UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusParams) (Task, error)
+	UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusParams) (Tasks, error)
 	UpdateTaskToPending(ctx context.Context, taskID string) error
-	UpdateTaskValue(ctx context.Context, arg UpdateTaskValueParams) (Task, error)
+	UpdateTaskValue(ctx context.Context, arg UpdateTaskValueParams) (Tasks, error)
 }
 
 var _ Querier = (*Queries)(nil)

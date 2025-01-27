@@ -34,16 +34,16 @@ type CreateTaskResponseParams struct {
 	OperatorAddress string         `json:"operator_address"`
 	SigningKey      string         `json:"signing_key"`
 	Signature       []byte         `json:"signature"`
-	Epoch           int32          `json:"epoch"`
-	ChainID         int32          `json:"chain_id"`
+	Epoch           uint32         `json:"epoch"`
+	ChainID         uint32         `json:"chain_id"`
 	TargetAddress   string         `json:"target_address"`
 	Key             pgtype.Numeric `json:"key"`
 	Value           pgtype.Numeric `json:"value"`
-	BlockNumber     pgtype.Numeric `json:"block_number"`
-	Timestamp       pgtype.Numeric `json:"timestamp"`
+	BlockNumber     uint64         `json:"block_number"`
+	Timestamp       uint64         `json:"timestamp"`
 }
 
-func (q *Queries) CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams) (TaskResponse, error) {
+func (q *Queries) CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams) (TaskResponses, error) {
 	row := q.db.QueryRow(ctx, createTaskResponse,
 		arg.TaskID,
 		arg.OperatorAddress,
@@ -57,7 +57,7 @@ func (q *Queries) CreateTaskResponse(ctx context.Context, arg CreateTaskResponse
 		arg.BlockNumber,
 		arg.Timestamp,
 	)
-	var i TaskResponse
+	var i TaskResponses
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
@@ -101,9 +101,9 @@ type GetTaskResponseParams struct {
 	OperatorAddress string `json:"operator_address"`
 }
 
-func (q *Queries) GetTaskResponse(ctx context.Context, arg GetTaskResponseParams) (TaskResponse, error) {
+func (q *Queries) GetTaskResponse(ctx context.Context, arg GetTaskResponseParams) (TaskResponses, error) {
 	row := q.db.QueryRow(ctx, getTaskResponse, arg.TaskID, arg.OperatorAddress)
-	var i TaskResponse
+	var i TaskResponses
 	err := row.Scan(
 		&i.ID,
 		&i.TaskID,
@@ -134,15 +134,15 @@ type ListOperatorResponsesParams struct {
 	Limit           int32  `json:"limit"`
 }
 
-func (q *Queries) ListOperatorResponses(ctx context.Context, arg ListOperatorResponsesParams) ([]TaskResponse, error) {
+func (q *Queries) ListOperatorResponses(ctx context.Context, arg ListOperatorResponsesParams) ([]TaskResponses, error) {
 	rows, err := q.db.Query(ctx, listOperatorResponses, arg.OperatorAddress, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TaskResponse{}
+	items := []TaskResponses{}
 	for rows.Next() {
-		var i TaskResponse
+		var i TaskResponses
 		if err := rows.Scan(
 			&i.ID,
 			&i.TaskID,
@@ -173,15 +173,15 @@ SELECT id, task_id, operator_address, signing_key, signature, epoch, chain_id, t
 WHERE task_id = $1
 `
 
-func (q *Queries) ListTaskResponses(ctx context.Context, taskID string) ([]TaskResponse, error) {
+func (q *Queries) ListTaskResponses(ctx context.Context, taskID string) ([]TaskResponses, error) {
 	rows, err := q.db.Query(ctx, listTaskResponses, taskID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []TaskResponse{}
+	items := []TaskResponses{}
 	for rows.Next() {
-		var i TaskResponse
+		var i TaskResponses
 		if err := rows.Scan(
 			&i.ID,
 			&i.TaskID,

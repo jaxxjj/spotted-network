@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/big"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
@@ -36,6 +37,8 @@ type Signer interface {
 	VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error
 	// Address returns the signer's address as string
 	Address() string
+	// AggregateSignatures combines multiple signatures into one
+	AggregateSignatures(sigs map[string][]byte) []byte
 }
 
 // LocalSigner implements Signer interface using a local keystore file
@@ -185,4 +188,30 @@ func (s *LocalSigner) VerifySignature(signature []byte, params TaskSignParams) e
 	}
 
 	return nil
+}
+
+// AggregateSignatures combines multiple ECDSA signatures by concatenation
+// The signatures are sorted by signer address to ensure deterministic ordering
+func (s *LocalSigner) AggregateSignatures(sigs map[string][]byte) []byte {
+	// Convert map to sorted slice to ensure deterministic ordering
+	type sigPair struct {
+		address string
+		sig     []byte
+	}
+	pairs := make([]sigPair, 0, len(sigs))
+	for addr, sig := range sigs {
+		pairs = append(pairs, sigPair{addr, sig})
+	}
+	
+	// Sort by address
+	sort.Slice(pairs, func(i, j int) bool {
+		return pairs[i].address < pairs[j].address
+	})
+	
+	// Concatenate all signatures
+	var aggregated []byte
+	for _, pair := range pairs {
+		aggregated = append(aggregated, pair.sig...)
+	}
+	return aggregated
 }

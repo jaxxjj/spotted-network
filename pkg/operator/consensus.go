@@ -83,8 +83,8 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 		return fmt.Errorf("failed to marshal operator signatures: %w", err)
 	}
 
-	// Aggregate all signatures
-	aggregatedSigs := tp.aggregateSignatures(signatures)
+	// Aggregate signatures using signer package
+	aggregatedSigs := tp.signer.AggregateSignatures(signatures)
 	log.Printf("[Consensus] Aggregated %d signatures for task %s", len(signatures), taskID)
 
 	// Create consensus response
@@ -129,22 +129,6 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	log.Printf("[Consensus] Cleaned up local maps for task %s", taskID)
 
 	return nil
-}
-
-// aggregateSignatures combines multiple ECDSA signatures by concatenation
-func (tp *TaskProcessor) aggregateSignatures(sigs map[string][]byte) []byte {
-	// Convert map to sorted slice to ensure deterministic ordering
-	sigSlice := make([][]byte, 0, len(sigs))
-	for _, sig := range sigs {
-		sigSlice = append(sigSlice, sig)
-	}
-	
-	// Concatenate all signatures
-	var aggregated []byte
-	for _, sig := range sigSlice {
-		aggregated = append(aggregated, sig...)
-	}
-	return aggregated
 }
 
 // getConsensusThreshold returns the threshold weight for consensus from the latest epoch state

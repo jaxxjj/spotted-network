@@ -6,6 +6,15 @@ import (
 )
 
 // Task represents a state query task
+
+type TaskStatus string
+
+const (
+    TaskStatusPending    TaskStatus = "pending"
+    TaskStatusCompleted  TaskStatus = "completed"
+    TaskStatusFailed     TaskStatus = "failed"
+    TaskStatusConfirming TaskStatus = "confirming"
+)
 type Task struct {
 	ID            string
 	ChainID       uint64

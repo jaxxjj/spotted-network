@@ -26,21 +26,21 @@ INSERT INTO consensus_responses (
     consensus_reached_at
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-) RETURNING id, task_id, epoch, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at
+) RETURNING id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at
 `
 
 type CreateConsensusResponseParams struct {
-	TaskID               string           `json:"task_id"`
-	Epoch                int32            `json:"epoch"`
-	Value                pgtype.Numeric   `json:"value"`
-	BlockNumber          pgtype.Numeric   `json:"block_number"`
-	ChainID              int32            `json:"chain_id"`
-	TargetAddress        string           `json:"target_address"`
-	Key                  pgtype.Numeric   `json:"key"`
-	AggregatedSignatures []byte           `json:"aggregated_signatures"`
-	OperatorSignatures   []byte           `json:"operator_signatures"`
-	TotalWeight          pgtype.Numeric   `json:"total_weight"`
-	ConsensusReachedAt   pgtype.Timestamp `json:"consensus_reached_at"`
+	TaskID               string             `json:"task_id"`
+	Epoch                uint32             `json:"epoch"`
+	Value                pgtype.Numeric     `json:"value"`
+	BlockNumber          uint64             `json:"block_number"`
+	ChainID              uint32             `json:"chain_id"`
+	TargetAddress        string             `json:"target_address"`
+	Key                  pgtype.Numeric     `json:"key"`
+	AggregatedSignatures []byte             `json:"aggregated_signatures"`
+	OperatorSignatures   []byte             `json:"operator_signatures"`
+	TotalWeight          pgtype.Numeric     `json:"total_weight"`
+	ConsensusReachedAt   pgtype.Timestamptz `json:"consensus_reached_at"`
 }
 
 func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsensusResponseParams) (ConsensusResponse, error) {
@@ -63,13 +63,13 @@ func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsens
 		&i.TaskID,
 		&i.Epoch,
 		&i.Value,
-		&i.BlockNumber,
-		&i.ChainID,
-		&i.TargetAddress,
 		&i.Key,
+		&i.TotalWeight,
+		&i.ChainID,
+		&i.BlockNumber,
+		&i.TargetAddress,
 		&i.AggregatedSignatures,
 		&i.OperatorSignatures,
-		&i.TotalWeight,
 		&i.ConsensusReachedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -88,7 +88,7 @@ func (q *Queries) DeleteConsensusResponse(ctx context.Context, taskID string) er
 }
 
 const getConsensusResponse = `-- name: GetConsensusResponse :one
-SELECT id, task_id, epoch, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at FROM consensus_responses
+SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
 WHERE task_id = $1 LIMIT 1
 `
 
@@ -100,13 +100,13 @@ func (q *Queries) GetConsensusResponse(ctx context.Context, taskID string) (Cons
 		&i.TaskID,
 		&i.Epoch,
 		&i.Value,
-		&i.BlockNumber,
-		&i.ChainID,
-		&i.TargetAddress,
 		&i.Key,
+		&i.TotalWeight,
+		&i.ChainID,
+		&i.BlockNumber,
+		&i.TargetAddress,
 		&i.AggregatedSignatures,
 		&i.OperatorSignatures,
-		&i.TotalWeight,
 		&i.ConsensusReachedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -115,7 +115,7 @@ func (q *Queries) GetConsensusResponse(ctx context.Context, taskID string) (Cons
 }
 
 const listPendingConsensus = `-- name: ListPendingConsensus :many
-SELECT id, task_id, epoch, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at FROM consensus_responses
+SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
 WHERE status = 'pending'
 ORDER BY created_at DESC
 `
@@ -134,13 +134,13 @@ func (q *Queries) ListPendingConsensus(ctx context.Context) ([]ConsensusResponse
 			&i.TaskID,
 			&i.Epoch,
 			&i.Value,
-			&i.BlockNumber,
-			&i.ChainID,
-			&i.TargetAddress,
 			&i.Key,
+			&i.TotalWeight,
+			&i.ChainID,
+			&i.BlockNumber,
+			&i.TargetAddress,
 			&i.AggregatedSignatures,
 			&i.OperatorSignatures,
-			&i.TotalWeight,
 			&i.ConsensusReachedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -161,14 +161,14 @@ SET consensus_reached_at = $2,
     aggregated_signatures = $3,
     operator_signatures = $4
 WHERE task_id = $1
-RETURNING id, task_id, epoch, value, block_number, chain_id, target_address, key, aggregated_signatures, operator_signatures, total_weight, consensus_reached_at, created_at, updated_at
+RETURNING id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at
 `
 
 type UpdateConsensusResponseParams struct {
-	TaskID               string           `json:"task_id"`
-	ConsensusReachedAt   pgtype.Timestamp `json:"consensus_reached_at"`
-	AggregatedSignatures []byte           `json:"aggregated_signatures"`
-	OperatorSignatures   []byte           `json:"operator_signatures"`
+	TaskID               string             `json:"task_id"`
+	ConsensusReachedAt   pgtype.Timestamptz `json:"consensus_reached_at"`
+	AggregatedSignatures []byte             `json:"aggregated_signatures"`
+	OperatorSignatures   []byte             `json:"operator_signatures"`
 }
 
 func (q *Queries) UpdateConsensusResponse(ctx context.Context, arg UpdateConsensusResponseParams) (ConsensusResponse, error) {
@@ -184,13 +184,13 @@ func (q *Queries) UpdateConsensusResponse(ctx context.Context, arg UpdateConsens
 		&i.TaskID,
 		&i.Epoch,
 		&i.Value,
-		&i.BlockNumber,
-		&i.ChainID,
-		&i.TargetAddress,
 		&i.Key,
+		&i.TotalWeight,
+		&i.ChainID,
+		&i.BlockNumber,
+		&i.TargetAddress,
 		&i.AggregatedSignatures,
 		&i.OperatorSignatures,
-		&i.TotalWeight,
 		&i.ConsensusReachedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
