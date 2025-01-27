@@ -72,7 +72,7 @@ func NumericToInt64(data *interface{}) int64 {
 }
 
 // BlockNumberToTimestamp converts a block number to its corresponding timestamp
-func BlockNumberToTimestamp(ctx context.Context, client BlockGetter, chainID int64, blockNumber uint64) (int64, error) {
+func BlockNumberToTimestamp(ctx context.Context, client BlockGetter, chainID uint32, blockNumber uint64) (uint64, error) {
 	// Get block by number
 	block, err := client.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
 	if err != nil {
@@ -80,13 +80,13 @@ func BlockNumberToTimestamp(ctx context.Context, client BlockGetter, chainID int
 	}
 
 	// Return block timestamp
-	return int64(block.Time()), nil
+	return block.Time(), nil
 }
 
 // TimestampToBlockNumber converts a timestamp to its nearest block number
 // for a specific chain. It uses a more efficient algorithm that takes into
 // account the average block time for the chain.
-func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID int64, timestamp int64) (uint64, error) {
+func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID uint32, timestamp uint64) (uint64, error) {
 	// Get latest block
 	currentBlockNumber, err := client.BlockNumber(ctx)
 	if err != nil {
@@ -116,9 +116,9 @@ func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID int
 	block := currentBlock
 
 	// First pass: use average block time to get close to target
-	for block.Time() > uint64(timestamp) {
+	for block.Time() > timestamp {
 		// Calculate number of blocks to go back
-		decreaseBlocks := float64(block.Time()-uint64(timestamp)) / averageBlockTime
+		decreaseBlocks := float64(block.Time()-timestamp) / averageBlockTime
 		decreaseBlocks = math.Floor(decreaseBlocks)
 
 		if decreaseBlocks < 1 {
@@ -142,7 +142,7 @@ func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID int
 
 	// Second pass: fine tune by walking one block at a time
 	// If we overshot (block time < target), walk forward
-	for block.Time() < uint64(timestamp) {
+	for block.Time() < timestamp {
 		nextBlockNumber := blockNumber + 1
 		if nextBlockNumber > currentBlockNumber {
 			break
@@ -154,9 +154,9 @@ func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID int
 		}
 
 		// If next block would overshoot, stop here
-		if nextBlock.Time() > uint64(timestamp) {
+		if nextBlock.Time() > timestamp {
 			// Return the closest block
-			if uint64(timestamp)-block.Time() < nextBlock.Time()-uint64(timestamp) {
+			if timestamp-block.Time() < nextBlock.Time()-timestamp {
 				return blockNumber, nil
 			}
 			return nextBlockNumber, nil
@@ -167,7 +167,7 @@ func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID int
 	}
 
 	// If we undershot (block time > target), walk backward
-	for block.Time() > uint64(timestamp) {
+	for block.Time() > timestamp {
 		if blockNumber == 0 {
 			break
 		}
@@ -179,9 +179,9 @@ func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID int
 		}
 
 		// If previous block would undershoot, stop here
-		if prevBlock.Time() < uint64(timestamp) {
+		if prevBlock.Time() < timestamp {
 			// Return the closest block
-			if uint64(timestamp)-prevBlock.Time() < block.Time()-uint64(timestamp) {
+			if timestamp-prevBlock.Time() < block.Time()-timestamp {
 				return prevBlockNumber, nil
 			}
 			return blockNumber, nil
@@ -196,19 +196,19 @@ func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID int
 
 // ValidateBlockNumberAndTimestamp validates that exactly one of blockNumber or timestamp is provided
 // and converts between them as needed
-func ValidateBlockNumberAndTimestamp(ctx context.Context, client BlockGetter, chainID int64, blockNumber *int64, timestamp *int64) (uint64, int64, error) {
+func ValidateBlockNumberAndTimestamp(ctx context.Context, client BlockGetter, chainID uint32, blockNumber *uint64, timestamp *uint64) (uint64, uint64, error) {
 	// Check that exactly one is provided
 	if (blockNumber == nil && timestamp == nil) || (blockNumber != nil && timestamp != nil) {
 		return 0, 0, fmt.Errorf("exactly one of block_number or timestamp must be provided")
 	}
 
 	var resultBlockNumber uint64
-	var resultTimestamp int64
+	var resultTimestamp uint64
 	var err error
 
 	if blockNumber != nil {
 		// Convert block number to timestamp
-		resultBlockNumber = uint64(*blockNumber)
+		resultBlockNumber = *blockNumber
 		resultTimestamp, err = BlockNumberToTimestamp(ctx, client, chainID, resultBlockNumber)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert block number to timestamp: %w", err)

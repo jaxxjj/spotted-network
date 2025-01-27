@@ -15,6 +15,16 @@ const (
     TaskStatusFailed     TaskStatus = "failed"
     TaskStatusConfirming TaskStatus = "confirming"
 )
+
+// OperatorStatus represents the status of an operator
+type OperatorStatus string
+
+const (
+	OperatorStatusActive OperatorStatus = "active"
+	OperatorStatusInactive OperatorStatus = "inactive"
+	OperatorStatusSuspended OperatorStatus = "suspended"
+)
+
 type Task struct {
 	ID            string
 	ChainID       uint64

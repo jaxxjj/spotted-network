@@ -8,6 +8,7 @@ package operators
 import (
 	"context"
 
+	types "github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -27,9 +28,9 @@ RETURNING address, signing_key, registered_at_block_number, registered_at_timest
 type CreateOperatorParams struct {
 	Address                 string         `json:"address"`
 	SigningKey              string         `json:"signing_key"`
-	RegisteredAtBlockNumber pgtype.Numeric `json:"registered_at_block_number"`
-	RegisteredAtTimestamp   pgtype.Numeric `json:"registered_at_timestamp"`
-	ActiveEpoch             pgtype.Numeric `json:"active_epoch"`
+	RegisteredAtBlockNumber uint64         `json:"registered_at_block_number"`
+	RegisteredAtTimestamp   uint64         `json:"registered_at_timestamp"`
+	ActiveEpoch             uint32         `json:"active_epoch"`
 	Weight                  pgtype.Numeric `json:"weight"`
 }
 
@@ -127,7 +128,7 @@ ORDER BY created_at DESC
 `
 
 // Get all operators with a specific status
-func (q *Queries) ListOperatorsByStatus(ctx context.Context, status string) ([]Operators, error) {
+func (q *Queries) ListOperatorsByStatus(ctx context.Context, status types.OperatorStatus) ([]Operators, error) {
 	rows, err := q.db.Query(ctx, listOperatorsByStatus, status)
 	if err != nil {
 		return nil, err
@@ -167,8 +168,8 @@ RETURNING address, signing_key, registered_at_block_number, registered_at_timest
 `
 
 type UpdateOperatorExitEpochParams struct {
-	Address   string         `json:"address"`
-	ExitEpoch pgtype.Numeric `json:"exit_epoch"`
+	Address   string `json:"address"`
+	ExitEpoch uint32 `json:"exit_epoch"`
 }
 
 // Update operator exit epoch
@@ -200,9 +201,9 @@ RETURNING address, signing_key, registered_at_block_number, registered_at_timest
 `
 
 type UpdateOperatorStateParams struct {
-	Address string         `json:"address"`
-	Status  string         `json:"status"`
-	Weight  pgtype.Numeric `json:"weight"`
+	Address string               `json:"address"`
+	Status  types.OperatorStatus `json:"status"`
+	Weight  pgtype.Numeric       `json:"weight"`
 }
 
 // Update operator status and weight
@@ -233,8 +234,8 @@ RETURNING address, signing_key, registered_at_block_number, registered_at_timest
 `
 
 type UpdateOperatorStatusParams struct {
-	Address string `json:"address"`
-	Status  string `json:"status"`
+	Address string               `json:"address"`
+	Status  types.OperatorStatus `json:"status"`
 }
 
 // Update operator status
@@ -282,11 +283,11 @@ RETURNING address, signing_key, registered_at_block_number, registered_at_timest
 type UpsertOperatorParams struct {
 	Address                 string         `json:"address"`
 	SigningKey              string         `json:"signing_key"`
-	RegisteredAtBlockNumber pgtype.Numeric `json:"registered_at_block_number"`
-	RegisteredAtTimestamp   pgtype.Numeric `json:"registered_at_timestamp"`
-	ActiveEpoch             pgtype.Numeric `json:"active_epoch"`
+	RegisteredAtBlockNumber uint64         `json:"registered_at_block_number"`
+	RegisteredAtTimestamp   uint64         `json:"registered_at_timestamp"`
+	ActiveEpoch             uint32         `json:"active_epoch"`
 	Weight                  pgtype.Numeric `json:"weight"`
-	ExitEpoch               pgtype.Numeric `json:"exit_epoch"`
+	ExitEpoch               uint32         `json:"exit_epoch"`
 }
 
 // Insert or update operator record
@@ -323,8 +324,8 @@ WHERE address = $1 AND status = 'active'
 `
 
 type VerifyOperatorStatusRow struct {
-	Status     string `json:"status"`
-	SigningKey string `json:"signing_key"`
+	Status     types.OperatorStatus `json:"status"`
+	SigningKey string               `json:"signing_key"`
 }
 
 // Verify operator status and signing key for join request

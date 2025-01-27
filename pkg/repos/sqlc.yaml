@@ -16,10 +16,19 @@ sql:
         emit_exact_table_names: true
         emit_empty_slices: true
         overrides:
-          - db_type: "pg_catalog.numeric"
-            go_type: "github.com/jackc/pgx/v5/pgtype.Numeric"
-          - db_type: "pg_catalog.timestamp with time zone"
-            go_type: "github.com/jackc/pgx/v5/pgtype.Timestamptz"
+          - column: "operators.registered_at_block_number"
+            go_type: "uint64"
+          - column: "operators.registered_at_timestamp"
+            go_type: "uint64"
+          - column: "operators.active_epoch"
+            go_type: "uint32"
+          - column: "operators.exit_epoch"
+            go_type: "uint32"
+          - column: "operators.status"
+            go_type:
+              import: "github.com/galxe/spotted-network/pkg/common/types"
+              package: "types"
+              type: "OperatorStatus"
             
   - schema: "operator/tasks/schema.sql"
     queries: "operator/tasks/query.sql"

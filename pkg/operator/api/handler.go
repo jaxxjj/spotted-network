@@ -18,6 +18,7 @@ import (
 	"log"
 
 	commonHelpers "github.com/galxe/spotted-network/pkg/common"
+	commonTypes "github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
@@ -39,7 +40,7 @@ type ChainClient interface {
 }
 
 type TaskProcessor interface {
-	ProcessPendingTask(ctx context.Context, task *tasks.Task) error
+	ProcessPendingTask(ctx context.Context, task *tasks.Tasks) error
 }
 
 // ChainManager defines the interface for managing chain clients
@@ -48,19 +49,19 @@ type ChainManager interface {
 	// GetMainnetClient returns the mainnet client
 	GetMainnetClient() (ChainClient, error)
 	// GetClientByChainId returns the appropriate client for a given chain ID
-	GetClientByChainId(chainID int64) (ChainClient, error)
+	GetClientByChainId(chainID uint32) (ChainClient, error)
 }
 
-type TaskFinalResponse struct {
+type ConsensusResponse struct {
 	TaskID              string            `json:"task_id"`
-	Epoch               uint32            `json:"epoch"`
+	Epoch              uint32            `json:"epoch"`
 	Status             string            `json:"status"`
 	Value              string            `json:"value"`
 	BlockNumber        uint64            `json:"block_number"`
 	ChainID            uint64            `json:"chain_id"`
 	TargetAddress      string            `json:"target_address"`
 	Key                string            `json:"key"`
-	OperatorSignatures map[string][]byte `json:"operator_signatures"`
+	OperatorSignatures []byte 			 `json:"operator_signatures"`
 	TotalWeight        string            `json:"total_weight"`
 	ConsensusReachedAt time.Time         `json:"consensus_reached_at"`
 }
@@ -75,18 +76,18 @@ type Handler struct {
 }
 
 type SendRequestParams struct {
-	ChainID       int64  `json:"chain_id"`
+	ChainID       uint32 `json:"chain_id"`
 	TargetAddress string `json:"target_address"`
 	Key           string `json:"key"`
-	BlockNumber   *int64 `json:"block_number,omitempty"`
-	Timestamp     *int64 `json:"timestamp,omitempty"`
+	BlockNumber   uint64 `json:"block_number,omitempty"`
+	Timestamp     uint64 `json:"timestamp,omitempty"`
 	WaitFinality  bool   `json:"wait_finality"`
 }
 
 type SendRequestResponse struct {
 	TaskID string `json:"task_id"`
 	Status string `json:"status"`
-	RequiredConfirmations int32 `json:"required_confirmations,omitempty"`
+	RequiredConfirmations uint16 `json:"required_confirmations,omitempty"`
 }
 
 // NewHandler creates a new handler
@@ -146,31 +147,37 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Convert timestamp to block number if provided
 	var blockNumber uint64
-	var timestamp *int64
-	if params.Timestamp != nil {
+	var timestamp uint64
+	targetAddress := common.HexToAddress(params.TargetAddress)
+	if params.Timestamp != 0 {
 		// Convert timestamp to block number for task ID generation
-		blockNumber, err = commonHelpers.TimestampToBlockNumber(r.Context(), stateClient, params.ChainID, *params.Timestamp)
+		blockNumber, err = commonHelpers.TimestampToBlockNumber(r.Context(), stateClient, params.ChainID, params.Timestamp)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to convert timestamp to block number: %v", err), http.StatusInternalServerError)
 			return
 		}
 		// Update params.BlockNumber for task ID generation
-		blockNumberInt64 := int64(blockNumber)
-		params.BlockNumber = &blockNumberInt64
+		params.BlockNumber = blockNumber
 		timestamp = params.Timestamp
-		params.Timestamp = nil
+		params.Timestamp = 0
 	} else {
 		// Use provided block number
-		blockNumber = uint64(*params.BlockNumber)
+		blockNumber = params.BlockNumber
 		// Convert block number to timestamp for storage
-		timestampInt64, err := commonHelpers.BlockNumberToTimestamp(r.Context(), stateClient, params.ChainID, blockNumber)
+		timestamp, err = commonHelpers.BlockNumberToTimestamp(r.Context(), stateClient, params.ChainID, blockNumber)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to convert block number to timestamp: %v", err), http.StatusInternalServerError)
 			return
 		}
-		timestamp = &timestampInt64
 	}
-	value, err := stateClient.GetStateAtBlock(r.Context(), params.TargetAddress, params.Key, blockNumber)
+
+	// Get state value
+	keyBig := new(big.Int)
+	if _, ok := keyBig.SetString(params.Key, 0); !ok {
+		http.Error(w, "Invalid key format", http.StatusBadRequest)
+		return
+	}
+	value, err := stateClient.GetStateAtBlock(r.Context(), targetAddress, keyBig, blockNumber)
 
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get state at block: %v", err), http.StatusInternalServerError)
@@ -178,28 +185,19 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate task ID using block number
-	taskID := h.generateTaskID(&params, value)
-
-	// Create task params
-	blockNumberNumeric := pgtype.Numeric{
-		Int:   new(big.Int).SetUint64(blockNumber),
-		Valid: true,
-		Exp:   0,
-	}
-
-	timestampNumeric := pgtype.Numeric{
-		Int:   new(big.Int).SetInt64(*timestamp),
-		Valid: true,
-		Exp:   0,
-	}
-
+	taskID := h.generateTaskID(&params, value.String())
 	// Convert key to big.Int
-	keyBig := new(big.Int)
+	keyBig = new(big.Int)
 	keyBig.SetString(params.Key, 0)
 
 	// Convert to pgtype.Numeric
 	keyNum := pgtype.Numeric{
 		Int:   keyBig,
+		Valid: true,
+	}
+
+	valueNum := pgtype.Numeric{
+		Int:   value,
 		Valid: true,
 	}
 
@@ -209,8 +207,8 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		// Task exists, return its current status
 		response := SendRequestResponse{
 			TaskID: existingTask.TaskID,
-			Status: existingTask.Status,
-			RequiredConfirmations: existingTask.RequiredConfirmations.Int32,
+			Status: string(existingTask.Status),
+			RequiredConfirmations: uint16(existingTask.RequiredConfirmations),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
@@ -228,16 +226,16 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Determine initial status based on block confirmations
-	status := "pending"
-	if params.BlockNumber != nil {
+	status := commonTypes.TaskStatusPending
+	if params.BlockNumber != 0 {
 		// Check if task needs confirmations
-		if latestBlock < uint64(*params.BlockNumber) + uint64(requiredConfirmations) {
-			status = "confirming"
+		if latestBlock < params.BlockNumber + uint64(requiredConfirmations) {
+			status = commonTypes.TaskStatusConfirming
 			log.Printf("[API] Task requires %d confirmations, waiting for block %d (current: %d)", 
-				requiredConfirmations, uint64(*params.BlockNumber) + uint64(requiredConfirmations), latestBlock)
+				requiredConfirmations, params.BlockNumber + uint64(requiredConfirmations), latestBlock)
 		} else {
 			log.Printf("[API] Task already has sufficient confirmations (target: %d, current: %d)", 
-				uint64(*params.BlockNumber) + uint64(requiredConfirmations), latestBlock)
+				params.BlockNumber + uint64(requiredConfirmations), latestBlock)
 		}
 	}
 
@@ -245,14 +243,14 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	task, err := h.taskQueries.CreateTask(r.Context(), tasks.CreateTaskParams{
 		TaskID:        taskID,
 		TargetAddress: params.TargetAddress,
-		ChainID:       int32(params.ChainID),
-		BlockNumber:   blockNumberNumeric,
-		Timestamp:     timestampNumeric,
-		Epoch:        int32(currentEpoch),
+		ChainID:       params.ChainID,
+		BlockNumber:   blockNumber,
+		Timestamp:     timestamp,
+		Epoch:        currentEpoch,
 		Key:          keyNum,
+		Value:        valueNum,
 		Status:       status,
-		RequiredConfirmations: pgtype.Int4{Int32: int32(requiredConfirmations), Valid: true},
-		Value:        pgtype.Numeric{}, // Empty value for now
+		RequiredConfirmations: requiredConfirmations,
 	})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to create task: %v", err), http.StatusInternalServerError)
@@ -260,9 +258,9 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[API] Created new task %s with status %s", task.TaskID, task.Status)
-	if task.Status == "confirming" {
+	if task.Status == commonTypes.TaskStatusConfirming {
 		log.Printf("[API] Task %s requires %d block confirmations", task.TaskID, requiredConfirmations)
-	} else if task.Status == "pending" {
+	} else if task.Status == commonTypes.TaskStatusPending {
 		// If task is pending, process it immediately
 		log.Printf("[API] Task %s is pending, processing immediately", task.TaskID)
 		
@@ -274,14 +272,10 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return response
-	response := struct {
-		TaskID string `json:"task_id"`
-		Status string `json:"status"`
-		RequiredConfirmations int32 `json:"required_confirmations,omitempty"`
-	}{
+	response := SendRequestResponse{
 		TaskID: task.TaskID,
-		Status: task.Status,
-		RequiredConfirmations: task.RequiredConfirmations.Int32,
+		Status: string(task.Status),
+		RequiredConfirmations: uint16(requiredConfirmations),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -319,18 +313,18 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 	}
 
 	// 4. Validate block number and timestamp
-	if params.BlockNumber == nil && params.Timestamp == nil {
+	if params.BlockNumber == 0 && params.Timestamp == 0 {
 		return fmt.Errorf("either block number or timestamp must be provided")
 	}
 
-	if params.BlockNumber != nil && params.Timestamp != nil {
+	if params.BlockNumber != 0 && params.Timestamp != 0 {
 		return fmt.Errorf("only one of block number or timestamp should be provided")
 	}
 
 	// 5. If block number provided, validate it
-	if params.BlockNumber != nil {
+	if params.BlockNumber != 0 {
 		// Get state client for target chain
-		chainClient, err := h.chainManager.GetClientByChainId(int64(params.ChainID))
+		chainClient, err := h.chainManager.GetClientByChainId(params.ChainID)
 		if err != nil {
 			return fmt.Errorf("failed to get state client: %w", err)
 		}
@@ -342,19 +336,19 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 		}
 
 		// Validate block number range
-		blockNum := uint64(*params.BlockNumber)
+		blockNum := params.BlockNumber
 		if blockNum > latestBlock {
 			return fmt.Errorf("block number %d is in the future (latest: %d)", blockNum, latestBlock)
 		}
 	}
 
 	// 6. If timestamp provided, validate it
-	if params.Timestamp != nil {
+	if params.Timestamp != 0 {
 		// Get current time
 		now := time.Now().Unix()
 
 		// Validate timestamp is not in future
-		if *params.Timestamp > now {
+		if params.Timestamp > now {
 			return fmt.Errorf("timestamp is in the future")
 		}
 	}
@@ -367,7 +361,7 @@ func (h *Handler) generateTaskID(params *SendRequestParams, value string) string
 	data := []byte{}
 	data = append(data, common.HexToAddress(params.TargetAddress).Bytes()...)
 	data = append(data, byte(params.ChainID))
-	data = append(data, byte(*params.BlockNumber))
+	data = append(data, byte(params.BlockNumber))
 	data = append(data, []byte(params.Key)...)
 	data = append(data, []byte(value)...)
 
@@ -419,18 +413,7 @@ func (h *Handler) GetTaskConsensus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Format response
-	response := struct {
-		TaskID              string          `json:"task_id"`
-		Epoch              int32           `json:"epoch"`
-		Value              string          `json:"value"`
-		BlockNumber        string          `json:"block_number"`
-		ChainID            int32           `json:"chain_id"`
-		TargetAddress      string          `json:"target_address"`
-		Key                string          `json:"key"`
-		OperatorSignatures json.RawMessage `json:"operator_signatures"`
-		TotalWeight        string          `json:"total_weight"`
-		ConsensusReachedAt *time.Time     `json:"consensus_reached_at,omitempty"`
-	}{
+	response := ConsensusResponse{
 		TaskID:              consensus.TaskID,
 		Epoch:              consensus.Epoch,
 		Value:              value,
@@ -525,9 +508,9 @@ func (h *Handler) GetTaskFinalResponse(w http.ResponseWriter, r *http.Request) {
 }
 
 // getRequiredConfirmations returns the required confirmations for a chain
-func (h *Handler) getRequiredConfirmations(chainID int64) int32 {
+func (h *Handler) getRequiredConfirmations(chainID uint32) uint16 {
 	if chainConfig, ok := h.config.Chains[chainID]; ok {
-		return int32(chainConfig.RequiredConfirmations)
+		return chainConfig.RequiredConfirmations
 	}
 	return 12 // Default to 12 confirmations for unknown chains
 } 

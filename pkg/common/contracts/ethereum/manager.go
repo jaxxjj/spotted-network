@@ -10,7 +10,7 @@ import (
 // NewChainClientManager creates a new chain client manager
 func NewChainClientManager(cfg *config.Config) (*ChainClientManager, error) {
 	manager := &ChainClientManager{
-		clients: make(map[int64]*ChainClient),
+		clients: make(map[uint32]*ChainClient),
 	}
 
 	// Initialize clients for each chain
@@ -51,7 +51,7 @@ func (c *ChainClientManager) GetMainnetClient() (*ChainClient, error) {
 }
 
 // GetClientByChainId returns the appropriate client for a given chain ID
-func (c *ChainClientManager) GetClientByChainId(chainID int64) (*ChainClient, error) {
+func (c *ChainClientManager) GetClientByChainId(chainID uint32) (*ChainClient, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -63,7 +63,7 @@ func (c *ChainClientManager) GetClientByChainId(chainID int64) (*ChainClient, er
 }
 
 // AddClient adds a new client for a chain
-func (c *ChainClientManager) AddClient(chainID int64, client *ChainClient) error {
+func (c *ChainClientManager) AddClient(chainID uint32, client *ChainClient) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -76,7 +76,7 @@ func (c *ChainClientManager) AddClient(chainID int64, client *ChainClient) error
 }
 
 // RemoveClient removes a client for a chain
-func (c *ChainClientManager) RemoveClient(chainID int64) error {
+func (c *ChainClientManager) RemoveClient(chainID uint32) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

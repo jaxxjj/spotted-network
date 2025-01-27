@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	MainnetChainID = int64(31337) // Ethereum mainnet chain ID
+	MainnetChainID = uint32(31337) // Ethereum mainnet chain ID
 )
 
 // Config contains Ethereum client configuration
@@ -32,7 +32,7 @@ type ChainClient struct {
 
 // ChainClientManager manages multiple chain clients
 type ChainClientManager struct {
-	clients map[int64]*ChainClient
+	clients map[uint32]*ChainClient
 	mu      sync.RWMutex
 }
 

@@ -1,7 +1,7 @@
 -- Tasks table stores task information
 CREATE TABLE IF NOT EXISTS tasks (
     task_id VARCHAR(66) PRIMARY KEY,
-    chain_id INT8 NOT NULL,
+    chain_id INT4 NOT NULL,
     target_address VARCHAR(42) NOT NULL,
     key NUMERIC NOT NULL,
     block_number BIGINT,

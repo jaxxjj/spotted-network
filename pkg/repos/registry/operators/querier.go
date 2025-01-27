@@ -6,6 +6,8 @@ package operators
 
 import (
 	"context"
+
+	types "github.com/galxe/spotted-network/pkg/common/types"
 )
 
 type Querier interface {
@@ -16,7 +18,7 @@ type Querier interface {
 	// Get all operators regardless of status
 	ListAllOperators(ctx context.Context) ([]Operators, error)
 	// Get all operators with a specific status
-	ListOperatorsByStatus(ctx context.Context, status string) ([]Operators, error)
+	ListOperatorsByStatus(ctx context.Context, status types.OperatorStatus) ([]Operators, error)
 	// Update operator exit epoch
 	UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams) (Operators, error)
 	// Update operator status and weight
