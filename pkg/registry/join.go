@@ -4,16 +4,23 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/big"
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/p2p"
+	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/network"
 )
+type OperatorsQuerier interface {
+	UpdateOperatorStatus(ctx context.Context, arg operators.UpdateOperatorStatusParams) (operators.Operators, error)
+	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
+	GetOperatorByAddress(ctx context.Context, address string) (operators.Operators, error)
+	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams) (operators.Operators, error)
+	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams) (operators.Operators, error)
+	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams) (operators.Operators, error)
+}
 
 // handleStream handles incoming p2p streams
 func (n *Node) handleStream(stream network.Stream) {
@@ -50,21 +57,21 @@ func (n *Node) handleStream(stream network.Stream) {
 
 	// Add peer to p2p network
 	log.Printf("Adding peer %s to p2p network", peerID.String())
-	n.operatorsMu.Lock()
-	n.operators[peerID] = &OperatorInfo{
+	n.operatorsInfoMu.Lock()
+	n.operatorsInfo[peerID] = &OperatorInfo{
 		ID: peerID,
 		Addrs: n.host.Peerstore().Addrs(peerID),
 		LastSeen: time.Now(),
 		Status: "active", // All connected peers are considered active
 	}
-	n.operatorsMu.Unlock()
+	n.operatorsInfoMu.Unlock()
 	log.Printf("Added new peer to p2p network: %s", peerID.String())
 
 	// Get active peers for response
 	log.Printf("Getting active peers for response to peer %s", peerID.String())
-	n.operatorsMu.RLock()
-	activePeers := make([]*pb.ActiveOperator, 0, len(n.operators))
-	for id, info := range n.operators {
+	n.operatorsInfoMu.RLock()
+	activePeers := make([]*pb.ActiveOperator, 0, len(n.operatorsInfo))
+	for id, info := range n.operatorsInfo {
 		// Skip registry and new peer
 		if id == n.host.ID() || id == peerID {
 			continue
@@ -79,7 +86,7 @@ func (n *Node) handleStream(stream network.Stream) {
 			Multiaddrs: addrs,
 		})
 	}
-	n.operatorsMu.RUnlock()
+	n.operatorsInfoMu.RUnlock()
 	log.Printf("Found %d connected peers to send to peer %s", len(activePeers), peerID.String())
 
 	// Set write deadline
@@ -107,8 +114,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Check if operator is registered on chain
 	log.Printf("Checking if operator %s is registered on chain", req.Address)
-	mainnetClient := n.chainClients.GetMainnetClient()
-	isRegistered, err := mainnetClient.IsOperatorRegistered(ctx, ethcommon.HexToAddress(req.Address))
+	isRegistered, err := n.mainnetClient.IsOperatorRegistered(ctx, ethcommon.HexToAddress(req.Address))
 	if err != nil {
 		log.Printf("Failed to check operator %s registration: %v", req.Address, err)
 		return fmt.Errorf("failed to check operator registration: %w", err)
@@ -122,7 +128,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Get operator from database
 	log.Printf("Getting operator %s from database", req.Address)
-	op, err := n.db.GetOperatorByAddress(ctx, req.Address)
+	operator, err := n.operators.GetOperatorByAddress(ctx, req.Address)
 	if err != nil {
 		log.Printf("Failed to get operator %s from database: %v", req.Address, err)
 		return fmt.Errorf("failed to get operator: %w", err)
@@ -131,7 +137,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Verify signing key matches
 	log.Printf("Verifying signing key for operator %s", req.Address)
-	if op.SigningKey != req.SigningKey {
+	if operator.SigningKey != req.SigningKey {
 		log.Printf("Signing key mismatch for operator %s", req.Address)
 		return fmt.Errorf("signing key mismatch")
 	}
@@ -139,7 +145,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Update operator status
 	log.Printf("Updating status for operator %s", req.Address)
-	if err := n.eventListener.updateStatusAfterOperations(ctx, req.Address); err != nil {
+	if err := n.updateStatusAfterOperations(ctx, req.Address); err != nil {
 		log.Printf("Failed to update operator status: %v", err)
 		return fmt.Errorf("failed to update operator status: %w", err)
 	}
@@ -147,25 +153,16 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Broadcast state update
 	log.Printf("Broadcasting state update for operator %s", req.Address)
-	var exitEpoch *int32
-	defaultExitEpoch := pgtype.Numeric{
-		Int: new(big.Int).SetUint64(4294967295),
-	}
-	if op.ExitEpoch.Valid && op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if valid and not default max value
-		val := int32(op.ExitEpoch.Int.Int64())
-		exitEpoch = &val
-	}
-
 	stateUpdate := []*pb.OperatorState{
 		{
-			Address:                 op.Address,
-			SigningKey:             op.SigningKey,
-			RegisteredAtBlockNumber: op.RegisteredAtBlockNumber.Int.Int64(),
-			RegisteredAtTimestamp:   op.RegisteredAtTimestamp.Int.Int64(),
-			ActiveEpoch:            int32(op.ActiveEpoch.Int.Int64()),
-			ExitEpoch:              exitEpoch,
-			Status:                 op.Status,
-			Weight:                 common.NumericToString(op.Weight),
+			Address:                 operator.Address,
+			SigningKey:             operator.SigningKey,
+			RegisteredAtBlockNumber: operator.RegisteredAtBlockNumber,
+			RegisteredAtTimestamp:   operator.RegisteredAtTimestamp,
+			ActiveEpoch:            operator.ActiveEpoch,
+			ExitEpoch:              &operator.ExitEpoch,
+			Status:                 string(operator.Status),
+			Weight:                 common.NumericToString(operator.Weight),
 		},
 	}
 	n.BroadcastStateUpdate(stateUpdate, "DELTA")

@@ -2,43 +2,38 @@ package registry
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log"
-	"math/big"
+	"time"
 
 	"github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
 )
 
-// NewStateSyncService creates a new state sync service
-func NewStateSyncService(h host.Host, db *operators.Queries) *StateSyncService {
-	return &StateSyncService{
-		host:        h,
-		db:          db,
-		subscribers: make(map[peer.ID]network.Stream),
-	}
-}
+const (
+	heartbeatInterval = 30 * time.Second
+	heartbeatTimeout  = 10 * time.Second
+)
 
 // Start initializes the state sync service
-func (s *StateSyncService) Start(ctx context.Context) error {
+func (n *Node) startStateSync(ctx context.Context) error {
 	// Set up protocol handler for state sync requests
-	s.host.SetStreamHandler("/state-sync/1.0.0", s.handleStateSync)
+	n.host.SetStreamHandler("/state-sync/1.0.0", n.handleStateSync)
 	
 	log.Printf("[StateSync] Service started successfully")
 	return nil
 }
 
 // handleStateSync handles incoming state sync requests
-func (s *StateSyncService) handleStateSync(stream network.Stream) {
+func (n *Node) handleStateSync(stream network.Stream) {
 	remotePeer := stream.Conn().RemotePeer()
 	log.Printf("[StateSync] New state sync request from %s", remotePeer)
 
-	// Read message type
 	msgType := make([]byte, 1)
 	if _, err := stream.Read(msgType); err != nil {
 		log.Printf("[StateSync] Error reading message type from %s: %v", remotePeer, err)
@@ -47,11 +42,12 @@ func (s *StateSyncService) handleStateSync(stream network.Stream) {
 	}
 
 	switch msgType[0] {
-	case 0x01: // GetFullStateRequest
-		s.handleGetFullState(stream)
-	case 0x02: // SubscribeRequest
-		s.Subscribe(remotePeer, stream)
-		log.Printf("[StateSync] Subscribed %s to state updates", remotePeer)
+	case 0x01:
+		log.Printf("[StateSync] Processing GetFullState request from %s", remotePeer)
+		n.handleGetFullState(stream)
+	case 0x02:
+		log.Printf("[StateSync] Processing Subscribe request from %s", remotePeer)
+		n.handleSubscribe(stream)
 	default:
 		log.Printf("[StateSync] Unknown message type from %s: %x", remotePeer, msgType[0])
 		stream.Reset()
@@ -59,9 +55,9 @@ func (s *StateSyncService) handleStateSync(stream network.Stream) {
 }
 
 // handleGetFullState handles a request for full state
-func (s *StateSyncService) handleGetFullState(stream network.Stream) {
+func (n *Node) handleGetFullState(stream network.Stream) {
 	// Get all operators from database
-	allOperators, err := s.db.ListAllOperators(context.Background())
+	allOperators, err := n.operators.ListAllOperators(context.Background())
 	if err != nil {
 		log.Printf("[StateSync] Failed to get operators: %v", err)
 		stream.Reset()
@@ -110,34 +106,91 @@ func (s *StateSyncService) handleGetFullState(stream network.Stream) {
 	log.Printf("[StateSync] Sent full state with %d operators", len(allOperators))
 }
 
-// Subscribe adds a new subscriber
-func (s *StateSyncService) Subscribe(peerID peer.ID, stream network.Stream) {
-	s.subscribersMu.Lock()
-	defer s.subscribersMu.Unlock()
 
-	// Close and delete existing stream if any
-	if existingStream, ok := s.subscribers[peerID]; ok {
+func (n *Node) Subscribe(peerID peer.ID, stream network.Stream) {
+	n.subscribersMu.Lock()
+	defer n.subscribersMu.Unlock()
+
+	// Close existing stream
+	if existingStream, ok := n.subscribers[peerID]; ok {
 		existingStream.Reset()
-		delete(s.subscribers, peerID)
+		delete(n.subscribers, peerID)
 	}
 
-	s.subscribers[peerID] = stream
+	// Set read and write deadlines
+	stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
+	stream.SetWriteDeadline(time.Now().Add(heartbeatTimeout))
+
+	n.subscribers[peerID] = stream
 	log.Printf("[StateSync] New subscriber added: %s", peerID)
 }
 
-// Unsubscribe removes a subscriber
-func (s *StateSyncService) Unsubscribe(peerID peer.ID) {
-	s.subscribersMu.Lock()
-	defer s.subscribersMu.Unlock()
+func (n *Node) handleSubscribe(stream network.Stream) {
+	peer := stream.Conn().RemotePeer()
+	log.Printf("[StateSync] Handling subscribe request from peer %s", peer)
+	
+	n.Subscribe(peer, stream)
+	
+	// Start heartbeat check
+	heartbeat := time.NewTicker(heartbeatInterval)
+	defer heartbeat.Stop()
 
-	if stream, ok := s.subscribers[peerID]; ok {
+	// Read buffer
+	buf := make([]byte, 1024)
+
+	for {
+		select {
+		case <-heartbeat.C:
+			// Send heartbeat
+			if err := n.sendHeartbeat(peer, stream); err != nil {
+				log.Printf("[StateSync] Heartbeat failed for %s: %v", peer, err)
+				n.Unsubscribe(peer)
+				return
+			}
+		default:
+			// Set read deadline
+			stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
+			
+			// Read data
+			_, err := stream.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("[StateSync] Error reading from subscriber %s: %v", peer, err)
+				} else {
+					log.Printf("[StateSync] Subscriber %s closed connection", peer)
+				}
+				n.Unsubscribe(peer)
+				return
+			}
+		}
+	}
+}
+
+func (n *Node) sendHeartbeat(peer peer.ID, stream network.Stream) error {
+	// Set write deadline
+	stream.SetWriteDeadline(time.Now().Add(heartbeatTimeout))
+	
+	// Send heartbeat message (0x03 represents heartbeat message)
+	_, err := stream.Write([]byte{0x03})
+	if err != nil {
+		return fmt.Errorf("failed to send heartbeat: %w", err)
+	}
+	
+	return nil
+}
+
+// Unsubscribe removes a subscriber
+func (n *Node) Unsubscribe(peerID peer.ID) {
+	n.subscribersMu.Lock()
+	defer n.subscribersMu.Unlock()
+
+	if stream, ok := n.subscribers[peerID]; ok {
 		stream.Reset()
-		delete(s.subscribers, peerID)
+		delete(n.subscribers, peerID)
 		log.Printf("[StateSync] Subscriber removed: %s", peerID)
 	}
 }
 
-// BroadcastStateUpdate sends a state update to all subscribers
 func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType string) {
 	update := &pb.OperatorStateUpdate{
 		Type:      updateType,
@@ -163,6 +216,13 @@ func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType st
 	defer n.subscribersMu.RUnlock()
 
 	for peer, stream := range n.subscribers {
+		// Set write deadline
+		if err := stream.SetWriteDeadline(time.Now().Add(heartbeatTimeout)); err != nil {
+			log.Printf("Error setting write deadline for %s: %v", peer, err)
+			n.Unsubscribe(peer)
+			continue
+		}
+
 		// Write message type
 		if _, err := stream.Write(msgType); err != nil {
 			log.Printf("Error sending message type to %s: %v", peer, err)
@@ -193,25 +253,17 @@ func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType st
 
 // Helper functions
 
-func convertToProtoOperator(op operators.Operators) *pb.OperatorState {
-	var exitEpoch *int32
-	defaultExitEpoch := pgtype.Numeric{
-		Int: new(big.Int).SetUint64(4294967295),
-	}
-	if op.ExitEpoch.Valid && op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if valid and not default max value
-		val := int32(op.ExitEpoch.Int.Int64())
-		exitEpoch = &val
-	}
+func convertToProtoOperator(operator operators.Operators) *pb.OperatorState {
 
 	return &pb.OperatorState{
-		Address:                op.Address,
-		SigningKey:            op.SigningKey,
-		RegisteredAtBlockNumber: op.RegisteredAtBlockNumber.Int.Int64(),
-		RegisteredAtTimestamp:   op.RegisteredAtTimestamp.Int.Int64(),
-		ActiveEpoch:           int32(op.ActiveEpoch.Int.Int64()),
-		ExitEpoch:            exitEpoch,
-		Status:               op.Status,
-		Weight:               common.NumericToString(op.Weight),
+		Address:                operator.Address,
+		SigningKey:            operator.SigningKey,
+		RegisteredAtBlockNumber: operator.RegisteredAtBlockNumber,
+		RegisteredAtTimestamp:   operator.RegisteredAtTimestamp,
+		ActiveEpoch:        operator.ActiveEpoch,
+		ExitEpoch:              &operator.ExitEpoch,
+		Status:                 string(operator.Status),
+		Weight:                 common.NumericToString(operator.Weight),
 	}
 }
 

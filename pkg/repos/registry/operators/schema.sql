@@ -4,8 +4,8 @@ CREATE TABLE IF NOT EXISTS operators (
     signing_key VARCHAR(66) NOT NULL,            -- Operator's public key for signing
     registered_at_block_number BIGINT NOT NULL,  -- Block number when operator registered
     registered_at_timestamp BIGINT NOT NULL,     -- Timestamp when operator registered
-    active_epoch INT4 NOT NULL,                  -- Epoch when operator will (or already) become active
-    exit_epoch INT4 NOT NULL DEFAULT 4294967295, -- Epoch when operator will exit (max uint32 as default)
+    active_epoch BIGINT NOT NULL,                  -- Epoch when operator will (or already) become active
+    exit_epoch BIGINT NOT NULL DEFAULT 4294967295, -- Epoch when operator will exit (max uint32 as default)
     status VARCHAR(20) NOT NULL CHECK (status IN ('active', 'inactive', 'suspended')),
     weight NUMERIC NOT NULL,                     -- Operator's stake weight
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

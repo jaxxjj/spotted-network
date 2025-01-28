@@ -4,16 +4,58 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/big"
+	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/event"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/p2p"
-	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-func NewNode(ctx context.Context, cfg *p2p.Config, db *operators.Queries, chainClients *ethereum.ChainClients) (*Node, error) {
+type MainnetClient interface {
+	GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error)
+	WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error)
+	WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error) 
+	BlockNumber(ctx context.Context) (uint64, error)
+	GetOperatorWeight(ctx context.Context, operator common.Address) (*big.Int, error)
+	IsOperatorRegistered(ctx context.Context, operator common.Address) (bool, error) 
+}
+
+type Node struct {
+	host *p2p.Host
+	
+	// Connected operators
+	operatorsInfo map[peer.ID]*OperatorInfo
+	operatorsInfoMu sync.RWMutex
+	
+	// Health check interval
+	healthCheckInterval time.Duration
+
+	// Database connection
+	operators OperatorsQuerier
+
+	// Event listener
+	eventListener *EventListener
+	
+	// Epoch updator
+	epochUpdator *EpochUpdator
+
+	// Chain clients manager
+	mainnetClient MainnetClient
+
+	// State sync subscribers
+	subscribers map[peer.ID]network.Stream
+	subscribersMu sync.RWMutex
+
+
+}
+
+func NewNode(ctx context.Context, cfg *p2p.Config, operatorsQuerier OperatorsQuerier, chainClients MainnetClient) (*Node, error) {
 	host, err := p2p.NewHost(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -21,15 +63,18 @@ func NewNode(ctx context.Context, cfg *p2p.Config, db *operators.Queries, chainC
 
 	node := &Node{
 		host:               host,
-		operators:          make(map[peer.ID]*OperatorInfo),
+		operatorsInfo:          make(map[peer.ID]*OperatorInfo),
 		healthCheckInterval: 100 * time.Second,
-		db:                db,
-		chainClients:      chainClients,
+		operators:                operatorsQuerier,
+		mainnetClient:      chainClients,
 		subscribers:       make(map[peer.ID]network.Stream),
 	}
 
 	// Create and initialize event listener
-	node.eventListener = NewEventListener(chainClients, db)
+	node.eventListener = NewEventListener(node, chainClients, operatorsQuerier)
+
+	// Create and initialize epoch updator
+	node.epochUpdator = NewEpochUpdator(node)
 
 	// Start listening for chain events
 	if err := node.eventListener.StartListening(ctx); err != nil {
@@ -47,8 +92,15 @@ func NewNode(ctx context.Context, cfg *p2p.Config, db *operators.Queries, chainC
 }
 
 func (n *Node) Start(ctx context.Context) error {
+	// Start state sync service
+	if err := n.startStateSync(ctx); err != nil {
+		return fmt.Errorf("failed to start state sync service: %w", err)
+	}
+	log.Printf("[Registry] State sync service started")
+
 	// Start epoch monitoring
-	go n.monitorEpochUpdates(ctx)
+	go n.epochUpdator.Start(ctx)
+	log.Printf("[Registry] Epoch monitoring started")
 
 	return nil
 }
@@ -59,17 +111,17 @@ func (n *Node) Stop() error {
 
 // GetOperatorInfo returns information about a connected operator
 func (n *Node) GetOperatorInfo(id peer.ID) *OperatorInfo {
-	n.operatorsMu.RLock()
-	defer n.operatorsMu.RUnlock()
-	return n.operators[id]
+	n.operatorsInfoMu.RLock()
+	defer n.operatorsInfoMu.RUnlock()
+	return n.operatorsInfo[id]
 }
 
 func (n *Node) GetConnectedOperators() []peer.ID {
-	n.operatorsMu.RLock()
-	defer n.operatorsMu.RUnlock()
+	n.operatorsInfoMu.RLock()
+	defer n.operatorsInfoMu.RUnlock()
 
-	operators := make([]peer.ID, 0, len(n.operators))
-	for id := range n.operators {
+	operators := make([]peer.ID, 0, len(n.operatorsInfo))
+	for id := range n.operatorsInfo {
 		operators = append(operators, id)
 	}
 	return operators
@@ -80,16 +132,3 @@ func (n *Node) GetHostID() string {
 	return n.host.ID().String()
 }
 
-// GetOperatorByAddress gets operator info from database
-func (n *Node) GetOperatorByAddress(ctx context.Context, address string) (operators.Operators, error) {
-	return n.db.GetOperatorByAddress(ctx, address)
-}
-
-// UpdateOperatorStatus updates operator status in database
-func (n *Node) UpdateOperatorStatus(ctx context.Context, address string, status string) error {
-	_, err := n.db.UpdateOperatorStatus(ctx, operators.UpdateOperatorStatusParams{
-		Address: address,
-		Status:  status,
-	})
-	return err
-}

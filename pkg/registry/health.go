@@ -21,10 +21,10 @@ func (n *Node) startHealthCheck(ctx context.Context) {
 }
 
 func (n *Node) checkOperators(ctx context.Context) {
-	n.operatorsMu.Lock()
-	defer n.operatorsMu.Unlock()
+	n.operatorsInfoMu.Lock()
+	defer n.operatorsInfoMu.Unlock()
 
-	for id, info := range n.operators {
+	for id, info := range n.operatorsInfo {
 		// Ping the operator
 		if err := n.host.PingPeer(ctx, id); err != nil {
 			log.Printf("Operator %s is unreachable: %v\n", id, err)
