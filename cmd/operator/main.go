@@ -11,6 +11,7 @@ import (
 
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
+	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/operator"
 )
 
@@ -98,19 +99,20 @@ func main() {
 	}
 
 	// Load config
-	cfg, err := operator.LoadConfig(configPath)
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
 	}
 
-	// Initialize chain clients
-	chainManager, err := ethereum.NewChainClientManager(cfg)
+	// Initialize chain manager with application config
+	chainManager, err := ethereum.NewManager(cfg)
 	if err != nil {
 		log.Fatal("Failed to initialize chain manager:", err)
 	}
 	defer chainManager.Close()
 
 	// Start operator node
+
 	n, err := operator.NewNode(*registryAddr, cfg, chainManager, s)
 	if err != nil {
 		log.Fatal("Failed to create node:", err)

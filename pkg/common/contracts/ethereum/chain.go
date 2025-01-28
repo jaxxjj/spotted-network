@@ -8,12 +8,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/galxe/spotted-network/pkg/common/contracts/bindings"
 )
 
-// NewMainnetClient creates a new mainnet Ethereum client
+// NewChainClient creates a new Ethereum client for a specific chain
 func NewChainClient(cfg *Config) (*ChainClient, error) {
 	ethClient, err := ethclient.Dial(cfg.RPCEndpoint)
 	if err != nil {
@@ -39,7 +40,7 @@ func NewChainClient(cfg *Config) (*ChainClient, error) {
 	}
 
 	return &ChainClient{
-		Client:         *ethClient,
+		client:         ethClient,
 		stateManager: stateManager,
 		epochManager: epochManager,
 		registry:     registry,
@@ -48,7 +49,7 @@ func NewChainClient(cfg *Config) (*ChainClient, error) {
 
 // Close implements contracts.ChainClient
 func (c *ChainClient) Close() error {
-	c.Client.Close()
+	c.client.Close()
 	return nil
 }
 
@@ -163,6 +164,15 @@ func (c *ChainClient) IsOperatorRegistered(ctx context.Context, operator common.
 		return false, fmt.Errorf("[ChainClient] failed to check if operator is registered: %w", err)
 	}
 	return registered, nil
+}
+
+// BlockNumber returns the latest block number
+func (c *ChainClient) BlockNumber(ctx context.Context) (uint64, error) {
+	return c.client.BlockNumber(ctx)
+}
+
+func (c *ChainClient) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+    return c.client.BlockByNumber(ctx, number)
 }
 
 // WatchOperatorRegistered watches for operator registered events

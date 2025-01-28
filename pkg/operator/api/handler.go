@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	commonHelpers "github.com/galxe/spotted-network/pkg/common"
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	commonTypes "github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
@@ -42,9 +43,9 @@ type TaskProcessor interface {
 // that the API handler needs
 type ChainManager interface {
 	// GetMainnetClient returns the mainnet client
-	GetMainnetClient() (ChainClient, error)
+	GetMainnetClient() (*ethereum.ChainClient, error)
 	// GetClientByChainId returns the appropriate client for a given chain ID
-	GetClientByChainId(chainID uint32) (ChainClient, error)
+	GetClientByChainId(chainID uint32) (*ethereum.ChainClient, error)
 }
 
 // TaskQuerier defines the interface for task database operations needed by the handler

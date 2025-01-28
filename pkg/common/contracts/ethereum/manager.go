@@ -2,134 +2,127 @@ package ethereum
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/galxe/spotted-network/pkg/api"
 	"github.com/galxe/spotted-network/pkg/config"
 )
 
-// NewChainClientManager creates a new chain client manager
-func NewChainClientManager(cfg *config.Config) (*ChainClientManager, error) {
-	manager := &ChainClientManager{
-		clients: make(map[uint32]*ChainClient),
+// NewManager creates a new chain manager from application config
+func NewManager(cfg *config.Config) (*ChainManager, error) {
+	chainConfigs := make(map[uint32]*Config)
+	for chainID, chainCfg := range cfg.Chains {
+		chainConfigs[chainID] = &Config{
+			ChainID:            chainID,
+			RPCEndpoint:        chainCfg.RPC,
+			StateManagerAddress: common.HexToAddress(chainCfg.Contracts.StateManager),
+			EpochManagerAddress: common.HexToAddress(chainCfg.Contracts.EpochManager),
+			RegistryAddress:    common.HexToAddress(chainCfg.Contracts.Registry),
+		}
+	}
+	
+	return NewChainManager(chainConfigs)
+}
+
+// NewChainManager creates a new chain client manager
+func NewChainManager(configs map[uint32]*Config) (*ChainManager, error) {
+	m := &ChainManager{
+		chains: make(map[uint32]*ChainClient),
+		mu:     sync.RWMutex{},
 	}
 
 	// Initialize clients for each chain
-	for chainID, chainCfg := range cfg.Chains {
-		clientCfg := &Config{
-			EpochManagerAddress: common.HexToAddress(chainCfg.Contracts.EpochManager),
-			RegistryAddress:    common.HexToAddress(chainCfg.Contracts.Registry),
-			StateManagerAddress: common.HexToAddress(chainCfg.Contracts.StateManager),
-			RPCEndpoint:       chainCfg.RPC,
-		}
-
-		client, err := NewChainClient(clientCfg)
+	for chainID, config := range configs {
+		chain, err := NewChainClient(config)
 		if err != nil {
-			manager.Close()
-			return nil, fmt.Errorf("failed to create client for chain %d: %w", chainID, err)
+			m.Close()
+			return nil, fmt.Errorf("failed to initialize chain %d: %w", chainID, err)
 		}
-		manager.clients[chainID] = client
+		m.chains[chainID] = chain
 	}
 
-	// Ensure mainnet client exists
-	if _, exists := manager.clients[MainnetChainID]; !exists {
-		return nil, fmt.Errorf("ethereum mainnet client (chain ID %d) is required", MainnetChainID)
-	}
-
-	return manager, nil
+	return m, nil
 }
 
-// GetMainnetClient returns the mainnet client
-func (c *ChainClientManager) GetMainnetClient() (*ChainClient, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+// GetChain returns the chain instance for a given chain ID
+func (m *ChainManager) GetClientByChainId(chainID uint32) (*ChainClient, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	client, exists := c.clients[MainnetChainID]
+	chain, exists := m.chains[chainID]
 	if !exists {
-		return nil, fmt.Errorf("mainnet client not initialized")
+		return nil, fmt.Errorf("chain not found: %d", chainID)
 	}
-	return client, nil
+	return chain, nil
 }
 
-// GetClientByChainId returns the appropriate client for a given chain ID
-func (c *ChainClientManager) GetClientByChainId(chainID uint32) (*ChainClient, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	client, exists := c.clients[chainID]
-	if !exists {
-		return nil, fmt.Errorf("no client found for chain ID: %d", chainID)
-	}
-	return client, nil
+// GetMainnetChain returns the mainnet chain instance
+func (m *ChainManager) GetMainnetClient() (*ChainClient, error) {
+	return m.GetClientByChainId(MainnetChainID)
 }
 
-// AddClient adds a new client for a chain
-func (c *ChainClientManager) AddClient(chainID uint32, client *ChainClient) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// AddChain adds a new chain
+func (m *ChainManager) AddChain(config *Config) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if _, exists := c.clients[chainID]; exists {
-		return fmt.Errorf("client already exists for chain ID: %d", chainID)
+	if _, exists := m.chains[config.ChainID]; exists {
+		return fmt.Errorf("chain already exists: %d", config.ChainID)
 	}
 
-	c.clients[chainID] = client
+	chain, err := NewChainClient(config)
+	if err != nil {
+		return fmt.Errorf("failed to create chain: %w", err)
+	}
+
+	m.chains[config.ChainID] = chain
 	return nil
 }
 
-// RemoveClient removes a client for a chain
-func (c *ChainClientManager) RemoveClient(chainID uint32) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// RemoveChain removes a chain
+func (m *ChainManager) RemoveChain(chainID uint32) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	if chainID == MainnetChainID {
-		return fmt.Errorf("cannot remove mainnet client (chain ID %d)", MainnetChainID)
+	chain, exists := m.chains[chainID]
+	if !exists {
+		return fmt.Errorf("chain not found: %d", chainID)
 	}
 
-	if client, exists := c.clients[chainID]; exists {
-		if err := client.Close(); err != nil {
-			return fmt.Errorf("failed to close client: %w", err)
-		}
-		delete(c.clients, chainID)
-		return nil
+	if err := chain.Close(); err != nil {
+		return fmt.Errorf("failed to close chain: %w", err)
 	}
 
-	return fmt.Errorf("no client found for chain ID: %d", chainID)
+	delete(m.chains, chainID)
+	return nil
 }
 
-// Close closes all clients
-func (c *ChainClientManager) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// Close closes all chains
+func (m *ChainManager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	var errs []error
-	for chainID, client := range c.clients {
-		if err := client.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close client for chain %d: %w", chainID, err))
+	for chainID, chain := range m.chains {
+		if err := chain.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close chain %d: %w", chainID, err))
 		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("errors closing clients: %v", errs)
+		return fmt.Errorf("errors closing chains: %v", errs)
 	}
 	return nil
 }
 
-type ChainManagerAdapter struct {
-	*ChainClientManager
-}
+// ListChains returns all available chain IDs
+func (m *ChainManager) ListChains() []uint32 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-func NewChainManagerAdapter(cfg *config.Config) (api.ChainManager, error) {
-	manager, err := NewChainClientManager(cfg)
-	if err != nil {
-		return nil, err
+	chainIDs := make([]uint32, 0, len(m.chains))
+	for chainID := range m.chains {
+		chainIDs = append(chainIDs, chainID)
 	}
-	return &ChainManagerAdapter{manager}, nil
-}
-
-func (a *ChainManagerAdapter) GetClientByChainId(chainID uint32) (api.ChainClient, error) {
-	client, err := a.ChainClientManager.GetClientByChainId(chainID)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+	return chainIDs
 } 

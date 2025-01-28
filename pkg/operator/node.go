@@ -14,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
 
+	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/operator/api"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
@@ -23,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/libp2p/go-libp2p/core/host"
 )
+
 type Node struct {
 	host           host.Host
 	registryID     peer.ID
@@ -50,7 +52,7 @@ type Node struct {
 	taskProcessor *TaskProcessor
 }
 
-func NewNode(registryAddr string, cfg *Config, chainManager api.ChainManager, signer OperatorSigner) (*Node, error) {
+func NewNode(registryAddr string, cfg *config.Config, chainManager ChainManager, signer OperatorSigner) (*Node, error) {
 	// Parse the registry multiaddr
 	maddr, err := multiaddr.NewMultiaddr(registryAddr)
 	if err != nil {

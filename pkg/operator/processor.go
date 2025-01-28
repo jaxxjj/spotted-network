@@ -8,15 +8,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
 
 type ChainManager interface {
 	// GetMainnetClient returns the mainnet client
-	GetMainnetClient() (ChainClient, error)
+	GetMainnetClient() (*ethereum.ChainClient, error)
 	// GetClientByChainId returns the appropriate client for a given chain ID
-	GetClientByChainId(chainID uint32) (ChainClient, error)
+	GetClientByChainId(chainID uint32) (*ethereum.ChainClient, error)
 }
 
 

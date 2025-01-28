@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// BlockGetter defines the interface for getting blocks that the helper functions need
-type BlockGetter interface {
+// ChainClient defines the interface for getting blocks that the helper functions need
+type ChainClient interface {
 	BlockNumber(ctx context.Context) (uint64, error)
 	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
 }
@@ -98,7 +98,7 @@ func StringToNumeric(s string) pgtype.Numeric {
 
 
 // BlockNumberToTimestamp converts a block number to its corresponding timestamp
-func BlockNumberToTimestamp(ctx context.Context, client BlockGetter, chainID uint32, blockNumber uint64) (uint64, error) {
+func BlockNumberToTimestamp(ctx context.Context, client ChainClient, chainID uint32, blockNumber uint64) (uint64, error) {
 	// Get block by number
 	block, err := client.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
 	if err != nil {
@@ -112,7 +112,7 @@ func BlockNumberToTimestamp(ctx context.Context, client BlockGetter, chainID uin
 // TimestampToBlockNumber converts a timestamp to its nearest block number
 // for a specific chain. It uses a more efficient algorithm that takes into
 // account the average block time for the chain.
-func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID uint32, timestamp uint64) (uint64, error) {
+func TimestampToBlockNumber(ctx context.Context, client ChainClient, chainID uint32, timestamp uint64) (uint64, error) {
 	// Get latest block
 	currentBlockNumber, err := client.BlockNumber(ctx)
 	if err != nil {
@@ -222,7 +222,7 @@ func TimestampToBlockNumber(ctx context.Context, client BlockGetter, chainID uin
 
 // ValidateBlockNumberAndTimestamp validates that exactly one of blockNumber or timestamp is provided
 // and converts between them as needed
-func ValidateBlockNumberAndTimestamp(ctx context.Context, client BlockGetter, chainID uint32, blockNumber *uint64, timestamp *uint64) (uint64, uint64, error) {
+func ValidateBlockNumberAndTimestamp(ctx context.Context, client ChainClient, chainID uint32, blockNumber *uint64, timestamp *uint64) (uint64, uint64, error) {
 	// Check that exactly one is provided
 	if (blockNumber == nil && timestamp == nil) || (blockNumber != nil && timestamp != nil) {
 		return 0, 0, fmt.Errorf("exactly one of block_number or timestamp must be provided")

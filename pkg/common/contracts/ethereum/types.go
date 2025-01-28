@@ -13,29 +13,28 @@ const (
 	MainnetChainID = uint32(31337) // Ethereum mainnet chain ID
 )
 
-// Config contains Ethereum client configuration
+// Config 更明确的配置结构
 type Config struct {
-	EpochManagerAddress  common.Address
-	RegistryAddress      common.Address
-	StateManagerAddress  common.Address
+	ChainID             uint32
+	EpochManagerAddress common.Address
+	RegistryAddress     common.Address
+	StateManagerAddress common.Address
 	RPCEndpoint         string
 }
 
-// ChainClient is the Ethereum client implementation that can interact with
-// state manager, epoch manager, and registry contracts
+// ChainClient represents a client for a specific Ethereum chain
 type ChainClient struct {
-	ethclient.Client
-	stateManager  *bindings.StateManager
-	epochManager  *bindings.EpochManager
-	registry      *bindings.ECDSAStakeRegistry
+	client       *ethclient.Client
+	stateManager *bindings.StateManager
+	epochManager *bindings.EpochManager
+	registry     *bindings.ECDSAStakeRegistry
 }
 
-// ChainClientManager manages multiple chain clients
-type ChainClientManager struct {
-	clients map[uint32]*ChainClient
-	mu      sync.RWMutex
+// ChainManager manages multiple chain instances
+type ChainManager struct {
+	chains map[uint32]*ChainClient
+	mu     sync.RWMutex
 }
-
 
 // OperatorRegisteredEvent represents an operator registered event
 type OperatorRegisteredEvent struct {

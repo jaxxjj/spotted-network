@@ -32,7 +32,7 @@ type ChainClient interface {
 	GetTotalWeight(ctx context.Context) (*big.Int, error)
 	GetStateAtBlock(ctx context.Context, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error)
 	GetCurrentEpoch(ctx context.Context) (uint32, error)
-	Close()
+	Close() error
 }	
 
 func (node *Node) subscribeToStateUpdates() error {
