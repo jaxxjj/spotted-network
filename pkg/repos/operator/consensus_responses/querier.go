@@ -11,7 +11,8 @@ import (
 type Querier interface {
 	CreateConsensusResponse(ctx context.Context, arg CreateConsensusResponseParams) (ConsensusResponse, error)
 	DeleteConsensusResponse(ctx context.Context, taskID string) error
-	GetConsensusResponse(ctx context.Context, taskID string) (ConsensusResponse, error)
+	GetConsensusResponseByRequest(ctx context.Context, arg GetConsensusResponseByRequestParams) (ConsensusResponse, error)
+	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (ConsensusResponse, error)
 	ListPendingConsensus(ctx context.Context) ([]ConsensusResponse, error)
 	UpdateConsensusResponse(ctx context.Context, arg UpdateConsensusResponseParams) (ConsensusResponse, error)
 }

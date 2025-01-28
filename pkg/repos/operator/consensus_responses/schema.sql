@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS consensus_responses (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     
-    CONSTRAINT unique_task_consensus UNIQUE (task_id)
+    CONSTRAINT unique_task_consensus UNIQUE (task_id),
+    CONSTRAINT unique_consensus_request UNIQUE (target_address, chain_id, block_number, key)
 );
 
 -- Indexes for query optimization

@@ -104,14 +104,14 @@ func main() {
 	}
 
 	// Initialize chain clients
-	chainClients, err := ethereum.NewChainClients(cfg)
+	chainManager, err := ethereum.NewChainClientManager(cfg)
 	if err != nil {
-		log.Fatal("Failed to initialize chain clients:", err)
+		log.Fatal("Failed to initialize chain manager:", err)
 	}
-	defer chainClients.Close()
+	defer chainManager.Close()
 
 	// Start operator node
-	n, err := operator.NewNode(*registryAddr, s, cfg, chainClients)
+	n, err := operator.NewNode(*registryAddr, cfg, chainManager, s)
 	if err != nil {
 		log.Fatal("Failed to create node:", err)
 	}

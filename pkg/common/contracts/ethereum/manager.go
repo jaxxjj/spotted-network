@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/galxe/spotted-network/pkg/api"
 	"github.com/galxe/spotted-network/pkg/config"
 )
 
@@ -111,4 +112,24 @@ func (c *ChainClientManager) Close() error {
 		return fmt.Errorf("errors closing clients: %v", errs)
 	}
 	return nil
+}
+
+type ChainManagerAdapter struct {
+	*ChainClientManager
+}
+
+func NewChainManagerAdapter(cfg *config.Config) (api.ChainManager, error) {
+	manager, err := NewChainClientManager(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &ChainManagerAdapter{manager}, nil
+}
+
+func (a *ChainManagerAdapter) GetClientByChainId(chainID uint32) (api.ChainClient, error) {
+	client, err := a.ChainClientManager.GetClientByChainId(chainID)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 } 

@@ -8,14 +8,14 @@ option go_package = "github.com/galxe/spotted-network/proto";
 message OperatorState {
   string address = 1;
   string signing_key = 2;
-  int64 registered_at_block_number = 3;
-  int64 registered_at_timestamp = 4;
-  int32 active_epoch = 5;
-  optional int32 exit_epoch = 6;
+  uint64 registered_at_block_number = 3;
+  uint64 registered_at_timestamp = 4;
+  uint32 active_epoch = 5;
+  optional uint32 exit_epoch = 6;
   string status = 7;
   string weight = 8;
-  int32 missing = 9;
-  int32 successful_response_count = 10;
+  uint32 missing = 9;
+  uint32 successful_response_count = 10;
 }
 
 message OperatorStateUpdate {

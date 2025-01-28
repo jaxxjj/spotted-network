@@ -58,18 +58,44 @@ func NumericToBigInt(n pgtype.Numeric) (*big.Int, error) {
     return num, nil
 }
 
-func NumericToInt64(data *interface{}) int64 {
-    if data == nil {
+// NumericToInt64 converts a pgtype.Numeric to int64
+func NumericToInt64(num pgtype.Numeric) int64 {
+    if !num.Valid {
         return 0
     }
-    if num, ok := (*data).(pgtype.Numeric); ok {
-        if num.Valid {
-            fl, _ := num.Float64Value()
-            return int64(fl.Float64)
-        }
-    }
-    return 0
+    fl, _ := num.Float64Value()
+    return int64(fl.Float64)
 }
+
+// NumericToUint64 converts a pgtype.Numeric to uint64
+func NumericToUint64(num pgtype.Numeric) uint64 {
+    if !num.Valid {
+        return 0
+    }
+    fl, _ := num.Float64Value()
+    return uint64(fl.Float64)
+}
+
+func StringToBigInt(s string) *big.Int {
+	if s == "" {
+		return big.NewInt(0)
+	}
+
+	x, _ := new(big.Int).SetString(s, 10)
+
+	return x
+}
+
+// BigIntToNumeric converts a *big.Int to a pgtype.Numeric
+func BigIntToNumeric(x *big.Int) pgtype.Numeric {
+	return pgtype.Numeric{Int: x, Valid: true}
+}
+
+// StringToNumeric converts a string to a pgtype.Numeric
+func StringToNumeric(s string) pgtype.Numeric {
+	return BigIntToNumeric(StringToBigInt(s))
+}
+
 
 // BlockNumberToTimestamp converts a block number to its corresponding timestamp
 func BlockNumberToTimestamp(ctx context.Context, client BlockGetter, chainID uint32, blockNumber uint64) (uint64, error) {

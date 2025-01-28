@@ -87,13 +87,56 @@ func (q *Queries) DeleteConsensusResponse(ctx context.Context, taskID string) er
 	return err
 }
 
-const getConsensusResponse = `-- name: GetConsensusResponse :one
+const getConsensusResponseByRequest = `-- name: GetConsensusResponseByRequest :one
+SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
+WHERE target_address = $1 
+AND chain_id = $2 
+AND block_number = $3 
+AND key = $4 
+LIMIT 1
+`
+
+type GetConsensusResponseByRequestParams struct {
+	TargetAddress string         `json:"target_address"`
+	ChainID       uint32         `json:"chain_id"`
+	BlockNumber   uint64         `json:"block_number"`
+	Key           pgtype.Numeric `json:"key"`
+}
+
+func (q *Queries) GetConsensusResponseByRequest(ctx context.Context, arg GetConsensusResponseByRequestParams) (ConsensusResponse, error) {
+	row := q.db.QueryRow(ctx, getConsensusResponseByRequest,
+		arg.TargetAddress,
+		arg.ChainID,
+		arg.BlockNumber,
+		arg.Key,
+	)
+	var i ConsensusResponse
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.Epoch,
+		&i.Value,
+		&i.Key,
+		&i.TotalWeight,
+		&i.ChainID,
+		&i.BlockNumber,
+		&i.TargetAddress,
+		&i.AggregatedSignatures,
+		&i.OperatorSignatures,
+		&i.ConsensusReachedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getConsensusResponseByTaskId = `-- name: GetConsensusResponseByTaskId :one
 SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
 WHERE task_id = $1 LIMIT 1
 `
 
-func (q *Queries) GetConsensusResponse(ctx context.Context, taskID string) (ConsensusResponse, error) {
-	row := q.db.QueryRow(ctx, getConsensusResponse, taskID)
+func (q *Queries) GetConsensusResponseByTaskId(ctx context.Context, taskID string) (ConsensusResponse, error) {
+	row := q.db.QueryRow(ctx, getConsensusResponseByTaskId, taskID)
 	var i ConsensusResponse
 	err := row.Scan(
 		&i.ID,

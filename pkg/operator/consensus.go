@@ -9,12 +9,24 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
+	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// checkConsensus checks if consensus has been reached for a task
+type EpochStateQuerier interface {
+    GetLatestEpochState(ctx context.Context) (epoch_states.EpochState, error)
+	UpsertEpochState(ctx context.Context, arg epoch_states.UpsertEpochStateParams) (epoch_states.EpochState, error)
+}
+
+type ConsensusResponseQuerier interface {
+	CreateConsensusResponse(ctx context.Context, arg consensus_responses.CreateConsensusResponseParams) (consensus_responses.ConsensusResponse, error)
+	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (consensus_responses.ConsensusResponse, error)
+}
+
+// checkConsensus checks if consensus has been re.ched for a task
 func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	log.Printf("[Consensus] Starting consensus check for task %s", taskID)
 	
@@ -57,7 +69,7 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	}
 
 	// Check if threshold is reached
-	threshold, err := tp.node.getConsensusThreshold(context.Background())
+	threshold, err := tp.getConsensusThreshold(context.Background())
 	if err != nil {
 		log.Printf("[Consensus] Failed to get consensus threshold: %v", err)
 		return err
@@ -71,7 +83,7 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	log.Printf("[Consensus] Threshold reached for task %s! Creating consensus response", taskID)
 
 	// Get a sample response for task details
-	var sampleResp *types.TaskResponse
+	var sampleResp *task_responses.TaskResponses
 	for _, resp := range responses {
 		sampleResp = resp
 		break
@@ -87,19 +99,20 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	aggregatedSigs := tp.signer.AggregateSignatures(signatures)
 	log.Printf("[Consensus] Aggregated %d signatures for task %s", len(signatures), taskID)
 
+
 	// Create consensus response
 	consensus := consensus_responses.CreateConsensusResponseParams{
 		TaskID:              taskID,
-		Epoch:              int32(sampleResp.Epoch),
-		Value:              NumericFromBigInt(sampleResp.Value),
-		BlockNumber:      NumericFromBigInt(sampleResp.BlockNumber),
-		ChainID:           int32(sampleResp.ChainID),
+		Epoch:              sampleResp.Epoch,
+		Value:              sampleResp.Value,
+		BlockNumber:      sampleResp.BlockNumber,
+		ChainID:           sampleResp.ChainID,
 		TargetAddress:     sampleResp.TargetAddress,
-		Key:             NumericFromBigInt(sampleResp.Key),
+		Key:             sampleResp.Key,
 		AggregatedSignatures: aggregatedSigs,
 		OperatorSignatures:  operatorSigsJSON,
-		TotalWeight:        pgtype.Numeric{Int: big.NewInt(0), Exp: 0, Valid: true},
-		ConsensusReachedAt:  pgtype.Timestamp{Time: time.Now(), Valid: true},
+		TotalWeight:        pgtype.Numeric{Int: totalWeight, Exp: 0, Valid: true},
+		ConsensusReachedAt:  pgtype.Timestamptz{Time: time.Now(), Valid: true},
 	}
 
 	// Store consensus in database
@@ -109,12 +122,9 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	log.Printf("[Consensus] Successfully stored consensus response for task %s", taskID)
 
 	// If we have the task locally, mark it as completed
-	_, err = tp.taskQueries.GetTaskByID(context.Background(), taskID)
+	_, err = tp.task.GetTaskByID(context.Background(), taskID)
 	if err == nil {
-		if _, err = tp.taskQueries.UpdateTaskStatus(context.Background(), struct {
-			TaskID string `json:"task_id"`
-			Status string `json:"status"`
-		}{
+		if _, err = tp.task.UpdateTaskStatus(context.Background(), tasks.UpdateTaskStatusParams{
 			TaskID: taskID,
 			Status: "completed",
 		}); err != nil {
@@ -132,8 +142,8 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 }
 
 // getConsensusThreshold returns the threshold weight for consensus from the latest epoch state
-func (n *Node) getConsensusThreshold(ctx context.Context) (*big.Int, error) {
-	latestEpoch, err := n.epochStates.GetLatestEpochState(ctx)
+func (tp *TaskProcessor) getConsensusThreshold(ctx context.Context) (*big.Int, error) {
+	latestEpoch, err := tp.epochState.GetLatestEpochState(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest epoch state: %w", err)
 	}
@@ -148,7 +158,7 @@ func (n *Node) getConsensusThreshold(ctx context.Context) (*big.Int, error) {
 // storeConsensus stores a consensus response in the database
 func (tp *TaskProcessor) storeConsensus(ctx context.Context, consensus consensus_responses.CreateConsensusResponseParams) error {
 	// Create consensus response
-	_, err := tp.consensusDB.CreateConsensusResponse(ctx, consensus_responses.CreateConsensusResponseParams{
+	_, err := tp.consensusResponse.CreateConsensusResponse(ctx, consensus_responses.CreateConsensusResponseParams{
 		TaskID:              consensus.TaskID,
 		Epoch:              consensus.Epoch,
 		Value:              consensus.Value,

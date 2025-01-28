@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -20,6 +23,17 @@ const (
 	GenesisBlock = 0
 	EpochPeriod  = 12
 )
+
+type ChainClient interface {
+	BlockNumber(ctx context.Context) (uint64, error)
+	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
+	GetMinimumWeight(ctx context.Context) (*big.Int, error)
+	GetThresholdWeight(ctx context.Context) (*big.Int, error)
+	GetTotalWeight(ctx context.Context) (*big.Int, error)
+	GetStateAtBlock(ctx context.Context, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error)
+	GetCurrentEpoch(ctx context.Context) (uint32, error)
+	Close()
+}	
 
 func (node *Node) subscribeToStateUpdates() error {
 	log.Printf("[StateSync] Opening state sync stream to registry...")
@@ -314,10 +328,13 @@ func (n *Node) calculateEpochNumber(blockNumber uint64) uint32 {
 
 func (n *Node) updateEpochState(ctx context.Context, epochNumber uint32) error {
 	// Get mainnet client
-	mainnetClient := n.chainClient.GetMainnetClient()
+	mainnetClient, err := n.chainManager.GetMainnetClient()
+	if err != nil {
+		return fmt.Errorf("failed to get mainnet client: %w", err)
+	}
 	
 	// Get epoch state from contract
-	minimumStake, err := mainnetClient.GetMinimumStake(ctx)
+	minimumStake, err := mainnetClient.GetMinimumWeight(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get minimum stake: %w", err)
 	}
@@ -338,28 +355,12 @@ func (n *Node) updateEpochState(ctx context.Context, epochNumber uint32) error {
 	updatedAt := pgtype.Timestamptz{}
 	updatedAt.Scan(now)
 	
-	_, err = n.epochStates.UpsertEpochState(ctx, epoch_states.UpsertEpochStateParams{
+	_, err = n.epochState.UpsertEpochState(ctx, epoch_states.UpsertEpochStateParams{
 		EpochNumber: epochNumber,
-		BlockNumber: pgtype.Numeric{
-			Int:    big.NewInt(int64(epochNumber * EpochPeriod)),
-			Valid:  true,
-			Exp:    0,
-		},
-		MinimumWeight: pgtype.Numeric{
-			Int:    minimumStake,
-			Valid:  true,
-			Exp:    0,
-		},
-		TotalWeight: pgtype.Numeric{
-			Int:    totalWeight,
-			Valid:  true,
-			Exp:    0,
-		},
-		ThresholdWeight: pgtype.Numeric{
-			Int:    thresholdWeight,
-			Valid:  true,
-			Exp:    0,
-		},
+		BlockNumber: uint64(epochNumber * EpochPeriod),
+		MinimumWeight: commonHelpers.BigIntToNumeric(minimumStake),
+		TotalWeight: commonHelpers.BigIntToNumeric(totalWeight),
+		ThresholdWeight: commonHelpers.BigIntToNumeric(thresholdWeight),
 		UpdatedAt: updatedAt,
 	})
 	if err != nil {
@@ -383,8 +384,12 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Get latest block number
-			mainnetClient := n.chainClient.GetMainnetClient()
-			blockNumber, err := mainnetClient.GetLatestBlockNumber(ctx)
+			mainnetClient, err := n.chainManager.GetMainnetClient()
+			if err != nil {
+				log.Printf("[Epoch] Failed to get mainnet client: %v", err)
+				continue
+			}
+			blockNumber, err := mainnetClient.BlockNumber(ctx)
 			if err != nil {
 				log.Printf("[Epoch] Failed to get latest block number: %v", err)
 				continue

@@ -14,8 +14,6 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
 
-	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/operator/api"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
@@ -23,10 +21,36 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/libp2p/go-libp2p/core/host"
 )
+type Node struct {
+	host           host.Host
+	registryID     peer.ID
+	registryAddr   string
+	signer         OperatorSigner
+	knownOperators map[peer.ID]*peer.AddrInfo
+	operators      map[peer.ID]*OperatorInfo
+	operatorsMu    sync.RWMutex
+	pingService    *ping.PingService
+	chainManager   ChainManager
+	operatorStates map[string]*pb.OperatorState
+	statesMu       sync.RWMutex
+	
+	// Database connection
+	db          *pgxpool.Pool
+	epochState EpochStateQuerier
+	
+	// API server
+	apiServer *api.Server
 
+	// P2P pubsub
+	PubSub *pubsub.PubSub
 
-func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *ethereum.ChainClients) (*Node, error) {
+	// Task processor
+	taskProcessor *TaskProcessor
+}
+
+func NewNode(registryAddr string, cfg *Config, chainManager api.ChainManager, signer OperatorSigner) (*Node, error) {
 	// Parse the registry multiaddr
 	maddr, err := multiaddr.NewMultiaddr(registryAddr)
 	if err != nil {
@@ -69,10 +93,10 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 	}
 
 	// Initialize database queries
-	taskQueries := tasks.New(db)
-	responseQueries := task_responses.New(db)
-	consensusQueries := consensus_responses.New(db)
-	epochStates := epoch_states.New(db)
+	taskQuerier := tasks.New(db)
+	taskResponseQuerier := task_responses.New(db)
+	consensusResponseQuerier := consensus_responses.New(db)
+	epochStatesQuerier := epoch_states.New(db)
 
 	// Create ping service
 	pingService := ping.NewPingService(host)
@@ -82,7 +106,6 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		host:           host,
 		registryID:     addrInfo.ID,
 		registryAddr:   registryAddr,
-		signer:         s,
 		knownOperators: make(map[peer.ID]*peer.AddrInfo),
 		operators:      make(map[peer.ID]*OperatorInfo),
 		operatorsMu:    sync.RWMutex{},
@@ -90,23 +113,18 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		operatorStates: make(map[string]*pb.OperatorState),
 		statesMu:       sync.RWMutex{},
 		db:            db,
-		taskQueries:   taskQueries,
-		responseQueries: responseQueries,
-		consensusQueries: consensusQueries,
-		chainClient:   chainClients,
 		PubSub:        ps,
-		epochStates:   epochStates,
 	}
 
 	// Initialize task processor
-	taskProcessor, err := NewTaskProcessor(node, taskQueries, responseQueries, consensusQueries)
+	taskProcessor, err := NewTaskProcessor(node, signer, taskQuerier, taskResponseQuerier, consensusResponseQuerier, epochStatesQuerier)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task processor: %w", err)
 	}
 	node.taskProcessor = taskProcessor
 
 	// Initialize API handler and server with task processor
-	apiHandler := api.NewHandler(taskQueries, chainClients, consensusQueries, taskProcessor, cfg)
+	apiHandler := api.NewHandler(taskQuerier, chainManager, consensusResponseQuerier, taskProcessor, cfg)
 	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
 	node.apiServer = apiServer
 	
@@ -212,16 +230,6 @@ func (n *Node) Stop() error {
 	
 	// Close database connection
 	n.db.Close()
-	
-	// Close chain clients
-	if err := n.chainClient.Close(); err != nil {
-		log.Printf("[Node] Error closing chain clients: %v", err)
-	}
-
-	// Clean up task processor resources
-	if n.taskProcessor != nil {
-		n.taskProcessor.Stop()
-	}
 	
 	return n.host.Close()
 }

@@ -131,8 +131,8 @@ func (c *ChainClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
 	return weight, nil
 }
 
-// GetMinimumStake gets the minimum stake required
-func (c *ChainClient) GetMinimumStake(ctx context.Context) (*big.Int, error) {
+// gets the minimum stake required
+func (c *ChainClient) GetMinimumWeight(ctx context.Context) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	stake, err := c.registry.MinimumWeight(opts)
 	if err != nil {

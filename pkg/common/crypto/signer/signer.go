@@ -8,13 +8,13 @@ import (
 	"sort"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/common"
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // TaskSignParams contains all fields needed for signing a task response
 type TaskSignParams struct {
-	User        common.Address
+	User        ethcommon.Address
 	ChainID     uint32
 	BlockNumber uint64
 	Key         *big.Int
@@ -26,7 +26,7 @@ type Signer interface {
 	// Sign signs the message with the private key
 	Sign(message []byte) ([]byte, error)
 	// GetAddress returns the ethereum address associated with the signer
-	GetAddress() common.Address
+	GetAddress() ethcommon.Address
 	// GetPublicKey returns the public key associated with the signer
 	GetPublicKey() *ecdsa.PublicKey
 	// GetSigningKey returns the signing key (public key) as hex string
@@ -44,7 +44,7 @@ type Signer interface {
 // LocalSigner implements Signer interface using a local keystore file
 type LocalSigner struct {
 	privateKey *ecdsa.PrivateKey
-	address    common.Address
+	address    ethcommon.Address
 }
 
 // NewLocalSigner creates a new LocalSigner from a keystore file
@@ -82,7 +82,7 @@ func (s *LocalSigner) Sign(message []byte) ([]byte, error) {
 }
 
 // GetAddress implements Signer interface
-func (s *LocalSigner) GetAddress() common.Address {
+func (s *LocalSigner) GetAddress() ethcommon.Address {
 	return s.address
 }
 
@@ -92,7 +92,7 @@ func (s *LocalSigner) GetPublicKey() *ecdsa.PublicKey {
 }
 
 // VerifySignature verifies if the signature was signed by the given address
-func VerifySignature(address common.Address, message []byte, signature []byte) bool {
+func VerifySignature(address ethcommon.Address, message []byte, signature []byte) bool {
 	// Hash the message
 	hash := crypto.Keccak256Hash(message)
 
@@ -117,10 +117,10 @@ func (s *LocalSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
 	// Pack parameters into bytes
 	msg := []byte{}
 	msg = append(msg, params.User.Bytes()...)
-	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(params.Key.Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(params.Value.Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(params.Key.Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(params.Value.Bytes(), 32)...)
 
 	// Hash the message
 	hash := crypto.Keccak256(msg)
@@ -134,10 +134,10 @@ func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte
 	// Pack parameters into bytes in the same order as SignTaskResponse
 	msg := []byte{}
 	msg = append(msg, params.User.Bytes()...)
-	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(params.Key.Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(params.Value.Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(params.Key.Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(params.Value.Bytes(), 32)...)
 
 	// Hash the message
 	hash := crypto.Keccak256(msg)
@@ -167,10 +167,10 @@ func (s *LocalSigner) VerifySignature(signature []byte, params TaskSignParams) e
 	// Pack parameters into bytes
 	msg := []byte{}
 	msg = append(msg, params.User.Bytes()...)
-	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(params.Key.Bytes(), 32)...)
-	msg = append(msg, common.LeftPadBytes(params.Value.Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(params.Key.Bytes(), 32)...)
+	msg = append(msg, ethcommon.LeftPadBytes(params.Value.Bytes(), 32)...)
 
 	// Hash the message
 	hash := crypto.Keccak256(msg)

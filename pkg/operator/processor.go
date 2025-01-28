@@ -5,16 +5,39 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"sync"
 	"time"
 
-	"github.com/galxe/spotted-network/pkg/common/types"
-	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
 
+type ChainManager interface {
+	// GetMainnetClient returns the mainnet client
+	GetMainnetClient() (ChainClient, error)
+	// GetClientByChainId returns the appropriate client for a given chain ID
+	GetClientByChainId(chainID uint32) (ChainClient, error)
+}
+
+
+// TaskProcessor handles task processing and consensus
+type TaskProcessor struct {
+	node           *Node
+	signer         OperatorSigner
+	task    TaskQuerier
+	taskResponse             TaskResponseQuerier
+	consensusResponse   ConsensusResponseQuerier
+	epochState EpochStateQuerier
+	chainManager   ChainManager
+	responseTopic  *pubsub.Topic
+	responsesMutex sync.RWMutex
+	responses      map[string]map[string]*task_responses.TaskResponses // taskID -> operatorAddr -> response
+	weightsMutex   sync.RWMutex
+	taskWeights    map[string]map[string]*big.Int // taskID -> operatorAddr -> weight
+} 
+
 // NewTaskProcessor creates a new task processor
-func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *task_responses.Queries, consensusDB *consensus_responses.Queries) (*TaskProcessor, error) {
+func NewTaskProcessor(node *Node, signer OperatorSigner, task TaskQuerier, taskResponse TaskResponseQuerier, consensusResponse ConsensusResponseQuerier, epochState EpochStateQuerier) (*TaskProcessor, error) {
 	// Create response topic
 	responseTopic, err := node.PubSub.Join(TaskResponseTopic)
 	if err != nil {
@@ -24,12 +47,13 @@ func NewTaskProcessor(node *Node, taskQueries *tasks.Queries, responseQueries *t
 
 	tp := &TaskProcessor{
 		node:          node,
-		signer:        node.signer,
-		taskQueries:   taskQueries,
-		db:            responseQueries,
-		consensusDB:   consensusDB,
+		signer:        signer,
+		task:   task,
+		taskResponse:   taskResponse,
+		consensusResponse:   consensusResponse,
+		epochState: epochState,
 		responseTopic: responseTopic,
-		responses:     make(map[string]map[string]*types.TaskResponse),
+		responses:     make(map[string]map[string]*task_responses.TaskResponses),
 		taskWeights:   make(map[string]map[string]*big.Int),
 	}
 
@@ -76,7 +100,7 @@ func (tp *TaskProcessor) Stop() {
 	
 	// Clean up responses map
 	tp.responsesMutex.Lock()
-	tp.responses = make(map[string]map[string]*types.TaskResponse)
+	tp.responses = make(map[string]map[string]*task_responses.TaskResponses)
 	tp.responsesMutex.Unlock()
 	
 	log.Printf("[TaskProcessor] Task processor stopped")

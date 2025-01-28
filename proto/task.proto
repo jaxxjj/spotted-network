@@ -9,15 +9,16 @@ option go_package = "github.com/galxe/spotted-network/proto";
 // TaskResponseMessage represents a task response message
 message TaskResponseMessage {
     string task_id = 1;
-    string operator_addr = 2;
+    string operator_address = 2;
     string signing_key = 3;
     bytes signature = 4;
-    string value = 5;
-    uint64 block_number = 6;
-    uint32 chain_id = 7;
-    string target_address = 8;
-    string key = 9;
-    uint32 epoch = 10;
+    uint32 epoch = 5;
+    uint32 chain_id = 6;
+    string target_address = 7;
+    string key = 8;
+    string value = 9;
+    uint64 block_number = 10;
+    uint64 timestamp = 11;    
 }
 
 // TaskMessage represents a task message

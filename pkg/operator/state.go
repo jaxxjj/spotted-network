@@ -9,17 +9,16 @@ import (
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
-	"github.com/galxe/spotted-network/pkg/common/contracts"
 )
 
 // getStateWithRetries attempts to get state with retries
-func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, stateClient contracts.StateClient, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
+func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, chainClient ChainClient, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
 	maxRetries := 3
 	retryDelay := time.Second
 
 	for i := 0; i < maxRetries; i++ {
 		// Get latest block for validation
-		latestBlock, err := stateClient.GetLatestBlockNumber(ctx)
+		latestBlock, err := chainClient.BlockNumber(ctx)
 		if err != nil {
 			log.Printf("[StateCheck] Failed to get latest block: %v", err)
 			time.Sleep(retryDelay)
@@ -32,7 +31,7 @@ func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, stateClient co
 		}
 
 		// Attempt to get state
-		state, err := stateClient.GetStateAtBlock(ctx, target, key, blockNumber)
+		state, err := chainClient.GetStateAtBlock(ctx, target, key, blockNumber)
 		if err != nil {
 			// Check for specific contract errors
 			if strings.Contains(err.Error(), "0x7c44ec9a") { // StateManager__BlockNotFound
@@ -56,7 +55,7 @@ func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, stateClient co
 	return nil, fmt.Errorf("failed to get state after %d retries", maxRetries)
 }
 
-// isActiveOperator checks if a signing key belongs to an active operator
+// isActiveOperator checks if a signing key belongs to an active operator in the operator's local storage
 func (tp *TaskProcessor) isActiveOperator(signingKey string) bool {
 	// Get all operator states
 	tp.node.statesMu.RLock()
@@ -74,7 +73,7 @@ func (tp *TaskProcessor) isActiveOperator(signingKey string) bool {
 	return false
 }
 
-// getOperatorWeight returns the weight of an operator
+// getOperatorWeight returns the weight of an operator in the operator's local storage
 func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error) {
 	tp.node.statesMu.RLock()
 	defer tp.node.statesMu.RUnlock()
