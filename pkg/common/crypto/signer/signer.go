@@ -3,8 +3,8 @@ package signer
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"io/ioutil"
 	"math/big"
+	"os"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -43,28 +43,59 @@ type Signer interface {
 
 // LocalSigner implements Signer interface using a local keystore file
 type LocalSigner struct {
-	privateKey *ecdsa.PrivateKey
-	address    ethcommon.Address
+	operatorKey *ecdsa.PrivateKey  // Used for operator registration and join
+	signingKey  *ecdsa.PrivateKey  // Used for signing task responses
+	address     ethcommon.Address  // Operator's address (from operatorKey)
 }
 
-// NewLocalSigner creates a new LocalSigner from a keystore file
-func NewLocalSigner(keystorePath, password string) (*LocalSigner, error) {
-	// Read keystore file
-	keyjson, err := ioutil.ReadFile(keystorePath)
+// NewLocalSigner creates a new local signer
+func NewLocalSigner(operatorKeyPath string, signingKeyPath string, password string) (*LocalSigner, error) {
+	// Load operator key
+	operatorKeyJson, err := os.ReadFile(operatorKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read keystore file: %v", err)
+		return nil, fmt.Errorf("failed to read operator key file: %w", err)
+	}
+	operatorKey, err := keystore.DecryptKey(operatorKeyJson, password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt operator key: %w", err)
 	}
 
-	// Decrypt key with password
-	key, err := keystore.DecryptKey(keyjson, password)
+	// Load signing key
+	signingKeyJson, err := os.ReadFile(signingKeyPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt key: %v", err)
+		return nil, fmt.Errorf("failed to read signing key file: %w", err)
+	}
+	signingKey, err := keystore.DecryptKey(signingKeyJson, password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt signing key: %w", err)
 	}
 
+	// Create signer with both keys
 	return &LocalSigner{
-		privateKey: key.PrivateKey,
-		address:    crypto.PubkeyToAddress(key.PrivateKey.PublicKey),
+		operatorKey: operatorKey.PrivateKey,
+		signingKey:  signingKey.PrivateKey,
+		address:     crypto.PubkeyToAddress(operatorKey.PrivateKey.PublicKey),
 	}, nil
+}
+
+// SignJoinRequest signs a join request using the operator key
+func (s *LocalSigner) SignJoinRequest(message []byte) ([]byte, error) {
+	hash := crypto.Keccak256(message)
+	signature, err := crypto.Sign(hash, s.operatorKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign join request: %w", err)
+	}
+	return signature, nil
+}
+
+// GetOperatorAddress returns the operator's address (from operator key)
+func (s *LocalSigner) GetOperatorAddress() ethcommon.Address {
+	return s.address
+}
+
+// GetSigningAddress returns the address derived from signing key
+func (s *LocalSigner) GetSigningAddress() ethcommon.Address {
+	return crypto.PubkeyToAddress(s.signingKey.PublicKey)
 }
 
 // Sign implements Signer interface
@@ -73,7 +104,7 @@ func (s *LocalSigner) Sign(message []byte) ([]byte, error) {
 	hash := crypto.Keccak256Hash(message)
 	
 	// Sign the hash
-	signature, err := crypto.Sign(hash.Bytes(), s.privateKey)
+	signature, err := crypto.Sign(hash.Bytes(), s.signingKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %v", err)
 	}
@@ -88,7 +119,7 @@ func (s *LocalSigner) GetAddress() ethcommon.Address {
 
 // GetPublicKey implements Signer interface
 func (s *LocalSigner) GetPublicKey() *ecdsa.PublicKey {
-	return &s.privateKey.PublicKey
+	return &s.signingKey.PublicKey
 }
 
 // VerifySignature verifies if the signature was signed by the given address
@@ -109,7 +140,7 @@ func VerifySignature(address ethcommon.Address, message []byte, signature []byte
 
 // GetSigningKey returns the signing key (public key) as hex string
 func (s *LocalSigner) GetSigningKey() string {
-	return crypto.PubkeyToAddress(s.privateKey.PublicKey).Hex()
+	return crypto.PubkeyToAddress(s.signingKey.PublicKey).Hex()
 }
 
 // SignTaskResponse signs a task response with all required fields
@@ -126,7 +157,7 @@ func (s *LocalSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
 	hash := crypto.Keccak256(msg)
 
 	// Sign the hash
-	return crypto.Sign(hash, s.privateKey)
+	return crypto.Sign(hash, s.signingKey)
 }
 
 // VerifyTaskResponse verifies a task response signature

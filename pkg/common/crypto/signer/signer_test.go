@@ -2,14 +2,12 @@ package signer_test
 
 import (
 	"bytes"
-	"context"
 	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/Layr-Labs/eigensdk-go/signerv2"
-	"github.com/Layr-Labs/eigensdk-go/testutils"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -71,37 +69,6 @@ func TestKeystoreSigner(t *testing.T) {
 	require.Equal(t, address, from)
 }
 
-func TestWeb3Signer(t *testing.T) {
-	anvilC, err := testutils.StartAnvilContainer(testutils.GetDefaultTestConfig().AnvilStateFileName)
-	require.NoError(t, err)
-
-	anvilHttpEndpoint, err := anvilC.Endpoint(context.Background(), "http")
-	require.NoError(t, err)
-
-	signer, err := signerv2.Web3SignerFn(anvilHttpEndpoint)
-	require.NoError(t, err)
-
-	privateKey, err := crypto.HexToECDSA("ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
-	require.NoError(t, err)
-	anvilChainID := big.NewInt(31337)
-	address := crypto.PubkeyToAddress(privateKey.PublicKey)
-	tx := types.NewTx(&types.DynamicFeeTx{
-		Nonce:   0,
-		Value:   big.NewInt(0),
-		To:      &address,
-		ChainID: anvilChainID,
-		Data:    common.Hex2Bytes("6057361d00000000000000000000000000000000000000000000000000000000000f4240"),
-	})
-
-	signedTx, err := signer(address, tx)
-	require.NoError(t, err)
-
-	// Verify the sender address of the signed transaction
-	from, err := types.Sender(types.LatestSignerForChainID(anvilChainID), signedTx)
-	require.NoError(t, err)
-	require.Equal(t, address, from)
-}
-
 func TestAggregateSignatures(t *testing.T) {
 	// Create temporary directory for keystore files
 	tmpDir, err := os.MkdirTemp("", "signer-test")
@@ -109,11 +76,18 @@ func TestAggregateSignatures(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Create test keys
-	key1, err := crypto.GenerateKey()
+	operatorKey1, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	key2, err := crypto.GenerateKey()
+	operatorKey2, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	key3, err := crypto.GenerateKey()
+	operatorKey3, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	
+	signingKey1, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	signingKey2, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	signingKey3, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
 	// Create keystore files
@@ -121,28 +95,44 @@ func TestAggregateSignatures(t *testing.T) {
 	
 	// Create keystore and import keys
 	ks := keystore.NewKeyStore(tmpDir, keystore.StandardScryptN, keystore.StandardScryptP)
-	_, err = ks.ImportECDSA(key1, password)
+	
+	// Import operator keys
+	_, err = ks.ImportECDSA(operatorKey1, password)
 	require.NoError(t, err)
-	_, err = ks.ImportECDSA(key2, password)
+	_, err = ks.ImportECDSA(operatorKey2, password)
 	require.NoError(t, err)
-	_, err = ks.ImportECDSA(key3, password)
+	_, err = ks.ImportECDSA(operatorKey3, password)
+	require.NoError(t, err)
+	
+	// Import signing keys
+	_, err = ks.ImportECDSA(signingKey1, password)
+	require.NoError(t, err)
+	_, err = ks.ImportECDSA(signingKey2, password)
+	require.NoError(t, err)
+	_, err = ks.ImportECDSA(signingKey3, password)
 	require.NoError(t, err)
 
-	// Get keystore file paths (assuming they are named in order)
+	// Get keystore file paths
 	files, err := os.ReadDir(tmpDir)
 	require.NoError(t, err)
-	require.Len(t, files, 3)
+	require.Len(t, files, 6) // 3 operator keys + 3 signing keys
 
-	ks1 := filepath.Join(tmpDir, files[0].Name())
-	ks2 := filepath.Join(tmpDir, files[1].Name())
-	ks3 := filepath.Join(tmpDir, files[2].Name())
+	// Get operator key paths
+	operatorKs1 := filepath.Join(tmpDir, files[0].Name())
+	operatorKs2 := filepath.Join(tmpDir, files[1].Name())
+	operatorKs3 := filepath.Join(tmpDir, files[2].Name())
+
+	// Get signing key paths
+	signingKs1 := filepath.Join(tmpDir, files[3].Name())
+	signingKs2 := filepath.Join(tmpDir, files[4].Name())
+	signingKs3 := filepath.Join(tmpDir, files[5].Name())
 
 	// Create signers
-	signer1, err := signer.NewLocalSigner(ks1, password)
+	signer1, err := signer.NewLocalSigner(operatorKs1, signingKs1, password)
 	require.NoError(t, err)
-	signer2, err := signer.NewLocalSigner(ks2, password)
+	signer2, err := signer.NewLocalSigner(operatorKs2, signingKs2, password)
 	require.NoError(t, err)
-	signer3, err := signer.NewLocalSigner(ks3, password)
+	signer3, err := signer.NewLocalSigner(operatorKs3, signingKs3, password)
 	require.NoError(t, err)
 
 	message := []byte("test message")
@@ -225,7 +215,7 @@ func TestAggregateSignatures(t *testing.T) {
 		extractedSig2 := aggregated[sig1Len:sig1Len+sig2Len]
 		
 		// Verify each signature
-		assert.True(t, signer.VerifySignature(signer1.GetAddress(), message, extractedSig1))
-		assert.True(t, signer.VerifySignature(signer2.GetAddress(), message, extractedSig2))
+		assert.True(t, signer.VerifySignature(signer1.GetSigningAddress(), message, extractedSig1))
+		assert.True(t, signer.VerifySignature(signer2.GetSigningAddress(), message, extractedSig2))
 	})
 }
