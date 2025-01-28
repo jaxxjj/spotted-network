@@ -82,6 +82,7 @@ func NewTaskProcessor(node *Node, signer OperatorSigner, task TaskQuerier, taskR
 	go tp.handleResponses(sub)
 	go tp.checkTimeouts(ctx)
 	go tp.checkConfirmations(ctx)
+	go tp.periodicCleanup(ctx)  // Start periodic cleanup
 
 	// Start periodic P2P status check
 	go func() {

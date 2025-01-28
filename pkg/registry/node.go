@@ -92,6 +92,20 @@ func NewNode(ctx context.Context, cfg *p2p.Config, operatorsQuerier OperatorsQue
 }
 
 func (n *Node) Start(ctx context.Context) error {
+	// Validate required components
+	if n.host == nil {
+		return fmt.Errorf("[Registry] host not initialized")
+	}
+	if n.operators == nil {
+		return fmt.Errorf("[Registry] operators database not initialized") 
+	}
+	if n.epochUpdator == nil {
+		return fmt.Errorf("[Registry] epoch updator not initialized")
+	}
+	if n.eventListener == nil {
+		return fmt.Errorf("[Registry] event listener not initialized")
+	}
+
 	// Start state sync service
 	if err := n.startStateSync(ctx); err != nil {
 		return fmt.Errorf("failed to start state sync service: %w", err)

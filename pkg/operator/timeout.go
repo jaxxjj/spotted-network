@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"log"
+	"math/big"
 	"time"
 
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
@@ -168,3 +169,35 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 		}
 	}
 }
+
+// periodicCleanup runs cleanup of all task maps periodically
+func (tp *TaskProcessor) periodicCleanup(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			log.Printf("[TaskProcessor] Starting periodic cleanup...")
+			tp.cleanupAllTasks()
+		}
+	}
+}
+
+// cleanupAllTasks removes all task data from local maps
+func (tp *TaskProcessor) cleanupAllTasks() {
+	// Clean up responses map
+	tp.responsesMutex.Lock()
+	tp.responses = make(map[string]map[string]*task_responses.TaskResponses)
+	tp.responsesMutex.Unlock()
+
+	// Clean up weights map
+	tp.weightsMutex.Lock()
+	tp.taskWeights = make(map[string]map[string]*big.Int)
+	tp.weightsMutex.Unlock()
+
+	log.Printf("[TaskProcessor] Cleaned up all local task maps")
+}
+
