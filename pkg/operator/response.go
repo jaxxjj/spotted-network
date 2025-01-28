@@ -169,6 +169,7 @@ func (tp *TaskProcessor) broadcastResponse(response *task_responses.TaskResponse
 		TargetAddress: response.TargetAddress,
 		Key:          commonHelpers.NumericToString(response.Key),
 		Epoch:        response.Epoch,
+		Timestamp:    response.Timestamp,
 	}
 
 	// Marshal message

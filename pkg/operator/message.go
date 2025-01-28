@@ -81,6 +81,11 @@ func (n *Node) handleMessages(stream network.Stream) {
 }
 
 func (n *Node) announceToRegistry() ([]*peer.AddrInfo, error) {
+	// Validate signer
+	if n.signer == nil {
+		return nil, fmt.Errorf("[Announce] signer not initialized")
+	}
+
 	log.Printf("[Announce] Starting to announce to registry %s", n.registryID)
 	
 	// Create context with timeout

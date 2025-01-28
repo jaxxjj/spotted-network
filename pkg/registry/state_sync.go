@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	heartbeatInterval = 30 * time.Second
-	heartbeatTimeout  = 10 * time.Second
+	heartbeatInterval = 10 * time.Second
+	heartbeatTimeout  = 30 * time.Second
+	maxMessageSize   = 1024 * 1024
 )
 
 // Start initializes the state sync service
@@ -117,10 +118,7 @@ func (n *Node) Subscribe(peerID peer.ID, stream network.Stream) {
 		delete(n.subscribers, peerID)
 	}
 
-	// Set read and write deadlines
-	stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
-	stream.SetWriteDeadline(time.Now().Add(heartbeatTimeout))
-
+	// Add new subscriber without setting fixed deadlines
 	n.subscribers[peerID] = stream
 	log.Printf("[StateSync] New subscriber added: %s", peerID)
 }
@@ -135,8 +133,11 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 	heartbeat := time.NewTicker(heartbeatInterval)
 	defer heartbeat.Stop()
 
-	// Read buffer
-	buf := make([]byte, 1024)
+	// Read buffer for message type
+	msgType := make([]byte, 1)
+
+	// Set initial read deadline
+	stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
 
 	for {
 		select {
@@ -147,21 +148,34 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 				n.Unsubscribe(peer)
 				return
 			}
-		default:
-			// Set read deadline
+			// Update read deadline after successful heartbeat
 			stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
-			
-			// Read data
-			_, err := stream.Read(buf)
-			if err != nil {
+		default:
+			// Read message type
+			if _, err := io.ReadFull(stream, msgType); err != nil {
 				if err != io.EOF {
-					log.Printf("[StateSync] Error reading from subscriber %s: %v", peer, err)
+					log.Printf("[StateSync] Error reading message type from %s: %v", peer, err)
 				} else {
-					log.Printf("[StateSync] Subscriber %s closed connection", peer)
+					log.Printf("[StateSync] Connection closed by %s", peer)
 				}
 				n.Unsubscribe(peer)
 				return
 			}
+
+			// Handle different message types
+			switch msgType[0] {
+			case 0x04: // Heartbeat response
+				log.Printf("[StateSync] Received heartbeat response from %s", peer)
+				// Update read deadline after receiving heartbeat response
+				stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
+			default:
+				log.Printf("[StateSync] Received unknown message type 0x%02x from %s", msgType[0], peer)
+				n.Unsubscribe(peer)
+				return
+			}
+
+			// Small sleep to prevent tight loop
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
 }
@@ -199,18 +213,25 @@ func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType st
 
 	data, err := proto.Marshal(update)
 	if err != nil {
-		log.Printf("Error marshaling state update: %v", err)
+		log.Printf("[StateSync] Error marshaling state update: %v", err)
 		return
 	}
 
-	// Prepare message type and length prefix
-	msgType := []byte{0x02} // 0x02 for state update
+	// Validate message size
+	if len(data) > maxMessageSize {
+		log.Printf("[StateSync] State update too large (%d bytes), max allowed size is %d bytes", len(data), maxMessageSize)
+		return
+	}
+
+	// Prepare message
 	length := uint32(len(data))
-	lengthBytes := make([]byte, 4)
-	lengthBytes[0] = byte(length >> 24)
-	lengthBytes[1] = byte(length >> 16)
-	lengthBytes[2] = byte(length >> 8)
-	lengthBytes[3] = byte(length)
+	message := make([]byte, 5+len(data)) // 1 byte type + 4 bytes length + data
+	message[0] = 0x02 // State update type
+	message[1] = byte(length >> 24)
+	message[2] = byte(length >> 16)
+	message[3] = byte(length >> 8)
+	message[4] = byte(length)
+	copy(message[5:], data)
 
 	n.subscribersMu.RLock()
 	defer n.subscribersMu.RUnlock()
@@ -218,36 +239,20 @@ func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType st
 	for peer, stream := range n.subscribers {
 		// Set write deadline
 		if err := stream.SetWriteDeadline(time.Now().Add(heartbeatTimeout)); err != nil {
-			log.Printf("Error setting write deadline for %s: %v", peer, err)
+			log.Printf("[StateSync] Error setting write deadline for %s: %v", peer, err)
 			n.Unsubscribe(peer)
 			continue
 		}
 
-		// Write message type
-		if _, err := stream.Write(msgType); err != nil {
-			log.Printf("Error sending message type to %s: %v", peer, err)
-			stream.Reset()
-			delete(n.subscribers, peer)
+		// Write entire message in one call
+		if _, err := stream.Write(message); err != nil {
+			log.Printf("[StateSync] Error sending update to %s: %v", peer, err)
+			n.Unsubscribe(peer)
 			continue
 		}
 
-		// Write length prefix
-		if _, err := stream.Write(lengthBytes); err != nil {
-			log.Printf("Error sending length prefix to %s: %v", peer, err)
-			stream.Reset()
-			delete(n.subscribers, peer)
-			continue
-		}
-
-		// Write protobuf data
-		if _, err := stream.Write(data); err != nil {
-			log.Printf("Error sending update data to %s: %v", peer, err)
-			stream.Reset()
-			delete(n.subscribers, peer)
-		} else {
-			log.Printf("Sent state update to %s - Type: %s, Length: %d, Operators: %d", 
-				peer, updateType, length, len(operators))
-		}
+		log.Printf("[StateSync] Sent state update to %s - Type: %s, Length: %d, Operators: %d", 
+			peer, updateType, length, len(operators))
 	}
 }
 

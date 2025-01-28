@@ -30,11 +30,11 @@ type Node struct {
 	registryID     peer.ID
 	registryAddr   string
 	signer         OperatorSigner
+	chainManager   ChainManager
 	knownOperators map[peer.ID]*peer.AddrInfo
 	operators      map[peer.ID]*OperatorInfo
 	operatorsMu    sync.RWMutex
 	pingService    *ping.PingService
-	chainManager   ChainManager
 	operatorStates map[string]*pb.OperatorState
 	statesMu       sync.RWMutex
 	
@@ -53,6 +53,20 @@ type Node struct {
 }
 
 func NewNode(registryAddr string, cfg *config.Config, chainManager ChainManager, signer OperatorSigner) (*Node, error) {
+	// Validate input parameters
+	if registryAddr == "" {
+		return nil, fmt.Errorf("registry address is required")
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+	if chainManager == nil {
+		return nil, fmt.Errorf("chain manager is required")
+	}
+	if signer == nil {
+		return nil, fmt.Errorf("signer is required")
+	}
+
 	// Parse the registry multiaddr
 	maddr, err := multiaddr.NewMultiaddr(registryAddr)
 	if err != nil {
@@ -108,6 +122,8 @@ func NewNode(registryAddr string, cfg *config.Config, chainManager ChainManager,
 		host:           host,
 		registryID:     addrInfo.ID,
 		registryAddr:   registryAddr,
+		signer:         signer,
+		chainManager:   chainManager,
 		knownOperators: make(map[peer.ID]*peer.AddrInfo),
 		operators:      make(map[peer.ID]*OperatorInfo),
 		operatorsMu:    sync.RWMutex{},
@@ -116,10 +132,11 @@ func NewNode(registryAddr string, cfg *config.Config, chainManager ChainManager,
 		statesMu:       sync.RWMutex{},
 		db:            db,
 		PubSub:        ps,
+		epochState:    epochStatesQuerier,
 	}
 
 	// Initialize task processor
-	taskProcessor, err := NewTaskProcessor(node, signer, taskQuerier, taskResponseQuerier, consensusResponseQuerier, epochStatesQuerier)
+	taskProcessor, err := NewTaskProcessor(node, signer, taskQuerier, taskResponseQuerier, consensusResponseQuerier, epochStatesQuerier, chainManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task processor: %w", err)
 	}
@@ -141,6 +158,29 @@ func NewNode(registryAddr string, cfg *config.Config, chainManager ChainManager,
 }
 
 func (n *Node) Start(ctx context.Context) error {
+	// Validate required components
+	if n.signer == nil {
+		return fmt.Errorf("[Node] signer not initialized")
+	}
+	if n.host == nil {
+		return fmt.Errorf("[Node] host not initialized")
+	}
+	if n.registryID == "" {
+		return fmt.Errorf("[Node] registry ID not set")
+	}
+	if n.db == nil {
+		return fmt.Errorf("[Node] database connection not initialized")
+	}
+	if n.taskProcessor == nil {
+		return fmt.Errorf("[Node] task processor not initialized")
+	}
+	if n.chainManager == nil {
+		return fmt.Errorf("[Node] chain manager not initialized")
+	}
+	if n.epochState == nil {
+		return fmt.Errorf("[Node] epoch state querier not initialized")
+	}
+
 	log.Printf("[Node] Starting operator node with ID: %s", n.host.ID())
 	log.Printf("[Node] Listening addresses: %v", n.host.Addrs())
 

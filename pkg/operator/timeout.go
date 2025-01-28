@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"time"
+
+	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 )
 
 const (
@@ -69,10 +71,20 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 				}
 				
 				// Try to process the task
-				if err := tp.ProcessTask(ctx, &task); err != nil {
+				err = tp.ProcessTask(ctx, &task)
+				if err != nil {
 					log.Printf("[Timeout] Failed to process task %s: %v", task.TaskID, err)
 				} else {
-					log.Printf("[Timeout] Successfully processed pending task %s", task.TaskID)
+					// Check if task was already processed
+					_, err := tp.taskResponse.GetTaskResponse(ctx, task_responses.GetTaskResponseParams{
+						TaskID: task.TaskID,
+						OperatorAddress: tp.signer.Address(),
+					})
+					if err == nil {
+						log.Printf("[Timeout] Task %s was already processed, skipping", task.TaskID)
+					} else {
+						log.Printf("[Timeout] Successfully processed pending task %s", task.TaskID)
+					}
 				}
 			}
 		}

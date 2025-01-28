@@ -59,13 +59,13 @@ check-consensus-operator3:
 # Create a new sample task
 create-task-operator1:
 	@echo "Creating new task..."
-	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8001/api/v1/task
+	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8001/api/v1/tasks
 create-task-operator2:
 	@echo "Creating new task..."
-	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8002/api/v1/task
+	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8002/api/v1/tasks
 create-task-operator3:
 	@echo "Creating new task..."
-	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8003/api/v1/task
+	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8003/api/v1/tasks
 
 # Mine 15 blocks
 mine-15:
@@ -73,8 +73,8 @@ mine-15:
 	@curl -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"anvil_mine","params":["0xF"],"id":1}' http://localhost:8545
 
 # Get final task
-get-final-response:
-	@curl -X GET "http://localhost:8001/api/v1/task/198de38b1d6b0d346c6bd9f97277643b8d8e0cd659c87ce1bf97032d187b0965/final" 
+get-final-response-taskId:
+	@curl -X GET "http://localhost:8001/api/v1/consensus/tasks/ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6"
 
 # Build both binaries
 build:

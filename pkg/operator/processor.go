@@ -38,7 +38,7 @@ type TaskProcessor struct {
 } 
 
 // NewTaskProcessor creates a new task processor
-func NewTaskProcessor(node *Node, signer OperatorSigner, task TaskQuerier, taskResponse TaskResponseQuerier, consensusResponse ConsensusResponseQuerier, epochState EpochStateQuerier) (*TaskProcessor, error) {
+func NewTaskProcessor(node *Node, signer OperatorSigner, task TaskQuerier, taskResponse TaskResponseQuerier, consensusResponse ConsensusResponseQuerier, epochState EpochStateQuerier, chainManager ChainManager) (*TaskProcessor, error) {
 	// Create response topic
 	responseTopic, err := node.PubSub.Join(TaskResponseTopic)
 	if err != nil {
@@ -53,6 +53,7 @@ func NewTaskProcessor(node *Node, signer OperatorSigner, task TaskQuerier, taskR
 		taskResponse:   taskResponse,
 		consensusResponse:   consensusResponse,
 		epochState: epochState,
+		chainManager: chainManager,
 		responseTopic: responseTopic,
 		responses:     make(map[string]map[string]*task_responses.TaskResponses),
 		taskWeights:   make(map[string]map[string]*big.Int),
