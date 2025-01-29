@@ -17,7 +17,8 @@ import (
 
 func main() {
 	registryAddr := flag.String("registry", "", "Registry node address")
-	keystorePath := flag.String("keystore", "", "Path to keystore file")
+	operatorKeyPath := flag.String("operator-key", "", "Path to operator keystore file")
+	signingKeyPath := flag.String("signing-key", "", "Path to signing keystore file")
 	password := flag.String("password", "", "Password for keystore")
 	message := flag.String("message", "", "Message to sign")
 	getRegistryID := flag.Bool("get-registry-id", false, "Get registry ID")
@@ -44,7 +45,7 @@ func main() {
 	}
 
 	// Create signer
-	s, err := signer.NewLocalSigner(*keystorePath, *password)
+	s, err := signer.NewLocalSigner(*operatorKeyPath, *signingKeyPath, *password)
 	if err != nil {
 		log.Fatal("Failed to create signer:", err)
 	}
@@ -59,13 +60,13 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		addr := s.GetAddress()
-		sig, err := s.Sign([]byte(*message))
+		addr := s.GetOperatorAddress()
+		sig, err := s.SignJoinRequest([]byte(*message))
 		if err != nil {
 			log.Fatal("Failed to sign message:", err)
 		}
 
-		success, err := client.Join(ctx, addr.Hex(), *message, hex.EncodeToString(sig), s.GetSigningKey())
+		success, err := client.Join(ctx, addr.Hex(), *message, hex.EncodeToString(sig), s.GetSigningAddress().Hex())
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -76,7 +77,7 @@ func main() {
 	}
 
 	if *message != "" {
-		// Sign message
+		// Sign message with signing key
 		sig, err := s.Sign([]byte(*message))
 		if err != nil {
 			log.Fatal("Failed to sign message:", err)
@@ -86,10 +87,7 @@ func main() {
 	}
 
 	if *registryAddr == "" {
-		// Get address
-		addr := s.GetAddress()
-		fmt.Print(addr.Hex())
-		return
+		log.Fatal("Registry address is required")
 	}
 
 	// Get config path from environment variable

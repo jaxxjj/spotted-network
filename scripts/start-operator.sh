@@ -1,11 +1,9 @@
 #!/bin/bash
 
 # default values for environment variables
-# Replace your keystore path and password here
-KEYSTORE_PATH=${KEYSTORE_PATH:-"/app/dummy.key.json"} 
-KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD:-"testpassword"}
 
-echo "Starting operator with keystore: $KEYSTORE_PATH"
+echo "Starting operator with operator key: $OPERATOR_KEY_PATH"
+echo "Using signing key: $SIGNING_KEY_PATH"
 echo "Using config file: $CONFIG_PATH"
 
 # Wait for registry gRPC endpoint to be ready
@@ -18,7 +16,7 @@ echo "Registry gRPC endpoint is ready"
 
 # Get registry host ID
 echo "Getting registry host ID..."
-REGISTRY_ID=$(./operator -keystore "$KEYSTORE_PATH" -password "$KEYSTORE_PASSWORD" -registry "registry:8000" -get-registry-id)
+REGISTRY_ID=$(./operator -operator-key "$OPERATOR_KEY_PATH" -signing-key "$SIGNING_KEY_PATH" -password "$KEYSTORE_PASSWORD" -registry "registry:8000" -get-registry-id)
 echo "Got registry ID: $REGISTRY_ID"
 
 # Create join message
@@ -27,17 +25,17 @@ echo "Created join message: $JOIN_MSG"
 
 # Get operator address
 echo "Getting operator address..."
-OPERATOR_ADDR=$(./operator -keystore "$KEYSTORE_PATH" -password "$KEYSTORE_PASSWORD")
+OPERATOR_ADDR=$(./operator -operator-key "$OPERATOR_KEY_PATH" -signing-key "$SIGNING_KEY_PATH" -password "$KEYSTORE_PASSWORD")
 echo "Operator address: $OPERATOR_ADDR"
 
 # Sign message
 echo "Signing message..."
-MSG_SIG=$(./operator -keystore "$KEYSTORE_PATH" -password "$KEYSTORE_PASSWORD" -message "$JOIN_MSG")
+MSG_SIG=$(./operator -operator-key "$OPERATOR_KEY_PATH" -signing-key "$SIGNING_KEY_PATH" -password "$KEYSTORE_PASSWORD" -message "$JOIN_MSG")
 echo "Message signature: $MSG_SIG"
 
 # Submit join request
 echo "Submitting join request..."
-./operator -keystore "$KEYSTORE_PATH" -password "$KEYSTORE_PASSWORD" -registry "registry:8000" -join "$JOIN_MSG" "$MSG_SIG"
+./operator -operator-key "$OPERATOR_KEY_PATH" -signing-key "$SIGNING_KEY_PATH" -password "$KEYSTORE_PASSWORD" -registry "registry:8000" -join "$JOIN_MSG" "$MSG_SIG"
 echo "Join request successful"
 
 # Get registry IP for P2P connection
@@ -50,4 +48,4 @@ echo "Connecting to registry at: $REGISTRY_MULTIADDR"
 
 # Start operator node
 echo "Starting operator node..."
-./operator -keystore "$KEYSTORE_PATH" -password "$KEYSTORE_PASSWORD" -registry "$REGISTRY_MULTIADDR" 
+./operator -operator-key "$OPERATOR_KEY_PATH" -signing-key "$SIGNING_KEY_PATH" -password "$KEYSTORE_PASSWORD" -registry "$REGISTRY_MULTIADDR"

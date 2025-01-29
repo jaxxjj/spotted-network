@@ -79,7 +79,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 					// Check if task was already processed
 					_, err := tp.taskResponse.GetTaskResponse(ctx, task_responses.GetTaskResponseParams{
 						TaskID: task.TaskID,
-						OperatorAddress: tp.signer.Address(),
+						OperatorAddress: tp.signer.GetOperatorAddress().Hex(),
 					})
 					if err == nil {
 						log.Printf("[Timeout] Task %s was already processed, skipping", task.TaskID)

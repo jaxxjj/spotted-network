@@ -9,9 +9,6 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
-// OperatorStatus represents the status of an operator
-type OperatorStatus string
-
 const (
 	// Task processor constants
 	TaskResponseProtocol = "/spotted/task-response/1.0.0"

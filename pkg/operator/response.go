@@ -52,15 +52,9 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			continue
 		}
 
-		// Skip messages from self (检查operator address)
-		if strings.EqualFold(pbMsg.OperatorAddress, tp.signer.Address()) {
+		// Skip messages from self (operator address)
+		if strings.EqualFold(pbMsg.OperatorAddress, tp.signer.GetOperatorAddress().Hex()) {
 			log.Printf("[Response] Skipping message from self operator: %s", pbMsg.OperatorAddress)
-			continue
-		}
-
-		// Skip messages with our signing key
-		if strings.EqualFold(pbMsg.SigningKey, tp.signer.GetSigningKey()) {
-			log.Printf("[Response] Skipping message with self signing key: %s", pbMsg.SigningKey)
 			continue
 		}
 
@@ -111,7 +105,7 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		tp.weightsMutex.Unlock()
 		log.Printf("[Response] Stored weight in memory for task %s from operator %s", response.TaskID, response.OperatorAddress)
 
-		// Store in database
+		// Store in database TODO: need to store?
 		if err := tp.storeResponse(context.Background(), response); err != nil {
 			if !strings.Contains(err.Error(), "duplicate key value") {
 				log.Printf("[Response] Failed to store response: %v", err)
@@ -124,7 +118,7 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 
 		// Check if we need to process this task
 		tp.responsesMutex.RLock()
-		_, processed := tp.responses[response.TaskID][tp.signer.Address()]
+		_, processed := tp.responses[response.TaskID][tp.signer.GetOperatorAddress().Hex()]
 		tp.responsesMutex.RUnlock()
 
 		if !processed {
@@ -161,7 +155,7 @@ func (tp *TaskProcessor) broadcastResponse(response *task_responses.TaskResponse
 	msg := &pb.TaskResponseMessage{
 		TaskId:        response.TaskID,
 		OperatorAddress:  response.OperatorAddress,
-		SigningKey:    tp.signer.GetSigningKey(),
+		SigningKey:    tp.signer.GetSigningAddress().Hex(),
 		Signature:     response.Signature,
 		Value:         commonHelpers.NumericToString(response.Value),
 		BlockNumber:   response.BlockNumber,
@@ -261,5 +255,5 @@ func (tp *TaskProcessor) verifyResponse(response *task_responses.TaskResponses) 
 	}
 
 	// signature verification
-	return tp.signer.VerifyTaskResponse(params, response.Signature, response.OperatorAddress)
+	return tp.signer.VerifyTaskResponse(params, response.Signature, response.SigningKey)
 }

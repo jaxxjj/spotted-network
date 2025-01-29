@@ -25,18 +25,16 @@ type TaskSignParams struct {
 type Signer interface {
 	// Sign signs the message with the private key
 	Sign(message []byte) ([]byte, error)
-	// GetAddress returns the ethereum address associated with the signer
-	GetAddress() ethcommon.Address
-	// GetPublicKey returns the public key associated with the signer
-	GetPublicKey() *ecdsa.PublicKey
-	// GetSigningKey returns the signing key (public key) as hex string
-	GetSigningKey() string
+	// GetOperatorAddress returns the operator's address (from operator key)
+	GetOperatorAddress() ethcommon.Address
+	// GetSigningAddress returns the address derived from signing key
+	GetSigningAddress() ethcommon.Address
+	// SignJoinRequest signs a join request using the operator key
+	SignJoinRequest(message []byte) ([]byte, error)
 	// SignTaskResponse signs a task response
 	SignTaskResponse(params TaskSignParams) ([]byte, error)
 	// VerifyTaskResponse verifies a task response signature
 	VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error
-	// Address returns the signer's address as string
-	Address() string
 	// AggregateSignatures combines multiple signatures into one
 	AggregateSignatures(sigs map[string][]byte) []byte
 }
@@ -98,6 +96,11 @@ func (s *LocalSigner) GetSigningAddress() ethcommon.Address {
 	return crypto.PubkeyToAddress(s.signingKey.PublicKey)
 }
 
+// GetSigningPublicKey implements Signer interface
+func (s *LocalSigner) GetSigningPublicKey() *ecdsa.PublicKey {
+	return &s.signingKey.PublicKey
+}
+
 // Sign implements Signer interface
 func (s *LocalSigner) Sign(message []byte) ([]byte, error) {
 	// Hash the message
@@ -110,16 +113,6 @@ func (s *LocalSigner) Sign(message []byte) ([]byte, error) {
 	}
 
 	return signature, nil
-}
-
-// GetAddress implements Signer interface
-func (s *LocalSigner) GetAddress() ethcommon.Address {
-	return s.address
-}
-
-// GetPublicKey implements Signer interface
-func (s *LocalSigner) GetPublicKey() *ecdsa.PublicKey {
-	return &s.signingKey.PublicKey
 }
 
 // VerifySignature verifies if the signature was signed by the given address
@@ -136,11 +129,6 @@ func VerifySignature(address ethcommon.Address, message []byte, signature []byte
 	// Verify address matches
 	recoveredAddr := crypto.PubkeyToAddress(*pubkey)
 	return address == recoveredAddr
-}
-
-// GetSigningKey returns the signing key (public key) as hex string
-func (s *LocalSigner) GetSigningKey() string {
-	return crypto.PubkeyToAddress(s.signingKey.PublicKey).Hex()
 }
 
 // SignTaskResponse signs a task response with all required fields
@@ -183,39 +171,6 @@ func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte
 	recoveredAddr := crypto.PubkeyToAddress(*pubKey)
 	if recoveredAddr.Hex() != signerAddr {
 		return fmt.Errorf("invalid signature: recovered address %s does not match signer %s", recoveredAddr.Hex(), signerAddr)
-	}
-
-	return nil
-}
-
-// Address returns the signer's address as string
-func (s *LocalSigner) Address() string {
-	return s.address.Hex()
-}
-
-// VerifySignature verifies if the signature matches the task parameters
-func (s *LocalSigner) VerifySignature(signature []byte, params TaskSignParams) error {
-	// Pack parameters into bytes
-	msg := []byte{}
-	msg = append(msg, params.User.Bytes()...)
-	msg = append(msg, ethcommon.LeftPadBytes(big.NewInt(int64(params.ChainID)).Bytes(), 32)...)
-	msg = append(msg, ethcommon.LeftPadBytes(big.NewInt(int64(params.BlockNumber)).Bytes(), 32)...)
-	msg = append(msg, ethcommon.LeftPadBytes(params.Key.Bytes(), 32)...)
-	msg = append(msg, ethcommon.LeftPadBytes(params.Value.Bytes(), 32)...)
-
-	// Hash the message
-	hash := crypto.Keccak256(msg)
-
-	// Recover public key
-	pubkey, err := crypto.SigToPub(hash, signature)
-	if err != nil {
-		return fmt.Errorf("failed to recover public key: %w", err)
-	}
-
-	// Convert public key to address
-	recoveredAddr := crypto.PubkeyToAddress(*pubkey)
-	if recoveredAddr != params.User {
-		return fmt.Errorf("invalid signature: recovered address %s does not match expected %s", recoveredAddr.Hex(), params.User.Hex())
 	}
 
 	return nil

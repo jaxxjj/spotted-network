@@ -142,7 +142,8 @@ services:
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
       - DATABASE_URL=postgresql://spotted:spotted@postgres_operator1:5432/operator1?sslmode=disable
-      - KEYSTORE_PATH=/app/keys/operator1.key.json
+      - OPERATOR_KEY_PATH=/app/keys/operator/operator1.key.json
+      - SIGNING_KEY_PATH=/app/keys/signing/operator1.key.json
       - KEYSTORE_PASSWORD=testpassword
       - CONFIG_PATH=/app/config/operator.yaml
       - LOG_LEVEL=debug
@@ -150,7 +151,8 @@ services:
       - HTTP_PORT=8001
       - CHAIN_RPC_URL=http://host.docker.internal:8545
     volumes:
-      - ./keys/operator1.key.json:/app/keys/operator1.key.json
+      - ./keys/operator/operator1.key.json:/app/keys/operator/operator1.key.json
+      - ./keys/signing/operator1.key.json:/app/keys/signing/operator1.key.json
       - ./config:/app/config
       - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
     networks:
@@ -186,11 +188,13 @@ services:
       - P2P_PORT=10001
       - HTTP_PORT=8002
       - LOG_LEVEL=debug
-      - KEYSTORE_PATH=/app/keys/operator2.key.json
+      - OPERATOR_KEY_PATH=/app/keys/operator/operator2.key.json
+      - SIGNING_KEY_PATH=/app/keys/signing/operator2.key.json
       - KEYSTORE_PASSWORD=testpassword
       - CONFIG_PATH=/app/config/operator.yaml
     volumes:
-      - ./keys/operator2.key.json:/app/keys/operator2.key.json
+      - ./keys/operator/operator2.key.json:/app/keys/operator/operator2.key.json
+      - ./keys/signing/operator2.key.json:/app/keys/signing/operator2.key.json
       - ./config:/app/config
       - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
     networks:
@@ -226,11 +230,13 @@ services:
       - P2P_PORT=10002
       - HTTP_PORT=8003
       - LOG_LEVEL=debug
-      - KEYSTORE_PATH=/app/keys/operator3.key.json
+      - OPERATOR_KEY_PATH=/app/keys/operator/operator3.key.json
+      - SIGNING_KEY_PATH=/app/keys/signing/operator3.key.json
       - KEYSTORE_PASSWORD=testpassword
       - CONFIG_PATH=/app/config/operator.yaml
     volumes:
-      - ./keys/operator3.key.json:/app/keys/operator3.key.json
+      - ./keys/operator/operator3.key.json:/app/keys/operator/operator3.key.json
+      - ./keys/signing/operator3.key.json:/app/keys/signing/operator3.key.json
       - ./config:/app/config
       - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
     networks:

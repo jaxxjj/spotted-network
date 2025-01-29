@@ -19,9 +19,8 @@ type OperatorSigner interface{
 	SignTaskResponse(params signer.TaskSignParams) ([]byte, error)
 	VerifyTaskResponse(params signer.TaskSignParams, signature []byte, signerAddr string) error
 	AggregateSignatures(sigs map[string][]byte) []byte
-	Address() string
-	GetSigningKey() string
-	GetAddress() ethcommon.Address
+	GetOperatorAddress() ethcommon.Address
+	GetSigningAddress() ethcommon.Address
 	Sign(message []byte) ([]byte, error)
 }
 
@@ -35,7 +34,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	// Check if we have already processed this task
 	tp.responsesMutex.RLock()
 	if responses, exists := tp.responses[task.TaskID]; exists {
-		if _, processed := responses[tp.signer.Address()]; processed {
+		if _, processed := responses[tp.signer.GetOperatorAddress().Hex()]; processed {
 			tp.responsesMutex.RUnlock()
 			log.Printf("[Task] Task %s already processed by this operator", task.TaskID)
 			return nil
@@ -46,7 +45,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	// Also check database
 	_, err := tp.taskResponse.GetTaskResponse(ctx, task_responses.GetTaskResponseParams{
 		TaskID: task.TaskID,
-		OperatorAddress: tp.signer.Address(),
+		OperatorAddress: tp.signer.GetOperatorAddress().Hex(),
 	})
 	if err == nil {
 		log.Printf("[Task] Task %s already processed and stored in database", task.TaskID)
@@ -110,8 +109,8 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	// Create response
 	response := &task_responses.TaskResponses{
 		TaskID:        task.TaskID,
-		OperatorAddress:  tp.signer.Address(),
-		SigningKey:    tp.signer.GetSigningKey(),
+		OperatorAddress:  tp.signer.GetOperatorAddress().Hex(),
+		SigningKey:    tp.signer.GetSigningAddress().Hex(),
 		Signature:     signature,
 		Value:         commonHelpers.BigIntToNumeric(value),
 		BlockNumber:   task.BlockNumber,
@@ -138,11 +137,11 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	if _, exists := tp.responses[task.TaskID]; !exists {
 		tp.responses[task.TaskID] = make(map[string]*task_responses.TaskResponses)
 	}
-	tp.responses[task.TaskID][tp.signer.Address()] = response
+	tp.responses[task.TaskID][tp.signer.GetOperatorAddress().Hex()] = response
 	tp.responsesMutex.Unlock()
 
 	// Get and store our own weight
-	weight, err := tp.getOperatorWeight(tp.signer.Address())
+	weight, err := tp.getOperatorWeight(tp.signer.GetOperatorAddress().Hex())
 	if err != nil {
 		return fmt.Errorf("failed to get own weight: %w", err)
 	}
@@ -150,7 +149,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	if _, exists := tp.taskWeights[task.TaskID]; !exists {
 		tp.taskWeights[task.TaskID] = make(map[string]*big.Int)
 	}
-	tp.taskWeights[task.TaskID][tp.signer.Address()] = weight
+	tp.taskWeights[task.TaskID][tp.signer.GetOperatorAddress().Hex()] = weight
 	tp.weightsMutex.Unlock()
 	log.Printf("[Task] Stored own weight %s for task %s", weight.String(), task.TaskID)
 

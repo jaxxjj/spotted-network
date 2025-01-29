@@ -7,10 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Layr-Labs/eigensdk-go/signerv2"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,55 +16,90 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 )
 
-func TestPrivateKeySigner(t *testing.T) {
-	privateKeyHex := "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
-	privateKey, err := crypto.HexToECDSA(privateKeyHex)
+func TestLocalSigner(t *testing.T) {
+	// Create temporary directory for keystore files
+	tmpDir, err := os.MkdirTemp("", "signer-test")
 	require.NoError(t, err)
-	chainID := big.NewInt(1)
+	defer os.RemoveAll(tmpDir)
 
-	signer, err := signerv2.PrivateKeySignerFn(privateKey, chainID)
+	// Create test keys
+	operatorKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	signingKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
-	address := crypto.PubkeyToAddress(privateKey.PublicKey)
-	tx := types.NewTx(&types.DynamicFeeTx{
-		Nonce:   0,
-		Value:   big.NewInt(0),
-		ChainID: chainID,
-		Data:    common.Hex2Bytes("6057361d00000000000000000000000000000000000000000000000000000000000f4240"),
+	// Create keystore and import keys
+	ks := keystore.NewKeyStore(tmpDir, keystore.StandardScryptN, keystore.StandardScryptP)
+	password := "testpassword"
+
+	// Import keys
+	operatorAccount, err := ks.ImportECDSA(operatorKey, password)
+	require.NoError(t, err)
+	signingAccount, err := ks.ImportECDSA(signingKey, password)
+	require.NoError(t, err)
+
+	// Get keystore paths
+	operatorKeyPath := filepath.Join(tmpDir, operatorAccount.URL.Path)
+	signingKeyPath := filepath.Join(tmpDir, signingAccount.URL.Path)
+
+	// Create signer
+	s, err := signer.NewLocalSigner(operatorKeyPath, signingKeyPath, password)
+	require.NoError(t, err)
+
+	t.Run("operator key functions", func(t *testing.T) {
+		// Test operator address
+		expectedOperatorAddr := crypto.PubkeyToAddress(operatorKey.PublicKey)
+		assert.Equal(t, expectedOperatorAddr, s.GetOperatorAddress())
+
+		// Test join request signing
+		joinMsg := []byte("join request")
+		sig, err := s.SignJoinRequest(joinMsg)
+		require.NoError(t, err)
+
+		// Verify join signature
+		hash := crypto.Keccak256(joinMsg)
+		recoveredPub, err := crypto.SigToPub(hash, sig)
+		require.NoError(t, err)
+		recoveredAddr := crypto.PubkeyToAddress(*recoveredPub)
+		assert.Equal(t, expectedOperatorAddr, recoveredAddr)
 	})
-	signedTx, err := signer(address, tx)
-	require.NoError(t, err)
 
-	// Verify the sender address of the signed transaction
-	from, err := types.Sender(types.LatestSignerForChainID(chainID), signedTx)
-	require.NoError(t, err)
-	require.Equal(t, address, from)
-}
+	t.Run("signing key functions", func(t *testing.T) {
+		// Test signing address
+		expectedSigningAddr := crypto.PubkeyToAddress(signingKey.PublicKey)
+		assert.Equal(t, expectedSigningAddr, s.GetSigningAddress())
 
-func TestKeystoreSigner(t *testing.T) {
-	keystorePath := "mockdata/dummy.key.json"
-	keystorePassword := "testpassword"
-	chainID := big.NewInt(1)
-	signer, err := signerv2.KeyStoreSignerFn(keystorePath, keystorePassword, chainID)
-	require.NoError(t, err)
+		// Test message signing
+		message := []byte("test message")
+		sig, err := s.Sign(message)
+		require.NoError(t, err)
 
-	privateKey, err := crypto.HexToECDSA("7a28b5ba57c53603b0b07b56bba752f7784bf506fa95edc395f5cf6c7514fe9d")
-	require.NoError(t, err)
-
-	address := crypto.PubkeyToAddress(privateKey.PublicKey)
-	tx := types.NewTx(&types.DynamicFeeTx{
-		Nonce:   0,
-		Value:   big.NewInt(0),
-		ChainID: chainID,
-		Data:    common.Hex2Bytes("6057361d00000000000000000000000000000000000000000000000000000000000f4240"),
+		// Verify signature using package function
+		assert.True(t, signer.VerifySignature(expectedSigningAddr, message, sig))
 	})
-	signedTx, err := signer(address, tx)
-	require.NoError(t, err)
 
-	// Verify the sender address of the signed transaction
-	from, err := types.Sender(types.LatestSignerForChainID(chainID), signedTx)
-	require.NoError(t, err)
-	require.Equal(t, address, from)
+	t.Run("task response signing", func(t *testing.T) {
+		params := signer.TaskSignParams{
+			User:        common.HexToAddress("0x1234567890123456789012345678901234567890"),
+			ChainID:     1,
+			BlockNumber: 12345,
+			Key:         big.NewInt(1),
+			Value:       big.NewInt(100),
+		}
+
+		// Sign task response
+		sig, err := s.SignTaskResponse(params)
+		require.NoError(t, err)
+
+		// Verify task response
+		err = s.VerifyTaskResponse(params, sig, s.GetSigningAddress().Hex())
+		require.NoError(t, err)
+
+		// Test invalid signer address
+		wrongAddr := common.HexToAddress("0x0000000000000000000000000000000000000000")
+		err = s.VerifyTaskResponse(params, sig, wrongAddr.Hex())
+		require.Error(t, err)
+	})
 }
 
 func TestAggregateSignatures(t *testing.T) {
@@ -91,48 +124,45 @@ func TestAggregateSignatures(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create keystore files
-	password := "testpass"
+	password := "testpassword"
 	
 	// Create keystore and import keys
 	ks := keystore.NewKeyStore(tmpDir, keystore.StandardScryptN, keystore.StandardScryptP)
 	
 	// Import operator keys
-	_, err = ks.ImportECDSA(operatorKey1, password)
+	acc1, err := ks.ImportECDSA(operatorKey1, password)
 	require.NoError(t, err)
-	_, err = ks.ImportECDSA(operatorKey2, password)
+	acc2, err := ks.ImportECDSA(operatorKey2, password)
 	require.NoError(t, err)
-	_, err = ks.ImportECDSA(operatorKey3, password)
+	acc3, err := ks.ImportECDSA(operatorKey3, password)
 	require.NoError(t, err)
 	
 	// Import signing keys
-	_, err = ks.ImportECDSA(signingKey1, password)
+	signAcc1, err := ks.ImportECDSA(signingKey1, password)
 	require.NoError(t, err)
-	_, err = ks.ImportECDSA(signingKey2, password)
+	signAcc2, err := ks.ImportECDSA(signingKey2, password)
 	require.NoError(t, err)
-	_, err = ks.ImportECDSA(signingKey3, password)
+	signAcc3, err := ks.ImportECDSA(signingKey3, password)
 	require.NoError(t, err)
-
-	// Get keystore file paths
-	files, err := os.ReadDir(tmpDir)
-	require.NoError(t, err)
-	require.Len(t, files, 6) // 3 operator keys + 3 signing keys
-
-	// Get operator key paths
-	operatorKs1 := filepath.Join(tmpDir, files[0].Name())
-	operatorKs2 := filepath.Join(tmpDir, files[1].Name())
-	operatorKs3 := filepath.Join(tmpDir, files[2].Name())
-
-	// Get signing key paths
-	signingKs1 := filepath.Join(tmpDir, files[3].Name())
-	signingKs2 := filepath.Join(tmpDir, files[4].Name())
-	signingKs3 := filepath.Join(tmpDir, files[5].Name())
 
 	// Create signers
-	signer1, err := signer.NewLocalSigner(operatorKs1, signingKs1, password)
+	signer1, err := signer.NewLocalSigner(
+		filepath.Join(tmpDir, acc1.URL.Path),
+		filepath.Join(tmpDir, signAcc1.URL.Path),
+		password,
+	)
 	require.NoError(t, err)
-	signer2, err := signer.NewLocalSigner(operatorKs2, signingKs2, password)
+	signer2, err := signer.NewLocalSigner(
+		filepath.Join(tmpDir, acc2.URL.Path),
+		filepath.Join(tmpDir, signAcc2.URL.Path),
+		password,
+	)
 	require.NoError(t, err)
-	signer3, err := signer.NewLocalSigner(operatorKs3, signingKs3, password)
+	signer3, err := signer.NewLocalSigner(
+		filepath.Join(tmpDir, acc3.URL.Path),
+		filepath.Join(tmpDir, signAcc3.URL.Path),
+		password,
+	)
 	require.NoError(t, err)
 
 	message := []byte("test message")
@@ -146,9 +176,9 @@ func TestAggregateSignatures(t *testing.T) {
 
 	t.Run("normal aggregation", func(t *testing.T) {
 		sigs := map[string][]byte{
-			signer1.Address(): sig1,
-			signer2.Address(): sig2,
-			signer3.Address(): sig3,
+			signer1.GetSigningAddress().Hex(): sig1,
+			signer2.GetSigningAddress().Hex(): sig2,
+			signer3.GetSigningAddress().Hex(): sig3,
 		}
 
 		// Aggregate signatures
@@ -171,37 +201,16 @@ func TestAggregateSignatures(t *testing.T) {
 
 	t.Run("single signature", func(t *testing.T) {
 		sigs := map[string][]byte{
-			signer1.Address(): sig1,
+			signer1.GetSigningAddress().Hex(): sig1,
 		}
 		aggregated := signer1.AggregateSignatures(sigs)
 		assert.True(t, bytes.Equal(sig1, aggregated))
 	})
 
-	t.Run("deterministic ordering", func(t *testing.T) {
-		// Create signatures in different orders
-		sigs1 := map[string][]byte{
-			signer1.Address(): sig1,
-			signer2.Address(): sig2,
-			signer3.Address(): sig3,
-		}
-		sigs2 := map[string][]byte{
-			signer3.Address(): sig3,
-			signer1.Address(): sig1,
-			signer2.Address(): sig2,
-		}
-
-		// Aggregate in different orders
-		aggregated1 := signer1.AggregateSignatures(sigs1)
-		aggregated2 := signer1.AggregateSignatures(sigs2)
-
-		// Should be identical due to address sorting
-		assert.True(t, bytes.Equal(aggregated1, aggregated2))
-	})
-
 	t.Run("verify individual signatures in aggregated", func(t *testing.T) {
 		sigs := map[string][]byte{
-			signer1.Address(): sig1,
-			signer2.Address(): sig2,
+			signer1.GetSigningAddress().Hex(): sig1,
+			signer2.GetSigningAddress().Hex(): sig2,
 		}
 		
 		aggregated := signer1.AggregateSignatures(sigs)

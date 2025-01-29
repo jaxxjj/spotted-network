@@ -110,10 +110,10 @@ func (n *Node) announceToRegistry() ([]*peer.AddrInfo, error) {
 
 	// Create protobuf request
 	req := &pb.JoinRequest{
-		Address:    n.signer.GetAddress().Hex(),
+		Address:    n.signer.GetOperatorAddress().Hex(),
 		Message:    string(message),
 		Signature:  hex.EncodeToString(signature),
-		SigningKey: n.signer.GetSigningKey(),
+		SigningKey: n.signer.GetSigningAddress().Hex(),
 	}
 	log.Printf("[Announce] Created join request for address: %s", req.Address)
 
