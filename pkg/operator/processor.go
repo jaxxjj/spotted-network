@@ -20,43 +20,87 @@ type ChainManager interface {
 	GetClientByChainId(chainID uint32) (*ethereum.ChainClient, error)
 }
 
+// PubSubService defines the interface for pubsub functionality needed by TaskProcessor
+type PubSubService interface {
+	Join(topic string, opts ...pubsub.TopicOpt) (*pubsub.Topic, error)
+}
+
+// TaskProcessorConfig contains all dependencies needed by TaskProcessor
+type TaskProcessorConfig struct {
+	Node                *Node
+	Signer              OperatorSigner
+	Task                TaskQuerier
+	TaskResponse        TaskResponseQuerier
+	ConsensusResponse   ConsensusResponseQuerier
+	EpochState          EpochStateQuerier
+	ChainManager        ChainManager
+	PubSub              PubSubService
+}
 
 // TaskProcessor handles task processing and consensus
 type TaskProcessor struct {
-	node           *Node
-	signer         OperatorSigner
-	task    TaskQuerier
-	taskResponse             TaskResponseQuerier
-	consensusResponse   ConsensusResponseQuerier
-	epochState EpochStateQuerier
-	chainManager   ChainManager
-	responseTopic  *pubsub.Topic
-	responsesMutex sync.RWMutex
-	responses      map[string]map[string]*task_responses.TaskResponses // taskID -> operatorAddr -> response
-	weightsMutex   sync.RWMutex
-	taskWeights    map[string]map[string]*big.Int // taskID -> operatorAddr -> weight
+	node               *Node
+	signer             OperatorSigner
+	task               TaskQuerier
+	taskResponse       TaskResponseQuerier
+	consensusResponse  ConsensusResponseQuerier
+	epochState         EpochStateQuerier
+	chainManager       ChainManager
+	responseTopic     *pubsub.Topic
+	responsesMutex     sync.RWMutex
+	responses          map[string]map[string]*task_responses.TaskResponses // taskID -> operatorAddr -> response
+	weightsMutex       sync.RWMutex
+	taskWeights        map[string]map[string]*big.Int // taskID -> operatorAddr -> weight
 } 
 
 // NewTaskProcessor creates a new task processor
-func NewTaskProcessor(node *Node, signer OperatorSigner, task TaskQuerier, taskResponse TaskResponseQuerier, consensusResponse ConsensusResponseQuerier, epochState EpochStateQuerier, chainManager ChainManager) (*TaskProcessor, error) {
+func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+	if cfg.Node == nil {
+		return nil, fmt.Errorf("node is required")
+	}
+	if cfg.Signer == nil {
+		return nil, fmt.Errorf("signer is required")
+	}
+	if cfg.Task == nil {
+		return nil, fmt.Errorf("task querier is required")
+	}
+	if cfg.TaskResponse == nil {
+		return nil, fmt.Errorf("task response querier is required")
+	}
+	if cfg.ConsensusResponse == nil {
+		return nil, fmt.Errorf("consensus response querier is required")
+	}
+	if cfg.EpochState == nil {
+		return nil, fmt.Errorf("epoch state querier is required")
+	}
+	if cfg.ChainManager == nil {
+		return nil, fmt.Errorf("chain manager is required")
+	}
+	if cfg.PubSub == nil {
+		return nil, fmt.Errorf("pubsub is required")
+	}
+
 	// Create response topic
-	responseTopic, err := node.PubSub.Join(TaskResponseTopic)
+	responseTopic, err := cfg.PubSub.Join(TaskResponseTopic)
 	if err != nil {
 		return nil, fmt.Errorf("[TaskProcessor] failed to join response topic: %w", err)
 	}
 	log.Printf("[TaskProcessor] Joined response topic: %s", TaskResponseTopic)
 
 	tp := &TaskProcessor{
-		node:          node,
-		signer:        signer,
-		task:   task,
-		taskResponse:   taskResponse,
-		consensusResponse:   consensusResponse,
-		epochState: epochState,
-		chainManager: chainManager,
-		responseTopic: responseTopic,
-		responses:     make(map[string]map[string]*task_responses.TaskResponses),
-		taskWeights:   make(map[string]map[string]*big.Int),
+		node:              cfg.Node,
+		signer:            cfg.Signer,
+		task:              cfg.Task,
+		taskResponse:      cfg.TaskResponse,
+		consensusResponse: cfg.ConsensusResponse,
+		epochState:        cfg.EpochState,
+		chainManager:      cfg.ChainManager,
+		responseTopic:     responseTopic,
+		responses:         make(map[string]map[string]*task_responses.TaskResponses),
+		taskWeights:       make(map[string]map[string]*big.Int),
 	}
 
 	// Subscribe to response topic
@@ -110,19 +154,3 @@ func (tp *TaskProcessor) Stop() {
 }
 
 
-// checkP2PStatus checks the status of P2P connections
-func (tp *TaskProcessor) checkP2PStatus() {
-	peers := tp.node.host.Network().Peers()
-	log.Printf("[P2P] Connected to %d peers:", len(peers))
-	for _, peer := range peers {
-		addrs := tp.node.host.Network().Peerstore().Addrs(peer)
-		log.Printf("[P2P] - Peer %s at %v", peer.String(), addrs)
-	}
-
-	// Check pubsub topic
-	peers = tp.responseTopic.ListPeers()
-	log.Printf("[P2P] %d peers subscribed to response topic:", len(peers))
-	for _, peer := range peers {
-		log.Printf("[P2P] - Subscribed peer: %s", peer.String())
-	}
-}

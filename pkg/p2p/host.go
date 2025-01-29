@@ -110,6 +110,8 @@ func (h *Host) Close() error {
 	return h.libp2pHost.Close()
 }
 
+
+
 // Ping a peer with timeout
 func (h *Host) PingPeer(ctx context.Context, p peer.ID) error {
 	// Add ping timeout
