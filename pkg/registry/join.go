@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/libp2p/go-libp2p/core/network"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -40,35 +42,50 @@ func (n *Node) handleStream(stream network.Stream) {
 	if err := stream.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		log.Printf("Warning: Failed to set read deadline: %v", err)
 	}
+	defer stream.SetReadDeadline(time.Time{}) // Reset deadline on exit
 
-	// Read and verify join request message type
-	log.Printf("Reading join request from peer: %s", peerID.String())
-	msgType, _, err := commonHelpers.ReadLengthPrefixed(stream)
-	if err != nil {
-		log.Printf("Failed to read join request from peer %s: %v", peerID.String(), err)
-		commonHelpers.SendError(stream, fmt.Errorf("failed to read request: %v", err))
+	// Read message type
+	msgType := make([]byte, 1)
+	if _, err := io.ReadFull(stream, msgType); err != nil {
+		log.Printf("Failed to read message type from peer %s: %v", peerID.String(), err)
 		return
 	}
-	if msgType != MsgTypeJoinRequest {
-		log.Printf("Unexpected message type from peer %s: %d", peerID.String(), msgType)
-		commonHelpers.SendError(stream, fmt.Errorf("unexpected message type"))
+
+	// Verify message type
+	if msgType[0] != MsgTypeJoinRequest {
+		log.Printf("Unexpected message type from peer %s: %d", peerID.String(), msgType[0])
+		return
+	}
+
+	// Read length and data
+	length, err := commonHelpers.ReadLengthPrefix(stream)
+	if err != nil {
+		log.Printf("Failed to read length prefix from peer %s: %v", peerID.String(), err)
+		return
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(stream, data); err != nil {
+		log.Printf("Failed to read data from peer %s: %v", peerID.String(), err)
+		return
+	}
+
+	// Parse protobuf message
+	var req pb.JoinRequest
+	if err := proto.Unmarshal(data, &req); err != nil {
+		log.Printf("Failed to parse join request from peer %s: %v", peerID.String(), err)
 		return
 	}
 	log.Printf("Successfully read join request from peer %s", peerID.String())
-
-	// Reset read deadline
-	if err := stream.SetReadDeadline(time.Time{}); err != nil {
-		log.Printf("Warning: Failed to reset read deadline: %v", err)
-	}
 
 	// Add peer to p2p network
 	log.Printf("Adding peer %s to p2p network", peerID.String())
 	n.operatorsInfoMu.Lock()
 	n.operatorsInfo[peerID] = &OperatorInfo{
-		ID: peerID,
-		Addrs: n.host.Peerstore().Addrs(peerID),
+		ID:       peerID,
+		Addrs:    n.host.Peerstore().Addrs(peerID),
 		LastSeen: time.Now(),
-		Status: "active", // All connected peers are considered active
+		Status:   "active", // All connected peers are considered active
 	}
 	n.operatorsInfoMu.Unlock()
 	log.Printf("Added new peer to p2p network: %s", peerID.String())
@@ -88,7 +105,7 @@ func (n *Node) handleStream(stream network.Stream) {
 			addrs[i] = addr.String()
 		}
 		activePeers = append(activePeers, &pb.ActiveOperator{
-			PeerId: id.String(),
+			PeerId:     id.String(),
 			Multiaddrs: addrs,
 		})
 	}
@@ -99,20 +116,41 @@ func (n *Node) handleStream(stream network.Stream) {
 	if err := stream.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		log.Printf("Warning: Failed to set write deadline: %v", err)
 	}
+	defer stream.SetWriteDeadline(time.Time{}) // Reset deadline on exit
 
 	// Send success response with active peers
 	log.Printf("Sending success response with %d active peers to peer %s", len(activePeers), peerID.String())
-	commonHelpers.SendSuccess(stream, activePeers)
-	log.Printf("Successfully sent response to peer %s", peerID.String())
+	
+	// Marshal response
+	resp := &pb.JoinResponse{
+		Success:         true,
+		ActiveOperators: activePeers,
+	}
+	respData, err := proto.Marshal(resp)
+	if err != nil {
+		log.Printf("Failed to marshal response for peer %s: %v", peerID.String(), err)
+		return
+	}
 
-	// Reset write deadline
-	if err := stream.SetWriteDeadline(time.Time{}); err != nil {
-		log.Printf("Warning: Failed to reset write deadline: %v", err)
+	// Write message type
+	if _, err := stream.Write([]byte{MsgTypeJoinResponse}); err != nil {
+		log.Printf("Failed to write response type to peer %s: %v", peerID.String(), err)
+		return
+	}
+
+	// Write length prefix and data
+	if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(respData))); err != nil {
+		log.Printf("Failed to write length prefix to peer %s: %v", peerID.String(), err)
+		return
+	}
+
+	if _, err := stream.Write(respData); err != nil {
+		log.Printf("Failed to write response data to peer %s: %v", peerID.String(), err)
+		return
 	}
 
 	log.Printf("Successfully processed join request from peer: %s", peerID.String())
 }
-
 
 // HandleJoinRequest handles a join request from an operator
 func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error {
@@ -177,3 +215,4 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 	log.Printf("Operator %s joined successfully", req.Address)
 	return nil
 }
+

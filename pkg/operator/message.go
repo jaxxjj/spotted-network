@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"time"
 
@@ -27,16 +28,29 @@ func (n *Node) handleMessages(stream network.Stream) {
 	
 	log.Printf("[Messages] New stream opened from: %s", stream.Conn().RemotePeer())
 
-	// Read request with length prefix
-	msgType, data, err := commonHelpers.ReadLengthPrefixed(stream)
-	if err != nil {
-		log.Printf("[Messages] Error reading request: %v", err)
+	// Read message type
+	msgType := make([]byte, 1)
+	if _, err := io.ReadFull(stream, msgType); err != nil {
+		log.Printf("[Messages] Error reading message type: %v", err)
 		return
 	}
 
 	// Verify message type
-	if msgType != MsgTypeJoinRequest {
-		log.Printf("[Messages] Unexpected message type: %d", msgType)
+	if msgType[0] != MsgTypeJoinRequest {
+		log.Printf("[Messages] Unexpected message type: %d", msgType[0])
+		return
+	}
+
+	// Read length and data
+	length, err := commonHelpers.ReadLengthPrefix(stream)
+	if err != nil {
+		log.Printf("[Messages] Error reading length prefix: %v", err)
+		return
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(stream, data); err != nil {
+		log.Printf("[Messages] Error reading data: %v", err)
 		return
 	}
 
@@ -77,9 +91,20 @@ func (n *Node) handleMessages(stream network.Stream) {
 		return
 	}
 
-	// Write response with length prefix
-	if err := commonHelpers.WriteLengthPrefixed(stream, MsgTypeJoinResponse, respData); err != nil {
-		log.Printf("[Messages] Error writing response: %v", err)
+	// Write message type
+	if _, err := stream.Write([]byte{MsgTypeJoinResponse}); err != nil {
+		log.Printf("[Messages] Error writing response type: %v", err)
+		return
+	}
+
+	// Write length prefix and data
+	if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(respData))); err != nil {
+		log.Printf("[Messages] Error writing length prefix: %v", err)
+		return
+	}
+
+	if _, err := stream.Write(respData); err != nil {
+		log.Printf("[Messages] Error writing response data: %v", err)
 		return
 	}
 
@@ -134,10 +159,20 @@ func (n *Node) sendJoinRequest(stream network.Stream, message []byte, signature 
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Write request with length prefix
-	if err := commonHelpers.WriteLengthPrefixed(stream, MsgTypeJoinRequest, data); err != nil {
-		return nil, fmt.Errorf("failed to write request: %w", err)
+	// Write message type
+	if _, err := stream.Write([]byte{MsgTypeJoinRequest}); err != nil {
+		return nil, fmt.Errorf("failed to write message type: %w", err)
 	}
+
+	// Write length prefix and data
+	if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(data))); err != nil {
+		return nil, fmt.Errorf("failed to write length prefix: %w", err)
+	}
+
+	if _, err := stream.Write(data); err != nil {
+		return nil, fmt.Errorf("failed to write request data: %w", err)
+	}
+
 	log.Printf("[Announce] Successfully sent join request to registry")
 
 	// Set read deadline
@@ -145,16 +180,25 @@ func (n *Node) sendJoinRequest(stream network.Stream, message []byte, signature 
 		log.Printf("[Announce] Warning: Failed to set read deadline: %v", err)
 	}
 
-	// Read response with length prefix
-	msgType, respData, err := commonHelpers.ReadLengthPrefixed(stream)
-	if err != nil {
-		return nil, fmt.Errorf("[Announce] failed to read response (timeout 30s): %w", err)
+	// Read response message type
+	msgType := make([]byte, 1)
+	if _, err := io.ReadFull(stream, msgType); err != nil {
+		return nil, fmt.Errorf("[Announce] failed to read response type: %w", err)
 	}
-	log.Printf("[Announce] Received response data of length: %d bytes", len(respData))
 
-	// Verify message type
-	if msgType != MsgTypeJoinResponse {
-		return nil, fmt.Errorf("[Announce] unexpected response message type: %d", msgType)
+	if msgType[0] != MsgTypeJoinResponse {
+		return nil, fmt.Errorf("[Announce] unexpected response type: 0x%02x", msgType[0])
+	}
+
+	// Read response length and data
+	respLength, err := commonHelpers.ReadLengthPrefix(stream)
+	if err != nil {
+		return nil, fmt.Errorf("[Announce] failed to read response length: %w", err)
+	}
+
+	respData := make([]byte, respLength)
+	if _, err := io.ReadFull(stream, respData); err != nil {
+		return nil, fmt.Errorf("[Announce] failed to read response data: %w", err)
 	}
 
 	// Reset read deadline
@@ -167,10 +211,10 @@ func (n *Node) sendJoinRequest(stream network.Stream, message []byte, signature 
 	if err := proto.Unmarshal(respData, resp); err != nil {
 		return nil, fmt.Errorf("[Announce] failed to unmarshal response: %w", err)
 	}
+
 	log.Printf("[Announce] Successfully unmarshaled response: success=%v, error=%s, active_operators=%d",
 		resp.Success, resp.Error, len(resp.ActiveOperators))
 
-	// Handle join response
 	if !resp.Success {
 		return nil, fmt.Errorf("[Announce] join request failed: %s", resp.Error)
 	}
