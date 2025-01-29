@@ -7,12 +7,18 @@ import (
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
-	"github.com/galxe/spotted-network/pkg/common"
-	"github.com/galxe/spotted-network/pkg/p2p"
+	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/libp2p/go-libp2p/core/network"
 )
+
+const (
+	// Protocol message types
+	MsgTypeJoinRequest byte = 0x01
+	MsgTypeJoinResponse byte = 0x02
+)
+
 type OperatorsQuerier interface {
 	UpdateOperatorStatus(ctx context.Context, arg operators.UpdateOperatorStatusParams) (operators.Operators, error)
 	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
@@ -37,15 +43,15 @@ func (n *Node) handleStream(stream network.Stream) {
 
 	// Read and verify join request message type
 	log.Printf("Reading join request from peer: %s", peerID.String())
-	msgType, _, err := p2p.ReadLengthPrefixed(stream)
+	msgType, _, err := commonHelpers.ReadLengthPrefixed(stream)
 	if err != nil {
 		log.Printf("Failed to read join request from peer %s: %v", peerID.String(), err)
-		p2p.SendError(stream, fmt.Errorf("failed to read request: %v", err))
+		commonHelpers.SendError(stream, fmt.Errorf("failed to read request: %v", err))
 		return
 	}
-	if msgType != p2p.MsgTypeJoinRequest {
+	if msgType != MsgTypeJoinRequest {
 		log.Printf("Unexpected message type from peer %s: %d", peerID.String(), msgType)
-		p2p.SendError(stream, fmt.Errorf("unexpected message type"))
+		commonHelpers.SendError(stream, fmt.Errorf("unexpected message type"))
 		return
 	}
 	log.Printf("Successfully read join request from peer %s", peerID.String())
@@ -96,7 +102,7 @@ func (n *Node) handleStream(stream network.Stream) {
 
 	// Send success response with active peers
 	log.Printf("Sending success response with %d active peers to peer %s", len(activePeers), peerID.String())
-	p2p.SendSuccess(stream, activePeers)
+	commonHelpers.SendSuccess(stream, activePeers)
 	log.Printf("Successfully sent response to peer %s", peerID.String())
 
 	// Reset write deadline
@@ -162,7 +168,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 			ActiveEpoch:            operator.ActiveEpoch,
 			ExitEpoch:              &operator.ExitEpoch,
 			Status:                 string(operator.Status),
-			Weight:                 common.NumericToString(operator.Weight),
+			Weight:                 commonHelpers.NumericToString(operator.Weight),
 		},
 	}
 	n.BroadcastStateUpdate(stateUpdate, "DELTA")

@@ -12,8 +12,14 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/galxe/spotted-network/pkg/p2p"
+	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	pb "github.com/galxe/spotted-network/proto"
+)
+
+const (
+	// Protocol message types
+	MsgTypeJoinRequest byte = 0x01
+	MsgTypeJoinResponse byte = 0x02
 )
 
 func (n *Node) handleMessages(stream network.Stream) {
@@ -22,14 +28,14 @@ func (n *Node) handleMessages(stream network.Stream) {
 	log.Printf("[Messages] New stream opened from: %s", stream.Conn().RemotePeer())
 
 	// Read request with length prefix
-	msgType, data, err := p2p.ReadLengthPrefixed(stream)
+	msgType, data, err := commonHelpers.ReadLengthPrefixed(stream)
 	if err != nil {
 		log.Printf("[Messages] Error reading request: %v", err)
 		return
 	}
 
 	// Verify message type
-	if msgType != p2p.MsgTypeJoinRequest {
+	if msgType != MsgTypeJoinRequest {
 		log.Printf("[Messages] Unexpected message type: %d", msgType)
 		return
 	}
@@ -72,7 +78,7 @@ func (n *Node) handleMessages(stream network.Stream) {
 	}
 
 	// Write response with length prefix
-	if err := p2p.WriteLengthPrefixed(stream, p2p.MsgTypeJoinResponse, respData); err != nil {
+	if err := commonHelpers.WriteLengthPrefixed(stream, MsgTypeJoinResponse, respData); err != nil {
 		log.Printf("[Messages] Error writing response: %v", err)
 		return
 	}
@@ -108,6 +114,11 @@ func (n *Node) announceToRegistry() ([]*peer.AddrInfo, error) {
 	}
 	log.Printf("[Announce] Created and signed join request message")
 
+	// Send join request
+	return n.sendJoinRequest(stream, message, signature)
+}
+
+func (n *Node) sendJoinRequest(stream network.Stream, message []byte, signature []byte) ([]*peer.AddrInfo, error) {
 	// Create protobuf request
 	req := &pb.JoinRequest{
 		Address:    n.signer.GetOperatorAddress().Hex(),
@@ -124,7 +135,7 @@ func (n *Node) announceToRegistry() ([]*peer.AddrInfo, error) {
 	}
 
 	// Write request with length prefix
-	if err := p2p.WriteLengthPrefixed(stream, p2p.MsgTypeJoinRequest, data); err != nil {
+	if err := commonHelpers.WriteLengthPrefixed(stream, MsgTypeJoinRequest, data); err != nil {
 		return nil, fmt.Errorf("failed to write request: %w", err)
 	}
 	log.Printf("[Announce] Successfully sent join request to registry")
@@ -135,14 +146,14 @@ func (n *Node) announceToRegistry() ([]*peer.AddrInfo, error) {
 	}
 
 	// Read response with length prefix
-	msgType, respData, err := p2p.ReadLengthPrefixed(stream)
+	msgType, respData, err := commonHelpers.ReadLengthPrefixed(stream)
 	if err != nil {
 		return nil, fmt.Errorf("[Announce] failed to read response (timeout 30s): %w", err)
 	}
 	log.Printf("[Announce] Received response data of length: %d bytes", len(respData))
 
 	// Verify message type
-	if msgType != p2p.MsgTypeJoinResponse {
+	if msgType != MsgTypeJoinResponse {
 		return nil, fmt.Errorf("[Announce] unexpected response message type: %d", msgType)
 	}
 
@@ -195,4 +206,5 @@ func (n *Node) announceToRegistry() ([]*peer.AddrInfo, error) {
 
 	log.Printf("[Announce] Successfully processed %d active operators", len(activeOperators))
 	return activeOperators, nil
-} 
+}
+

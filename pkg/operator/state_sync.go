@@ -24,6 +24,14 @@ const (
 	EpochPeriod  = 12
 )
 
+// State sync message types
+const (
+	MsgTypeGetFullState byte = 0x01
+	MsgTypeSubscribe    byte = 0x02
+	MsgTypeStateUpdate  byte = 0x03
+	MsgTypeHeartbeat    byte = 0x04
+)
+
 type ChainClient interface {
 	BlockNumber(ctx context.Context) (uint64, error)
 	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
@@ -43,7 +51,7 @@ func (node *Node) subscribeToStateUpdates() error {
 	}
 
 	// Send message type
-	msgType := []byte{0x02} // 0x02 for SubscribeRequest
+	msgType := []byte{MsgTypeSubscribe}
 	if _, err := stream.Write(msgType); err != nil {
 		return fmt.Errorf("failed to write message type: %w", err)
 	}
@@ -57,13 +65,7 @@ func (node *Node) subscribeToStateUpdates() error {
 
 	// Send length prefix
 	length := uint32(len(data))
-	lengthBytes := make([]byte, 4)
-	lengthBytes[0] = byte(length >> 24)
-	lengthBytes[1] = byte(length >> 16)
-	lengthBytes[2] = byte(length >> 8)
-	lengthBytes[3] = byte(length)
-	
-	if _, err := stream.Write(lengthBytes); err != nil {
+	if err := writeLengthPrefix(stream, length); err != nil {
 		return fmt.Errorf("failed to write length prefix: %w", err)
 	}
 
@@ -90,7 +92,7 @@ func (node *Node) getFullState() error {
 	defer stream.Close()
 
 	// Send get full state request with message type
-	msgType := []byte{0x01} // 0x01 for GetFullStateRequest
+	msgType := []byte{MsgTypeGetFullState}
 	if _, err := stream.Write(msgType); err != nil {
 		return fmt.Errorf("[StateSync] failed to write message type: %w", err)
 	}
@@ -104,13 +106,7 @@ func (node *Node) getFullState() error {
 
 	// Send length prefix
 	length := uint32(len(data))
-	lengthBytes := make([]byte, 4)
-	lengthBytes[0] = byte(length >> 24)
-	lengthBytes[1] = byte(length >> 16)
-	lengthBytes[2] = byte(length >> 8)
-	lengthBytes[3] = byte(length)
-	
-	if _, err := stream.Write(lengthBytes); err != nil {
+	if err := writeLengthPrefix(stream, length); err != nil {
 		return fmt.Errorf("[StateSync] failed to write length prefix: %w", err)
 	}
 
@@ -125,16 +121,11 @@ func (node *Node) getFullState() error {
 	log.Printf("[StateSync] Waiting for response from registry...")
 	
 	// Read length prefix first
-	respLengthBytes := make([]byte, 4)
-	if _, err := io.ReadFull(stream, respLengthBytes); err != nil {
+	respLength, err := readLengthPrefix(stream)
+	if err != nil {
 		return fmt.Errorf("failed to read response length: %w", err)
 	}
 	
-	respLength := uint32(respLengthBytes[0])<<24 | 
-		uint32(respLengthBytes[1])<<16 | 
-		uint32(respLengthBytes[2])<<8 | 
-		uint32(respLengthBytes[3])
-		
 	log.Printf("Response length: %d bytes", respLength)
 	
 	// Read the full response
@@ -214,16 +205,11 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 
 func (node *Node) handleStateUpdate(stream network.Stream) error {
 	// Read length prefix
-	lengthBytes := make([]byte, 4)
-	if _, err := io.ReadFull(stream, lengthBytes); err != nil {
+	length, err := readLengthPrefix(stream)
+	if err != nil {
 		return fmt.Errorf("error reading update length: %w", err)
 	}
 	
-	length := uint32(lengthBytes[0])<<24 | 
-		uint32(lengthBytes[1])<<16 | 
-		uint32(lengthBytes[2])<<8 | 
-		uint32(lengthBytes[3])
-		
 	// Validate message length (max 1MB)
 	const maxMessageSize = 1024 * 1024 // 1MB
 	if length > maxMessageSize {
@@ -423,4 +409,33 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 			}	
 		}
 	}
+}
+
+// writeLengthPrefix writes a 4-byte length prefix to the stream
+func writeLengthPrefix(stream network.Stream, length uint32) error {
+	lengthBytes := make([]byte, 4)
+	lengthBytes[0] = byte(length >> 24)
+	lengthBytes[1] = byte(length >> 16)
+	lengthBytes[2] = byte(length >> 8)
+	lengthBytes[3] = byte(length)
+	
+	if _, err := stream.Write(lengthBytes); err != nil {
+		return fmt.Errorf("failed to write length prefix: %w", err)
+	}
+	return nil
+}
+
+// readLengthPrefix reads a 4-byte length prefix from the stream
+func readLengthPrefix(stream network.Stream) (uint32, error) {
+	lengthBytes := make([]byte, 4)
+	if _, err := io.ReadFull(stream, lengthBytes); err != nil {
+		return 0, fmt.Errorf("failed to read length prefix: %w", err)
+	}
+	
+	length := uint32(lengthBytes[0])<<24 | 
+		uint32(lengthBytes[1])<<16 | 
+		uint32(lengthBytes[2])<<8 | 
+		uint32(lengthBytes[3])
+		
+	return length, nil
 } 
