@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -21,6 +24,25 @@ const (
 	EpochPeriod  = 12
 )
 
+// State sync message types
+const (
+	MsgTypeGetFullState byte = 0x01
+	MsgTypeSubscribe    byte = 0x02
+	MsgTypeStateUpdate  byte = 0x03
+	MsgTypeHeartbeat    byte = 0x04
+)
+
+type ChainClient interface {
+	BlockNumber(ctx context.Context) (uint64, error)
+	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
+	GetMinimumWeight(ctx context.Context) (*big.Int, error)
+	GetThresholdWeight(ctx context.Context) (*big.Int, error)
+	GetTotalWeight(ctx context.Context) (*big.Int, error)
+	GetStateAtBlock(ctx context.Context, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error)
+	GetCurrentEpoch(ctx context.Context) (uint32, error)
+	Close() error
+}	
+
 func (node *Node) subscribeToStateUpdates() error {
 	log.Printf("[StateSync] Opening state sync stream to registry...")
 	stream, err := node.host.NewStream(context.Background(), node.registryID, "/state-sync/1.0.0")
@@ -29,7 +51,7 @@ func (node *Node) subscribeToStateUpdates() error {
 	}
 
 	// Send message type
-	msgType := []byte{0x02} // 0x02 for SubscribeRequest
+	msgType := []byte{MsgTypeSubscribe}
 	if _, err := stream.Write(msgType); err != nil {
 		return fmt.Errorf("failed to write message type: %w", err)
 	}
@@ -43,13 +65,7 @@ func (node *Node) subscribeToStateUpdates() error {
 
 	// Send length prefix
 	length := uint32(len(data))
-	lengthBytes := make([]byte, 4)
-	lengthBytes[0] = byte(length >> 24)
-	lengthBytes[1] = byte(length >> 16)
-	lengthBytes[2] = byte(length >> 8)
-	lengthBytes[3] = byte(length)
-	
-	if _, err := stream.Write(lengthBytes); err != nil {
+	if err := commonHelpers.WriteLengthPrefix(stream, length); err != nil {
 		return fmt.Errorf("failed to write length prefix: %w", err)
 	}
 
@@ -76,7 +92,7 @@ func (node *Node) getFullState() error {
 	defer stream.Close()
 
 	// Send get full state request with message type
-	msgType := []byte{0x01} // 0x01 for GetFullStateRequest
+	msgType := []byte{MsgTypeGetFullState}
 	if _, err := stream.Write(msgType); err != nil {
 		return fmt.Errorf("[StateSync] failed to write message type: %w", err)
 	}
@@ -90,13 +106,7 @@ func (node *Node) getFullState() error {
 
 	// Send length prefix
 	length := uint32(len(data))
-	lengthBytes := make([]byte, 4)
-	lengthBytes[0] = byte(length >> 24)
-	lengthBytes[1] = byte(length >> 16)
-	lengthBytes[2] = byte(length >> 8)
-	lengthBytes[3] = byte(length)
-	
-	if _, err := stream.Write(lengthBytes); err != nil {
+	if err := commonHelpers.WriteLengthPrefix(stream, length); err != nil {
 		return fmt.Errorf("[StateSync] failed to write length prefix: %w", err)
 	}
 
@@ -111,16 +121,11 @@ func (node *Node) getFullState() error {
 	log.Printf("[StateSync] Waiting for response from registry...")
 	
 	// Read length prefix first
-	respLengthBytes := make([]byte, 4)
-	if _, err := io.ReadFull(stream, respLengthBytes); err != nil {
+	respLength, err := commonHelpers.ReadLengthPrefix(stream)
+	if err != nil {
 		return fmt.Errorf("failed to read response length: %w", err)
 	}
 	
-	respLength := uint32(respLengthBytes[0])<<24 | 
-		uint32(respLengthBytes[1])<<16 | 
-		uint32(respLengthBytes[2])<<8 | 
-		uint32(respLengthBytes[3])
-		
 	log.Printf("Response length: %d bytes", respLength)
 	
 	// Read the full response
@@ -177,74 +182,83 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 			return
 		}
 
-		// Validate message type
-		if msgType[0] != 0x02 {
-			log.Printf("[StateSync] Invalid message type: 0x%02x, expected 0x02", msgType[0])
-			return
-		}
-		
-		// Read length prefix
-		lengthBytes := make([]byte, 4)
-		if _, err := io.ReadFull(stream, lengthBytes); err != nil {
-			if err != io.EOF {
-				log.Printf("[StateSync] Error reading update length: %v", err)
+		// Handle different message types
+		switch msgType[0] {
+		case 0x02: // State update
+			if err := node.handleStateUpdate(stream); err != nil {
+				log.Printf("[StateSync] Error handling state update: %v", err)
+				return
 			}
+		case 0x03: // Heartbeat
+			log.Printf("[StateSync] Received heartbeat from registry")
+			// Send heartbeat response
+			if err := node.sendHeartbeatResponse(stream); err != nil {
+				log.Printf("[StateSync] Error sending heartbeat response: %v", err)
+				return
+			}
+		default:
+			log.Printf("[StateSync] Invalid message type: 0x%02x", msgType[0])
 			return
 		}
-		
-		length := uint32(lengthBytes[0])<<24 | 
-			uint32(lengthBytes[1])<<16 | 
-			uint32(lengthBytes[2])<<8 | 
-			uint32(lengthBytes[3])
-			
-		// Validate message length (max 1MB)
-		const maxMessageSize = 1024 * 1024 // 1MB
-		if length > maxMessageSize {
-			log.Printf("[StateSync] Message too large (%d bytes), max allowed size is %d bytes", length, maxMessageSize)
-			return
-		}
-
-		log.Printf("[StateSync] Received state update - Type: 0x%02x, Length: %d bytes", msgType[0], length)
-		
-		// Read the full update with timeout
-		data := make([]byte, length)
-		if err := stream.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
-			log.Printf("[StateSync] Failed to set read deadline: %v", err)
-			return
-		}
-		
-		if _, err := io.ReadFull(stream, data); err != nil {
-			log.Printf("[StateSync] Error reading state update data: %v", err)
-			return
-		}
-
-		// Reset deadline
-		if err := stream.SetReadDeadline(time.Time{}); err != nil {
-			log.Printf("[StateSync] Failed to reset read deadline: %v", err)
-			return
-		}
-
-		var update pb.OperatorStateUpdate
-		if err := proto.Unmarshal(data, &update); err != nil {
-			log.Printf("[StateSync] Error unmarshaling state update: %v", err)
-			continue
-		}
-
-		log.Printf("[StateSync] Successfully unmarshaled update with %d operators", len(update.Operators))
-		
-		// Print detailed operator states before update
-		log.Printf("\n[StateSync] === Current Operator States Before Update ===")
-		node.PrintOperatorStates()
-		
-		// Update states
-		node.updateOperatorStates(update.Operators)
-		
-		// Print detailed operator states after update
-		log.Printf("\n[StateSync] === Updated Operator States ===")
-		node.PrintOperatorStates()
-		
-		log.Printf("[StateSync] State update processed successfully")
 	}
+}
+
+func (node *Node) handleStateUpdate(stream network.Stream) error {
+	// Read length prefix
+	length, err := commonHelpers.ReadLengthPrefix(stream)
+	if err != nil {
+		return fmt.Errorf("error reading update length: %w", err)
+	}
+	
+	// Validate message length (max 1MB)
+	const maxMessageSize = 1024 * 1024 // 1MB
+	if length > maxMessageSize {
+		return fmt.Errorf("message too large (%d bytes), max allowed size is %d bytes", length, maxMessageSize)
+	}
+
+	log.Printf("[StateSync] Received state update - Length: %d bytes", length)
+	
+	// Read the full update with timeout
+	data := make([]byte, length)
+	if err := stream.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		return fmt.Errorf("failed to set read deadline: %w", err)
+	}
+	
+	if _, err := io.ReadFull(stream, data); err != nil {
+		return fmt.Errorf("error reading state update data: %w", err)
+	}
+
+	// Reset deadline
+	if err := stream.SetReadDeadline(time.Time{}); err != nil {
+		return fmt.Errorf("failed to reset read deadline: %w", err)
+	}
+
+	var update pb.OperatorStateUpdate
+	if err := proto.Unmarshal(data, &update); err != nil {
+		return fmt.Errorf("error unmarshaling state update: %w", err)
+	}
+
+	log.Printf("[StateSync] Successfully unmarshaled update with %d operators", len(update.Operators))
+	return nil
+}
+
+func (node *Node) sendHeartbeatResponse(stream network.Stream) error {
+	// Set write deadline
+	if err := stream.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return fmt.Errorf("failed to set write deadline: %w", err)
+	}
+
+	// Send heartbeat response (0x04)
+	if _, err := stream.Write([]byte{0x04}); err != nil {
+		return fmt.Errorf("failed to send heartbeat response: %w", err)
+	}
+
+	// Reset write deadline
+	if err := stream.SetWriteDeadline(time.Time{}); err != nil {
+		return fmt.Errorf("failed to reset write deadline: %w", err)
+	}
+
+	return nil
 }
 
 func (node *Node) updateOperatorStates(operators []*pb.OperatorState) {
@@ -314,10 +328,13 @@ func (n *Node) calculateEpochNumber(blockNumber uint64) uint32 {
 
 func (n *Node) updateEpochState(ctx context.Context, epochNumber uint32) error {
 	// Get mainnet client
-	mainnetClient := n.chainClient.GetMainnetClient()
+	mainnetClient, err := n.chainManager.GetMainnetClient()
+	if err != nil {
+		return fmt.Errorf("failed to get mainnet client: %w", err)
+	}
 	
 	// Get epoch state from contract
-	minimumStake, err := mainnetClient.GetMinimumStake(ctx)
+	minimumStake, err := mainnetClient.GetMinimumWeight(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get minimum stake: %w", err)
 	}
@@ -338,28 +355,12 @@ func (n *Node) updateEpochState(ctx context.Context, epochNumber uint32) error {
 	updatedAt := pgtype.Timestamptz{}
 	updatedAt.Scan(now)
 	
-	_, err = n.epochStates.UpsertEpochState(ctx, epoch_states.UpsertEpochStateParams{
+	_, err = n.epochState.UpsertEpochState(ctx, epoch_states.UpsertEpochStateParams{
 		EpochNumber: epochNumber,
-		BlockNumber: pgtype.Numeric{
-			Int:    big.NewInt(int64(epochNumber * EpochPeriod)),
-			Valid:  true,
-			Exp:    0,
-		},
-		MinimumWeight: pgtype.Numeric{
-			Int:    minimumStake,
-			Valid:  true,
-			Exp:    0,
-		},
-		TotalWeight: pgtype.Numeric{
-			Int:    totalWeight,
-			Valid:  true,
-			Exp:    0,
-		},
-		ThresholdWeight: pgtype.Numeric{
-			Int:    thresholdWeight,
-			Valid:  true,
-			Exp:    0,
-		},
+		BlockNumber: uint64(epochNumber * EpochPeriod),
+		MinimumWeight: commonHelpers.BigIntToNumeric(minimumStake),
+		TotalWeight: commonHelpers.BigIntToNumeric(totalWeight),
+		ThresholdWeight: commonHelpers.BigIntToNumeric(thresholdWeight),
 		UpdatedAt: updatedAt,
 	})
 	if err != nil {
@@ -383,8 +384,12 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Get latest block number
-			mainnetClient := n.chainClient.GetMainnetClient()
-			blockNumber, err := mainnetClient.GetLatestBlockNumber(ctx)
+			mainnetClient, err := n.chainManager.GetMainnetClient()
+			if err != nil {
+				log.Printf("[Epoch] Failed to get mainnet client: %v", err)
+				continue
+			}
+			blockNumber, err := mainnetClient.BlockNumber(ctx)
 			if err != nil {
 				log.Printf("[Epoch] Failed to get latest block number: %v", err)
 				continue
@@ -404,4 +409,6 @@ func (n *Node) monitorEpochUpdates(ctx context.Context) {
 			}	
 		}
 	}
-} 
+}
+
+

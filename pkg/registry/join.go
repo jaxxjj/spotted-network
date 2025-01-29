@@ -3,17 +3,32 @@ package registry
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
-	"math/big"
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
-	"github.com/galxe/spotted-network/pkg/common"
-	"github.com/galxe/spotted-network/pkg/p2p"
+	commonHelpers "github.com/galxe/spotted-network/pkg/common"
+	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/network"
+	"google.golang.org/protobuf/proto"
 )
+
+const (
+	// Protocol message types
+	MsgTypeJoinRequest byte = 0x01
+	MsgTypeJoinResponse byte = 0x02
+)
+
+type OperatorsQuerier interface {
+	UpdateOperatorStatus(ctx context.Context, arg operators.UpdateOperatorStatusParams) (operators.Operators, error)
+	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
+	GetOperatorByAddress(ctx context.Context, address string) (operators.Operators, error)
+	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams) (operators.Operators, error)
+	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams) (operators.Operators, error)
+	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams) (operators.Operators, error)
+}
 
 // handleStream handles incoming p2p streams
 func (n *Node) handleStream(stream network.Stream) {
@@ -27,44 +42,59 @@ func (n *Node) handleStream(stream network.Stream) {
 	if err := stream.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		log.Printf("Warning: Failed to set read deadline: %v", err)
 	}
+	defer stream.SetReadDeadline(time.Time{}) // Reset deadline on exit
 
-	// Read and verify join request message type
-	log.Printf("Reading join request from peer: %s", peerID.String())
-	msgType, _, err := p2p.ReadLengthPrefixed(stream)
-	if err != nil {
-		log.Printf("Failed to read join request from peer %s: %v", peerID.String(), err)
-		p2p.SendError(stream, fmt.Errorf("failed to read request: %v", err))
+	// Read message type
+	msgType := make([]byte, 1)
+	if _, err := io.ReadFull(stream, msgType); err != nil {
+		log.Printf("Failed to read message type from peer %s: %v", peerID.String(), err)
 		return
 	}
-	if msgType != p2p.MsgTypeJoinRequest {
-		log.Printf("Unexpected message type from peer %s: %d", peerID.String(), msgType)
-		p2p.SendError(stream, fmt.Errorf("unexpected message type"))
+
+	// Verify message type
+	if msgType[0] != MsgTypeJoinRequest {
+		log.Printf("Unexpected message type from peer %s: %d", peerID.String(), msgType[0])
+		return
+	}
+
+	// Read length and data
+	length, err := commonHelpers.ReadLengthPrefix(stream)
+	if err != nil {
+		log.Printf("Failed to read length prefix from peer %s: %v", peerID.String(), err)
+		return
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(stream, data); err != nil {
+		log.Printf("Failed to read data from peer %s: %v", peerID.String(), err)
+		return
+	}
+
+	// Parse protobuf message
+	var req pb.JoinRequest
+	if err := proto.Unmarshal(data, &req); err != nil {
+		log.Printf("Failed to parse join request from peer %s: %v", peerID.String(), err)
 		return
 	}
 	log.Printf("Successfully read join request from peer %s", peerID.String())
 
-	// Reset read deadline
-	if err := stream.SetReadDeadline(time.Time{}); err != nil {
-		log.Printf("Warning: Failed to reset read deadline: %v", err)
-	}
-
 	// Add peer to p2p network
 	log.Printf("Adding peer %s to p2p network", peerID.String())
-	n.operatorsMu.Lock()
-	n.operators[peerID] = &OperatorInfo{
-		ID: peerID,
-		Addrs: n.host.Peerstore().Addrs(peerID),
+	n.operatorsInfoMu.Lock()
+	n.operatorsInfo[peerID] = &OperatorInfo{
+		ID:       peerID,
+		Addrs:    n.host.Peerstore().Addrs(peerID),
 		LastSeen: time.Now(),
-		Status: "active", // All connected peers are considered active
+		Status:   "active", // All connected peers are considered active
 	}
-	n.operatorsMu.Unlock()
+	n.operatorsInfoMu.Unlock()
 	log.Printf("Added new peer to p2p network: %s", peerID.String())
 
 	// Get active peers for response
 	log.Printf("Getting active peers for response to peer %s", peerID.String())
-	n.operatorsMu.RLock()
-	activePeers := make([]*pb.ActiveOperator, 0, len(n.operators))
-	for id, info := range n.operators {
+	n.operatorsInfoMu.RLock()
+	activePeers := make([]*pb.ActiveOperator, 0, len(n.operatorsInfo))
+	for id, info := range n.operatorsInfo {
 		// Skip registry and new peer
 		if id == n.host.ID() || id == peerID {
 			continue
@@ -75,31 +105,52 @@ func (n *Node) handleStream(stream network.Stream) {
 			addrs[i] = addr.String()
 		}
 		activePeers = append(activePeers, &pb.ActiveOperator{
-			PeerId: id.String(),
+			PeerId:     id.String(),
 			Multiaddrs: addrs,
 		})
 	}
-	n.operatorsMu.RUnlock()
+	n.operatorsInfoMu.RUnlock()
 	log.Printf("Found %d connected peers to send to peer %s", len(activePeers), peerID.String())
 
 	// Set write deadline
 	if err := stream.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		log.Printf("Warning: Failed to set write deadline: %v", err)
 	}
+	defer stream.SetWriteDeadline(time.Time{}) // Reset deadline on exit
 
 	// Send success response with active peers
 	log.Printf("Sending success response with %d active peers to peer %s", len(activePeers), peerID.String())
-	p2p.SendSuccess(stream, activePeers)
-	log.Printf("Successfully sent response to peer %s", peerID.String())
+	
+	// Marshal response
+	resp := &pb.JoinResponse{
+		Success:         true,
+		ActiveOperators: activePeers,
+	}
+	respData, err := proto.Marshal(resp)
+	if err != nil {
+		log.Printf("Failed to marshal response for peer %s: %v", peerID.String(), err)
+		return
+	}
 
-	// Reset write deadline
-	if err := stream.SetWriteDeadline(time.Time{}); err != nil {
-		log.Printf("Warning: Failed to reset write deadline: %v", err)
+	// Write message type
+	if _, err := stream.Write([]byte{MsgTypeJoinResponse}); err != nil {
+		log.Printf("Failed to write response type to peer %s: %v", peerID.String(), err)
+		return
+	}
+
+	// Write length prefix and data
+	if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(respData))); err != nil {
+		log.Printf("Failed to write length prefix to peer %s: %v", peerID.String(), err)
+		return
+	}
+
+	if _, err := stream.Write(respData); err != nil {
+		log.Printf("Failed to write response data to peer %s: %v", peerID.String(), err)
+		return
 	}
 
 	log.Printf("Successfully processed join request from peer: %s", peerID.String())
 }
-
 
 // HandleJoinRequest handles a join request from an operator
 func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error {
@@ -107,8 +158,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Check if operator is registered on chain
 	log.Printf("Checking if operator %s is registered on chain", req.Address)
-	mainnetClient := n.chainClients.GetMainnetClient()
-	isRegistered, err := mainnetClient.IsOperatorRegistered(ctx, ethcommon.HexToAddress(req.Address))
+	isRegistered, err := n.mainnetClient.IsOperatorRegistered(ctx, ethcommon.HexToAddress(req.Address))
 	if err != nil {
 		log.Printf("Failed to check operator %s registration: %v", req.Address, err)
 		return fmt.Errorf("failed to check operator registration: %w", err)
@@ -122,7 +172,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Get operator from database
 	log.Printf("Getting operator %s from database", req.Address)
-	op, err := n.db.GetOperatorByAddress(ctx, req.Address)
+	operator, err := n.operators.GetOperatorByAddress(ctx, req.Address)
 	if err != nil {
 		log.Printf("Failed to get operator %s from database: %v", req.Address, err)
 		return fmt.Errorf("failed to get operator: %w", err)
@@ -131,7 +181,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Verify signing key matches
 	log.Printf("Verifying signing key for operator %s", req.Address)
-	if op.SigningKey != req.SigningKey {
+	if operator.SigningKey != req.SigningKey {
 		log.Printf("Signing key mismatch for operator %s", req.Address)
 		return fmt.Errorf("signing key mismatch")
 	}
@@ -139,7 +189,7 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Update operator status
 	log.Printf("Updating status for operator %s", req.Address)
-	if err := n.eventListener.updateStatusAfterOperations(ctx, req.Address); err != nil {
+	if err := n.updateStatusAfterOperations(ctx, req.Address); err != nil {
 		log.Printf("Failed to update operator status: %v", err)
 		return fmt.Errorf("failed to update operator status: %w", err)
 	}
@@ -147,25 +197,16 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 
 	// Broadcast state update
 	log.Printf("Broadcasting state update for operator %s", req.Address)
-	var exitEpoch *int32
-	defaultExitEpoch := pgtype.Numeric{
-		Int: new(big.Int).SetUint64(4294967295),
-	}
-	if op.ExitEpoch.Valid && op.ExitEpoch.Int.Cmp(defaultExitEpoch.Int) != 0 { // Check if valid and not default max value
-		val := int32(op.ExitEpoch.Int.Int64())
-		exitEpoch = &val
-	}
-
 	stateUpdate := []*pb.OperatorState{
 		{
-			Address:                 op.Address,
-			SigningKey:             op.SigningKey,
-			RegisteredAtBlockNumber: op.RegisteredAtBlockNumber.Int.Int64(),
-			RegisteredAtTimestamp:   op.RegisteredAtTimestamp.Int.Int64(),
-			ActiveEpoch:            int32(op.ActiveEpoch.Int.Int64()),
-			ExitEpoch:              exitEpoch,
-			Status:                 op.Status,
-			Weight:                 common.NumericToString(op.Weight),
+			Address:                 operator.Address,
+			SigningKey:             operator.SigningKey,
+			RegisteredAtBlockNumber: operator.RegisteredAtBlockNumber,
+			RegisteredAtTimestamp:   operator.RegisteredAtTimestamp,
+			ActiveEpoch:            operator.ActiveEpoch,
+			ExitEpoch:              &operator.ExitEpoch,
+			Status:                 string(operator.Status),
+			Weight:                 commonHelpers.NumericToString(operator.Weight),
 		},
 	}
 	n.BroadcastStateUpdate(stateUpdate, "DELTA")
@@ -174,3 +215,4 @@ func (n *Node) HandleJoinRequest(ctx context.Context, req *pb.JoinRequest) error
 	log.Printf("Operator %s joined successfully", req.Address)
 	return nil
 }
+

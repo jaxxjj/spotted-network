@@ -8,6 +8,7 @@ package tasks
 import (
 	"context"
 
+	types "github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -40,19 +41,19 @@ INSERT INTO tasks (
 `
 
 type CreateTaskParams struct {
-	TaskID                string         `json:"task_id"`
-	TargetAddress         string         `json:"target_address"`
-	ChainID               int32          `json:"chain_id"`
-	BlockNumber           pgtype.Numeric `json:"block_number"`
-	Timestamp             pgtype.Numeric `json:"timestamp"`
-	Epoch                 int32          `json:"epoch"`
-	Key                   pgtype.Numeric `json:"key"`
-	Value                 pgtype.Numeric `json:"value"`
-	Status                string         `json:"status"`
-	RequiredConfirmations pgtype.Int4    `json:"required_confirmations"`
+	TaskID                string           `json:"task_id"`
+	TargetAddress         string           `json:"target_address"`
+	ChainID               uint32           `json:"chain_id"`
+	BlockNumber           uint64           `json:"block_number"`
+	Timestamp             uint64           `json:"timestamp"`
+	Epoch                 uint32           `json:"epoch"`
+	Key                   pgtype.Numeric   `json:"key"`
+	Value                 pgtype.Numeric   `json:"value"`
+	Status                types.TaskStatus `json:"status"`
+	RequiredConfirmations uint16           `json:"required_confirmations"`
 }
 
-func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error) {
+func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Tasks, error) {
 	row := q.db.QueryRow(ctx, createTask,
 		arg.TaskID,
 		arg.TargetAddress,
@@ -65,7 +66,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		arg.Status,
 		arg.RequiredConfirmations,
 	)
-	var i Task
+	var i Tasks
 	err := row.Scan(
 		&i.TaskID,
 		&i.ChainID,
@@ -99,9 +100,9 @@ SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, e
 WHERE task_id = $1
 `
 
-func (q *Queries) GetTaskByID(ctx context.Context, taskID string) (Task, error) {
+func (q *Queries) GetTaskByID(ctx context.Context, taskID string) (Tasks, error) {
 	row := q.db.QueryRow(ctx, getTaskByID, taskID)
-	var i Task
+	var i Tasks
 	err := row.Scan(
 		&i.TaskID,
 		&i.ChainID,
@@ -128,9 +129,9 @@ WHERE task_id = $1
 RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
 `
 
-func (q *Queries) IncrementRetryCount(ctx context.Context, taskID string) (Task, error) {
+func (q *Queries) IncrementRetryCount(ctx context.Context, taskID string) (Tasks, error) {
 	row := q.db.QueryRow(ctx, incrementRetryCount, taskID)
-	var i Task
+	var i Tasks
 	err := row.Scan(
 		&i.TaskID,
 		&i.ChainID,
@@ -153,15 +154,15 @@ const listAllTasks = `-- name: ListAllTasks :many
 SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks ORDER BY created_at DESC
 `
 
-func (q *Queries) ListAllTasks(ctx context.Context) ([]Task, error) {
+func (q *Queries) ListAllTasks(ctx context.Context) ([]Tasks, error) {
 	rows, err := q.db.Query(ctx, listAllTasks)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Task{}
+	items := []Tasks{}
 	for rows.Next() {
-		var i Task
+		var i Tasks
 		if err := rows.Scan(
 			&i.TaskID,
 			&i.ChainID,
@@ -193,15 +194,15 @@ WHERE status = 'confirming'
 ORDER BY created_at DESC
 `
 
-func (q *Queries) ListConfirmingTasks(ctx context.Context) ([]Task, error) {
+func (q *Queries) ListConfirmingTasks(ctx context.Context) ([]Tasks, error) {
 	rows, err := q.db.Query(ctx, listConfirmingTasks)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Task{}
+	items := []Tasks{}
 	for rows.Next() {
-		var i Task
+		var i Tasks
 		if err := rows.Scan(
 			&i.TaskID,
 			&i.ChainID,
@@ -233,15 +234,15 @@ WHERE status = 'pending'
 ORDER BY created_at ASC
 `
 
-func (q *Queries) ListPendingTasks(ctx context.Context) ([]Task, error) {
+func (q *Queries) ListPendingTasks(ctx context.Context) ([]Tasks, error) {
 	rows, err := q.db.Query(ctx, listPendingTasks)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Task{}
+	items := []Tasks{}
 	for rows.Next() {
-		var i Task
+		var i Tasks
 		if err := rows.Scan(
 			&i.TaskID,
 			&i.ChainID,
@@ -288,13 +289,13 @@ RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value
 `
 
 type UpdateTaskStatusParams struct {
-	TaskID string `json:"task_id"`
-	Status string `json:"status"`
+	TaskID string           `json:"task_id"`
+	Status types.TaskStatus `json:"status"`
 }
 
-func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusParams) (Task, error) {
+func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusParams) (Tasks, error) {
 	row := q.db.QueryRow(ctx, updateTaskStatus, arg.TaskID, arg.Status)
-	var i Task
+	var i Tasks
 	err := row.Scan(
 		&i.TaskID,
 		&i.ChainID,
@@ -339,9 +340,9 @@ type UpdateTaskValueParams struct {
 	Value  pgtype.Numeric `json:"value"`
 }
 
-func (q *Queries) UpdateTaskValue(ctx context.Context, arg UpdateTaskValueParams) (Task, error) {
+func (q *Queries) UpdateTaskValue(ctx context.Context, arg UpdateTaskValueParams) (Tasks, error) {
 	row := q.db.QueryRow(ctx, updateTaskValue, arg.TaskID, arg.Value)
-	var i Task
+	var i Tasks
 	err := row.Scan(
 		&i.TaskID,
 		&i.ChainID,

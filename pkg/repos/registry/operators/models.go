@@ -5,18 +5,19 @@
 package operators
 
 import (
+	types "github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Operators struct {
-	Address                 string             `json:"address"`
-	SigningKey              string             `json:"signing_key"`
-	RegisteredAtBlockNumber pgtype.Numeric     `json:"registered_at_block_number"`
-	RegisteredAtTimestamp   pgtype.Numeric     `json:"registered_at_timestamp"`
-	ActiveEpoch             pgtype.Numeric     `json:"active_epoch"`
-	ExitEpoch               pgtype.Numeric     `json:"exit_epoch"`
-	Status                  string             `json:"status"`
-	Weight                  pgtype.Numeric     `json:"weight"`
-	CreatedAt               pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+	Address                 string               `json:"address"`
+	SigningKey              string               `json:"signing_key"`
+	RegisteredAtBlockNumber uint64               `json:"registered_at_block_number"`
+	RegisteredAtTimestamp   uint64               `json:"registered_at_timestamp"`
+	ActiveEpoch             uint32               `json:"active_epoch"`
+	ExitEpoch               uint32               `json:"exit_epoch"`
+	Status                  types.OperatorStatus `json:"status"`
+	Weight                  pgtype.Numeric       `json:"weight"`
+	CreatedAt               pgtype.Timestamptz   `json:"created_at"`
+	UpdatedAt               pgtype.Timestamptz   `json:"updated_at"`
 }

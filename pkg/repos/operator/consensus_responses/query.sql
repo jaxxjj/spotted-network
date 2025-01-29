@@ -15,9 +15,17 @@ INSERT INTO consensus_responses (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
 ) RETURNING *;
 
--- name: GetConsensusResponse :one
+-- name: GetConsensusResponseByTaskId :one
 SELECT * FROM consensus_responses
 WHERE task_id = $1 LIMIT 1;
+
+-- name: GetConsensusResponseByRequest :one
+SELECT * FROM consensus_responses
+WHERE target_address = $1 
+AND chain_id = $2 
+AND block_number = $3 
+AND key = $4 
+LIMIT 1;
 
 -- name: UpdateConsensusResponse :one
 UPDATE consensus_responses

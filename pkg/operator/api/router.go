@@ -11,7 +11,15 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	// apply rate limit middleware
 	r.Use(rateLimiter.RateLimit)
 	
-	// register routes
-	r.Post("/api/v1/task", h.SendRequest)
-	r.Get("/api/v1/task/{taskID}/final", h.GetTaskFinalResponse)
+	// Task related endpoints
+	r.Route("/api/v1", func(r chi.Router) {
+		// Task operations
+		r.Post("/tasks", h.SendRequest)                      // Create new task
+		
+		// Consensus queries
+		r.Route("/consensus", func(r chi.Router) {
+			r.Get("/", h.GetConsensusResponseByRequest)      // Query by parameters
+			r.Get("/tasks/{taskID}", h.GetTaskConsensusByTaskID) // Query by task ID
+		})
+	})
 } 

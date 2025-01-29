@@ -2,14 +2,22 @@ package common
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/galxe/spotted-network/pkg/common/contracts"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/libp2p/go-libp2p/core/network"
 )
+
+// ChainClient defines the interface for getting blocks that the helper functions need
+type ChainClient interface {
+	BlockNumber(ctx context.Context) (uint64, error)
+	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
+}
 
 // NumericToString converts pgtype.Numeric to string with proper handling of exponent
 func NumericToString(n pgtype.Numeric) string {
@@ -27,37 +35,95 @@ func NumericToString(n pgtype.Numeric) string {
 	return weight.String()
 }
 
-// BlockNumberToTimestamp converts a block number to its corresponding timestamp
-// for a specific chain
-func BlockNumberToTimestamp(ctx context.Context, client contracts.StateClient, chainID int64, blockNumber uint64) (int64, error) {
-	// Get ethclient from state client
-	ethClient := client.(interface{ GetEthClient() *ethclient.Client }).GetEthClient()
+// NumericToBigInt converts pgtype.Numeric to *big.Int with proper handling of exponent
+func NumericToBigInt(n pgtype.Numeric) (*big.Int, error) {
+	if n.Exp == 0 {
+		return n.Int, nil
+    }
+    big10 := big.NewInt(10)
+    big0 := big.NewInt(0)
+    num := &big.Int{}
+    num.Set(n.Int)
+    if n.Exp > 0 {
+        mul := &big.Int{}
+        mul.Exp(big10, big.NewInt(int64(n.Exp)), nil)
+        num.Mul(num, mul)
+        return num, nil
+    }
 
+    div := &big.Int{}
+    div.Exp(big10, big.NewInt(int64(-n.Exp)), nil)
+    remainder := &big.Int{}
+    num.DivMod(num, div, remainder)
+    if remainder.Cmp(big0) != 0 {
+        return nil, fmt.Errorf("cannot convert %v to integer", n)
+    }
+    return num, nil
+}
+
+// NumericToInt64 converts a pgtype.Numeric to int64
+func NumericToInt64(num pgtype.Numeric) int64 {
+    if !num.Valid {
+        return 0
+    }
+    fl, _ := num.Float64Value()
+    return int64(fl.Float64)
+}
+
+// NumericToUint64 converts a pgtype.Numeric to uint64
+func NumericToUint64(num pgtype.Numeric) uint64 {
+    if !num.Valid {
+        return 0
+    }
+    fl, _ := num.Float64Value()
+    return uint64(fl.Float64)
+}
+
+func StringToBigInt(s string) *big.Int {
+	if s == "" {
+		return big.NewInt(0)
+	}
+
+	x, _ := new(big.Int).SetString(s, 10)
+
+	return x
+}
+
+// BigIntToNumeric converts a *big.Int to a pgtype.Numeric
+func BigIntToNumeric(x *big.Int) pgtype.Numeric {
+	return pgtype.Numeric{Int: x, Valid: true}
+}
+
+// StringToNumeric converts a string to a pgtype.Numeric
+func StringToNumeric(s string) pgtype.Numeric {
+	return BigIntToNumeric(StringToBigInt(s))
+}
+
+
+// BlockNumberToTimestamp converts a block number to its corresponding timestamp
+func BlockNumberToTimestamp(ctx context.Context, client ChainClient, chainID uint32, blockNumber uint64) (uint64, error) {
 	// Get block by number
-	block, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
+	block, err := client.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
 	if err != nil {
 		return 0, fmt.Errorf("failed to get block %d: %w", blockNumber, err)
 	}
 
 	// Return block timestamp
-	return int64(block.Time()), nil
+	return block.Time(), nil
 }
 
 // TimestampToBlockNumber converts a timestamp to its nearest block number
 // for a specific chain. It uses a more efficient algorithm that takes into
 // account the average block time for the chain.
-func TimestampToBlockNumber(ctx context.Context, client contracts.StateClient, chainID int64, timestamp int64) (uint64, error) {
+func TimestampToBlockNumber(ctx context.Context, client ChainClient, chainID uint32, timestamp uint64) (uint64, error) {
 	// Get latest block
-	currentBlockNumber, err := client.GetLatestBlockNumber(ctx)
+	currentBlockNumber, err := client.BlockNumber(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get latest block: %w", err)
 	}
 
-	// Get ethclient from state client
-	ethClient := client.(interface{ GetEthClient() *ethclient.Client }).GetEthClient()
-
 	// Get current block
-	currentBlock, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(currentBlockNumber))
+	currentBlock, err := client.BlockByNumber(ctx, new(big.Int).SetUint64(currentBlockNumber))
 	if err != nil {
 		return 0, fmt.Errorf("failed to get current block: %w", err)
 	}
@@ -79,9 +145,9 @@ func TimestampToBlockNumber(ctx context.Context, client contracts.StateClient, c
 	block := currentBlock
 
 	// First pass: use average block time to get close to target
-	for block.Time() > uint64(timestamp) {
+	for block.Time() > timestamp {
 		// Calculate number of blocks to go back
-		decreaseBlocks := float64(block.Time()-uint64(timestamp)) / averageBlockTime
+		decreaseBlocks := float64(block.Time()-timestamp) / averageBlockTime
 		decreaseBlocks = math.Floor(decreaseBlocks)
 
 		if decreaseBlocks < 1 {
@@ -97,7 +163,7 @@ func TimestampToBlockNumber(ctx context.Context, client contracts.StateClient, c
 		blockNumber -= uint64(decreaseBlocks)
 
 		// Get new block
-		block, err = ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
+		block, err = client.BlockByNumber(ctx, new(big.Int).SetUint64(blockNumber))
 		if err != nil {
 			return 0, fmt.Errorf("failed to get block %d: %w", blockNumber, err)
 		}
@@ -105,21 +171,21 @@ func TimestampToBlockNumber(ctx context.Context, client contracts.StateClient, c
 
 	// Second pass: fine tune by walking one block at a time
 	// If we overshot (block time < target), walk forward
-	for block.Time() < uint64(timestamp) {
+	for block.Time() < timestamp {
 		nextBlockNumber := blockNumber + 1
 		if nextBlockNumber > currentBlockNumber {
 			break
 		}
 
-		nextBlock, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(nextBlockNumber))
+		nextBlock, err := client.BlockByNumber(ctx, new(big.Int).SetUint64(nextBlockNumber))
 		if err != nil {
 			break
 		}
 
 		// If next block would overshoot, stop here
-		if nextBlock.Time() > uint64(timestamp) {
+		if nextBlock.Time() > timestamp {
 			// Return the closest block
-			if uint64(timestamp)-block.Time() < nextBlock.Time()-uint64(timestamp) {
+			if timestamp-block.Time() < nextBlock.Time()-timestamp {
 				return blockNumber, nil
 			}
 			return nextBlockNumber, nil
@@ -130,21 +196,21 @@ func TimestampToBlockNumber(ctx context.Context, client contracts.StateClient, c
 	}
 
 	// If we undershot (block time > target), walk backward
-	for block.Time() > uint64(timestamp) {
+	for block.Time() > timestamp {
 		if blockNumber == 0 {
 			break
 		}
 
 		prevBlockNumber := blockNumber - 1
-		prevBlock, err := ethClient.BlockByNumber(ctx, new(big.Int).SetUint64(prevBlockNumber))
+		prevBlock, err := client.BlockByNumber(ctx, new(big.Int).SetUint64(prevBlockNumber))
 		if err != nil {
 			break
 		}
 
 		// If previous block would undershoot, stop here
-		if prevBlock.Time() < uint64(timestamp) {
+		if prevBlock.Time() < timestamp {
 			// Return the closest block
-			if uint64(timestamp)-prevBlock.Time() < block.Time()-uint64(timestamp) {
+			if timestamp-prevBlock.Time() < block.Time()-timestamp {
 				return prevBlockNumber, nil
 			}
 			return blockNumber, nil
@@ -159,19 +225,19 @@ func TimestampToBlockNumber(ctx context.Context, client contracts.StateClient, c
 
 // ValidateBlockNumberAndTimestamp validates that exactly one of blockNumber or timestamp is provided
 // and converts between them as needed
-func ValidateBlockNumberAndTimestamp(ctx context.Context, client contracts.StateClient, chainID int64, blockNumber *int64, timestamp *int64) (uint64, int64, error) {
+func ValidateBlockNumberAndTimestamp(ctx context.Context, client ChainClient, chainID uint32, blockNumber *uint64, timestamp *uint64) (uint64, uint64, error) {
 	// Check that exactly one is provided
 	if (blockNumber == nil && timestamp == nil) || (blockNumber != nil && timestamp != nil) {
 		return 0, 0, fmt.Errorf("exactly one of block_number or timestamp must be provided")
 	}
 
 	var resultBlockNumber uint64
-	var resultTimestamp int64
+	var resultTimestamp uint64
 	var err error
 
 	if blockNumber != nil {
 		// Convert block number to timestamp
-		resultBlockNumber = uint64(*blockNumber)
+		resultBlockNumber = *blockNumber
 		resultTimestamp, err = BlockNumberToTimestamp(ctx, client, chainID, resultBlockNumber)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert block number to timestamp: %w", err)
@@ -186,4 +252,26 @@ func ValidateBlockNumberAndTimestamp(ctx context.Context, client contracts.State
 	}
 
 	return resultBlockNumber, resultTimestamp, nil
+}
+
+// writeLengthPrefix writes a 4-byte length prefix to the stream
+func WriteLengthPrefix(stream network.Stream, length uint32) error {
+    lengthBuf := make([]byte, 4)
+    binary.BigEndian.PutUint32(lengthBuf, length)
+    
+    if _, err := stream.Write(lengthBuf); err != nil {
+        return fmt.Errorf("failed to write length prefix: %w", err)
+    }
+    return nil
+}
+
+// readLengthPrefix reads a 4-byte length prefix from the stream
+func ReadLengthPrefix(stream network.Stream) (uint32, error) {
+    lengthBuf := make([]byte, 4)
+    if _, err := io.ReadFull(stream, lengthBuf); err != nil {
+        return 0, fmt.Errorf("failed to read length prefix: %w", err)
+    }
+    
+    length := binary.BigEndian.Uint32(lengthBuf)
+    return length, nil
 }

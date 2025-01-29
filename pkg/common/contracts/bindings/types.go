@@ -1,4 +1,4 @@
-package types
+package bindings
 
 import (
 	"math/big"
@@ -23,3 +23,5 @@ type Strategy struct {
 	Strategy   common.Address
 	Multiplier *big.Int
 } 
+
+

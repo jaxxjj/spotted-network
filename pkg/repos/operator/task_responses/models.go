@@ -8,18 +8,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type TaskResponse struct {
+type TaskResponses struct {
 	ID              int64              `json:"id"`
 	TaskID          string             `json:"task_id"`
 	OperatorAddress string             `json:"operator_address"`
 	SigningKey      string             `json:"signing_key"`
 	Signature       []byte             `json:"signature"`
-	Epoch           int32              `json:"epoch"`
-	ChainID         int32              `json:"chain_id"`
+	Epoch           uint32             `json:"epoch"`
+	ChainID         uint32             `json:"chain_id"`
 	TargetAddress   string             `json:"target_address"`
 	Key             pgtype.Numeric     `json:"key"`
 	Value           pgtype.Numeric     `json:"value"`
-	BlockNumber     pgtype.Numeric     `json:"block_number"`
-	Timestamp       pgtype.Numeric     `json:"timestamp"`
+	BlockNumber     uint64             `json:"block_number"`
+	Timestamp       uint64             `json:"timestamp"`
 	SubmittedAt     pgtype.Timestamptz `json:"submitted_at"`
 }

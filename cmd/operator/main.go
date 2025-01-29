@@ -9,14 +9,23 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/libp2p/go-libp2p"
+
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
+	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/operator"
+	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
+	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 )
 
 func main() {
 	registryAddr := flag.String("registry", "", "Registry node address")
-	keystorePath := flag.String("keystore", "", "Path to keystore file")
+	operatorKeyPath := flag.String("operator-key", "", "Path to operator keystore file")
+	signingKeyPath := flag.String("signing-key", "", "Path to signing keystore file")
 	password := flag.String("password", "", "Password for keystore")
 	message := flag.String("message", "", "Message to sign")
 	getRegistryID := flag.Bool("get-registry-id", false, "Get registry ID")
@@ -43,7 +52,7 @@ func main() {
 	}
 
 	// Create signer
-	s, err := signer.NewLocalSigner(*keystorePath, *password)
+	signer, err := signer.NewLocalSigner(*operatorKeyPath, *signingKeyPath, *password)
 	if err != nil {
 		log.Fatal("Failed to create signer:", err)
 	}
@@ -58,13 +67,13 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		addr := s.GetAddress()
-		sig, err := s.Sign([]byte(*message))
+		addr := signer.GetOperatorAddress()
+		sig, err := signer.SignJoinRequest([]byte(*message))
 		if err != nil {
 			log.Fatal("Failed to sign message:", err)
 		}
 
-		success, err := client.Join(ctx, addr.Hex(), *message, hex.EncodeToString(sig), s.GetSigningKey())
+		success, err := client.Join(ctx, addr.Hex(), *message, hex.EncodeToString(sig), signer.GetSigningAddress().Hex())
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -75,8 +84,8 @@ func main() {
 	}
 
 	if *message != "" {
-		// Sign message
-		sig, err := s.Sign([]byte(*message))
+		// Sign message with signing key
+		sig, err := signer.Sign([]byte(*message))
 		if err != nil {
 			log.Fatal("Failed to sign message:", err)
 		}
@@ -85,10 +94,7 @@ func main() {
 	}
 
 	if *registryAddr == "" {
-		// Get address
-		addr := s.GetAddress()
-		fmt.Print(addr.Hex())
-		return
+		log.Fatal("Registry address is required")
 	}
 
 	// Get config path from environment variable
@@ -98,20 +104,64 @@ func main() {
 	}
 
 	// Load config
-	cfg, err := operator.LoadConfig(configPath)
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
 	}
 
-	// Initialize chain clients
-	chainClients, err := ethereum.NewChainClients(cfg)
+	// Initialize chain manager with application config
+	chainManager, err := ethereum.NewManager(cfg)
 	if err != nil {
-		log.Fatal("Failed to initialize chain clients:", err)
+		log.Fatal("Failed to initialize chain manager:", err)
 	}
-	defer chainClients.Close()
+	defer chainManager.Close()
+
+	// Create P2P host
+	host, err := libp2p.New(
+		libp2p.ListenAddrStrings(
+			fmt.Sprintf("/ip4/%s/tcp/%d", cfg.P2P.ExternalIP, cfg.P2P.Port),
+		),
+	)
+	if err != nil {
+		log.Fatal("Failed to create P2P host:", err)
+	}
+	defer host.Close()
+
+	// Initialize database connection
+	db, err := pgxpool.New(context.Background(), cfg.Database.URL)
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
+	}
+	defer db.Close()
+
+	// Configure database pool
+	db.Config().MaxConns = int32(cfg.Database.MaxOpenConns)
+	db.Config().MinConns = int32(cfg.Database.MaxIdleConns)
+
+	// Initialize database tables
+	if err := initDatabase(context.Background(), db); err != nil {
+		log.Fatal("Failed to initialize database:", err)
+	}
+
+	// Initialize database queries
+	taskQuerier := tasks.New(db)
+	taskResponseQuerier := task_responses.New(db)
+	consensusResponseQuerier := consensus_responses.New(db)
+	epochStatesQuerier := epoch_states.New(db)
 
 	// Start operator node
-	n, err := operator.NewNode(*registryAddr, s, cfg, chainClients)
+	n, err := operator.NewNode(&operator.NodeConfig{
+		Host:            host,
+		DB:              db,
+		ChainManager:    chainManager,
+		Signer:          signer,
+		TaskQuerier:     taskQuerier,
+		TaskResponseQuerier: taskResponseQuerier,
+		ConsensusResponseQuerier: consensusResponseQuerier,
+		EpochState:      epochStatesQuerier,
+		RegistryAddress: *registryAddr,
+		Config:          cfg,
+	})
 	if err != nil {
 		log.Fatal("Failed to create node:", err)
 	}
@@ -123,3 +173,12 @@ func main() {
 	// Wait forever
 	select {}
 } 
+
+func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
+	// Check if database is accessible
+	if err := db.Ping(ctx); err != nil {
+		return fmt.Errorf("[Node] failed to ping database: %w", err)
+	}
+	log.Printf("[Node] Successfully connected to database")
+	return nil
+}

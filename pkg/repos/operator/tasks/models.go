@@ -5,21 +5,22 @@
 package tasks
 
 import (
+	types "github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Task struct {
+type Tasks struct {
 	TaskID                string             `json:"task_id"`
-	ChainID               int32              `json:"chain_id"`
+	ChainID               uint32             `json:"chain_id"`
 	TargetAddress         string             `json:"target_address"`
 	Key                   pgtype.Numeric     `json:"key"`
-	BlockNumber           pgtype.Numeric     `json:"block_number"`
-	Timestamp             pgtype.Numeric     `json:"timestamp"`
+	BlockNumber           uint64             `json:"block_number"`
+	Timestamp             uint64             `json:"timestamp"`
 	Value                 pgtype.Numeric     `json:"value"`
-	Epoch                 int32              `json:"epoch"`
-	Status                string             `json:"status"`
-	RequiredConfirmations pgtype.Int4        `json:"required_confirmations"`
-	RetryCount            int32              `json:"retry_count"`
+	Epoch                 uint32             `json:"epoch"`
+	Status                types.TaskStatus   `json:"status"`
+	RequiredConfirmations uint16             `json:"required_confirmations"`
+	RetryCount            uint16             `json:"retry_count"`
 	CreatedAt             pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 }

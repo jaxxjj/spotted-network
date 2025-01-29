@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/galxe/spotted-network/pkg/common"
+	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 )
 
 const (
@@ -26,7 +26,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 			log.Printf("[Timeout] Starting pending tasks check...")
 			
 			// Get all pending tasks
-			tasks, err := tp.taskQueries.ListPendingTasks(ctx)
+			tasks, err := tp.task.ListPendingTasks(ctx)
 			if err != nil {
 				log.Printf("[Timeout] Failed to list pending tasks: %v", err)
 				continue
@@ -45,7 +45,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 				tp.weightsMutex.Unlock()
 
 				// Increment retry count before processing
-				newRetryCount, err := tp.taskQueries.IncrementRetryCount(ctx, task.TaskID)
+				newRetryCount, err := tp.task.IncrementRetryCount(ctx, task.TaskID)
 				if err != nil {
 					log.Printf("[Timeout] Failed to increment retry count: %v", err)
 					continue
@@ -55,7 +55,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 				// If retry count reaches max, delete the task
 				if newRetryCount.RetryCount >= maxRetryCount {
 					log.Printf("[Timeout] Task %s reached max retries, deleting", task.TaskID)
-					if err := tp.taskQueries.DeleteTaskByID(ctx, task.TaskID); err != nil {
+					if err := tp.task.DeleteTaskByID(ctx, task.TaskID); err != nil {
 						log.Printf("[Timeout] Failed to delete task: %v", err)
 					}
 
@@ -72,10 +72,20 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 				}
 				
 				// Try to process the task
-				if err := tp.ProcessPendingTask(ctx, &task); err != nil {
+				err = tp.ProcessTask(ctx, &task)
+				if err != nil {
 					log.Printf("[Timeout] Failed to process task %s: %v", task.TaskID, err)
 				} else {
-					log.Printf("[Timeout] Successfully processed pending task %s", task.TaskID)
+					// Check if task was already processed
+					_, err := tp.taskResponse.GetTaskResponse(ctx, task_responses.GetTaskResponseParams{
+						TaskID: task.TaskID,
+						OperatorAddress: tp.signer.GetOperatorAddress().Hex(),
+					})
+					if err == nil {
+						log.Printf("[Timeout] Task %s was already processed, skipping", task.TaskID)
+					} else {
+						log.Printf("[Timeout] Successfully processed pending task %s", task.TaskID)
+					}
 				}
 			}
 		}
@@ -96,7 +106,7 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 			log.Printf("[Confirmation] Starting confirmation check...")
 			
 			// Get all tasks in confirming status
-			tasks, err := tp.taskQueries.ListConfirmingTasks(ctx)
+			tasks, err := tp.task.ListConfirmingTasks(ctx)
 			if err != nil {
 				log.Printf("[Confirmation] Failed to list confirming tasks: %v", err)
 				continue
@@ -107,14 +117,14 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 				log.Printf("[Confirmation] Processing task %s", task.TaskID)
 				
 				// Get state client for the chain
-				stateClient, err := tp.node.chainClient.GetStateClient(int64(task.ChainID))
+				stateClient, err := tp.chainManager.GetClientByChainId(task.ChainID)
 				if err != nil {
 					log.Printf("[Confirmation] Failed to get state client for chain %d: %v", task.ChainID, err)
 					continue
 				}
 
 				// Get latest block number
-				latestBlock, err := stateClient.GetLatestBlockNumber(ctx)
+				latestBlock, err := stateClient.BlockNumber(ctx)
 				if err != nil {
 					log.Printf("[Confirmation] Failed to get latest block number: %v", err)
 					continue
@@ -122,38 +132,23 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 				log.Printf("[Confirmation] Latest block: %d", latestBlock)
 
 				// Get target block number
-				if !task.BlockNumber.Valid || task.BlockNumber.Int == nil {
+				if task.BlockNumber == 0 {
 					log.Printf("[Confirmation] Invalid block number for task %s", task.TaskID)
 					continue
 				}
 				log.Printf("[Confirmation] Raw block number from task: %v", task.BlockNumber)
 				
 				// Convert block number properly considering exponent
-				blockNumStr := common.NumericToString(task.BlockNumber)
-				targetBlock, _ := new(big.Int).SetString(blockNumStr, 10)
-				if targetBlock == nil {
-					log.Printf("[Confirmation] Failed to parse block number for task %s", task.TaskID)
-					continue
-				}
-				log.Printf("[Confirmation] Target block: %d (from user request)", targetBlock.Uint64())
+				targetBlock := task.BlockNumber + uint64(task.RequiredConfirmations)
 
-				// Get required confirmations
-				if !task.RequiredConfirmations.Valid {
-					log.Printf("[Confirmation] Invalid required confirmations for task %s", task.TaskID)
-					continue
-				}
-				requiredConfirmations := task.RequiredConfirmations.Int32
-				log.Printf("[Confirmation] Required confirmations: %d", requiredConfirmations)
+				log.Printf("[Confirmation] Target block: %d (from user request)", targetBlock)
 
-				// Check if we have enough confirmations
-				targetBlockUint64 := targetBlock.Uint64()
-				requiredTarget := targetBlockUint64 + uint64(requiredConfirmations)
-				if latestBlock >= requiredTarget {
+				if latestBlock >= targetBlock {
 					log.Printf("[Confirmation] Task %s has reached required confirmations (latest: %d >= target+confirmations: %d), changing status to pending", 
-						task.TaskID, latestBlock, requiredTarget)
+						task.TaskID, latestBlock, targetBlock)
 					
 					// Change task status to pending
-					err = tp.taskQueries.UpdateTaskToPending(ctx, task.TaskID)
+					err = tp.task.UpdateTaskToPending(ctx, task.TaskID)
 					if err != nil {
 						log.Printf("[Confirmation] Failed to update task status to pending: %v", err)
 						continue
@@ -161,16 +156,48 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 					log.Printf("[Confirmation] Successfully changed task %s status to pending", task.TaskID)
 
 					// Process task immediately
-					if err := tp.ProcessPendingTask(ctx, &task); err != nil {
+					if err := tp.ProcessTask(ctx, &task); err != nil {
 						log.Printf("[Confirmation] Failed to process task immediately: %v", err)
 						continue
 					}
 					log.Printf("[Confirmation] Successfully processed task %s immediately", task.TaskID)
 				} else {
 					log.Printf("[Confirmation] Task %s needs more confirmations (latest: %d, target+confirmations: %d)", 
-						task.TaskID, latestBlock, requiredTarget)
+						task.TaskID, latestBlock, targetBlock)
 				}
 			}
 		}
 	}
 }
+
+// periodicCleanup runs cleanup of all task maps periodically
+func (tp *TaskProcessor) periodicCleanup(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			log.Printf("[TaskProcessor] Starting periodic cleanup...")
+			tp.cleanupAllTasks()
+		}
+	}
+}
+
+// cleanupAllTasks removes all task data from local maps
+func (tp *TaskProcessor) cleanupAllTasks() {
+	// Clean up responses map
+	tp.responsesMutex.Lock()
+	tp.responses = make(map[string]map[string]*task_responses.TaskResponses)
+	tp.responsesMutex.Unlock()
+
+	// Clean up weights map
+	tp.weightsMutex.Lock()
+	tp.taskWeights = make(map[string]map[string]*big.Int)
+	tp.weightsMutex.Unlock()
+
+	log.Printf("[TaskProcessor] Cleaned up all local task maps")
+}
+

@@ -8,14 +8,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
 
-	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
+	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/operator/api"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
@@ -25,10 +27,98 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// P2PHost defines the minimal interface required for p2p functionality
+type P2PHost interface {
+	// Core functionality
+	ID() peer.ID
+	Addrs() []multiaddr.Multiaddr
+	Connect(ctx context.Context, pi peer.AddrInfo) error
+	NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error)
+	SetStreamHandler(pid protocol.ID, handler network.StreamHandler)
+	Network() network.Network
+	Close() error
+}
 
-func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *ethereum.ChainClients) (*Node, error) {
-	// Parse the registry multiaddr
-	maddr, err := multiaddr.NewMultiaddr(registryAddr)
+// APIServer defines the interface for the API server
+type APIServer interface {
+	Start() error
+	Stop(ctx context.Context) error
+}
+
+
+// NodeConfig contains all the dependencies needed by Node
+type NodeConfig struct {
+	Host            host.Host
+	DB              *pgxpool.Pool
+	ChainManager    ChainManager
+	Signer          signer.Signer
+	PubSub          *pubsub.PubSub
+	TaskQuerier     *tasks.Queries
+	TaskResponseQuerier *task_responses.Queries
+	ConsensusResponseQuerier *consensus_responses.Queries
+	EpochState      *epoch_states.Queries
+	RegistryAddress string
+	Config          *config.Config
+}
+
+// Node represents an operator node in the network
+type Node struct {
+	host           P2PHost
+	registryID     peer.ID
+	registryAddr   string
+	signer         OperatorSigner
+	chainManager   ChainManager
+	knownOperators map[peer.ID]*peer.AddrInfo
+	operators      map[peer.ID]*OperatorInfo
+	operatorsMu    sync.RWMutex
+	pingService    *ping.PingService
+	operatorStates map[string]*pb.OperatorState
+	statesMu       sync.RWMutex
+	apiServer   APIServer
+	taskProcessor *TaskProcessor
+	taskQuerier  TaskQuerier
+	taskResponseQuerier TaskResponseQuerier
+	consensusResponseQuerier ConsensusResponseQuerier
+	epochState  EpochStateQuerier
+	config      *config.Config
+}
+
+// NewNode creates a new operator node with the given dependencies
+func NewNode(cfg *NodeConfig) (*Node, error) {
+	// Validate required dependencies
+	if cfg.Host == nil {
+		return nil, fmt.Errorf("host is required")
+	}
+	if cfg.DB == nil {
+		return nil, fmt.Errorf("database is required")
+	}
+	if cfg.ChainManager == nil {
+		return nil, fmt.Errorf("chain manager is required")
+	}
+	if cfg.Signer == nil {
+		return nil, fmt.Errorf("signer is required")
+	}
+	if cfg.TaskQuerier == nil {
+		return nil, fmt.Errorf("task querier is required")
+	}
+	if cfg.TaskResponseQuerier == nil {
+		return nil, fmt.Errorf("task response querier is required")
+	}
+	if cfg.ConsensusResponseQuerier == nil {
+		return nil, fmt.Errorf("consensus response querier is required")
+	}
+	if cfg.EpochState == nil {
+		return nil, fmt.Errorf("epoch state querier is required")
+	}
+	if cfg.RegistryAddress == "" {
+		return nil, fmt.Errorf("registry address is required")
+	}
+	if cfg.Config == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+
+	// Parse registry address
+	maddr, err := multiaddr.NewMultiaddr(cfg.RegistryAddress)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse registry address: %w", err)
 	}
@@ -39,80 +129,56 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 		return nil, fmt.Errorf("failed to parse registry peer info: %w", err)
 	}
 
-	// Create a new host with P2P configuration
-	host, err := libp2p.New(
-		libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/%s/tcp/%d", cfg.P2P.ExternalIP, cfg.P2P.Port)),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create host: %w", err)
-	}
-
-	// Initialize database connection
-	db, err := pgxpool.New(context.Background(), cfg.Database.URL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
-	}
-
-	// Configure database pool
-	db.Config().MaxConns = int32(cfg.Database.MaxOpenConns)
-	db.Config().MinConns = int32(cfg.Database.MaxIdleConns)
-
-	// Initialize database tables
-	if err := initDatabase(context.Background(), db); err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
-	}
-
-	// Initialize pubsub
-	ps, err := pubsub.NewGossipSub(context.Background(), host)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create pubsub: %w", err)
-	}
-
-	// Initialize database queries
-	taskQueries := tasks.New(db)
-	responseQueries := task_responses.New(db)
-	consensusQueries := consensus_responses.New(db)
-	epochStates := epoch_states.New(db)
-
 	// Create ping service
-	pingService := ping.NewPingService(host)
+	pingService := ping.NewPingService(cfg.Host)
 
-	// Create the node instance first
 	node := &Node{
-		host:           host,
+		host:           cfg.Host,
 		registryID:     addrInfo.ID,
-		registryAddr:   registryAddr,
-		signer:         s,
+		registryAddr:   cfg.RegistryAddress,
+		signer:         cfg.Signer,
+		chainManager:   cfg.ChainManager,
 		knownOperators: make(map[peer.ID]*peer.AddrInfo),
 		operators:      make(map[peer.ID]*OperatorInfo),
 		operatorsMu:    sync.RWMutex{},
-		pingService:    pingService,
 		operatorStates: make(map[string]*pb.OperatorState),
 		statesMu:       sync.RWMutex{},
-		db:            db,
-		taskQueries:   taskQueries,
-		responseQueries: responseQueries,
-		consensusQueries: consensusQueries,
-		chainClient:   chainClients,
-		PubSub:        ps,
-		epochStates:   epochStates,
+		taskQuerier:   cfg.TaskQuerier,
+		taskResponseQuerier: cfg.TaskResponseQuerier,
+		consensusResponseQuerier: cfg.ConsensusResponseQuerier,
+		epochState:    cfg.EpochState,
+		config:        cfg.Config,
+		pingService:   pingService,
+	}
+	// Initialize pubsub
+	ps, err := pubsub.NewGossipSub(context.Background(), cfg.Host)
+	if err != nil {
+		log.Fatal("Failed to create pubsub:", err)
 	}
 
 	// Initialize task processor
-	taskProcessor, err := NewTaskProcessor(node, taskQueries, responseQueries, consensusQueries)
+	taskProcessor, err := NewTaskProcessor(&TaskProcessorConfig{
+		Node:               node,
+		Signer:            cfg.Signer,
+		Task:              cfg.TaskQuerier,
+		TaskResponse:      cfg.TaskResponseQuerier,
+		ConsensusResponse: cfg.ConsensusResponseQuerier,
+		EpochState:        cfg.EpochState,
+		ChainManager:      cfg.ChainManager,
+		PubSub:            ps,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task processor: %w", err)
 	}
 	node.taskProcessor = taskProcessor
 
-	// Initialize API handler and server with task processor
-	apiHandler := api.NewHandler(taskQueries, chainClients, consensusQueries, taskProcessor, cfg)
-	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
-	node.apiServer = apiServer
+	// Create API handler and server
+	apiHandler := api.NewHandler(cfg.TaskQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
+	node.apiServer = api.NewServer(apiHandler, cfg.Config.HTTP.Port)
 	
 	// Start API server
 	go func() {
-		if err := apiServer.Start(); err != nil && err != http.ErrServerClosed {
+		if err := node.apiServer.Start(); err != nil && err != http.ErrServerClosed {
 			log.Printf("API server error: %v", err)
 		}
 	}()
@@ -121,6 +187,26 @@ func NewNode(registryAddr string, s signer.Signer, cfg *Config, chainClients *et
 }
 
 func (n *Node) Start(ctx context.Context) error {
+	// Validate required components
+	if n.signer == nil {
+		return fmt.Errorf("[Node] signer not initialized")
+	}
+	if n.host == nil {
+		return fmt.Errorf("[Node] host not initialized")
+	}
+	if n.registryID == "" {
+		return fmt.Errorf("[Node] registry ID not set")
+	}
+	if n.taskProcessor == nil {
+		return fmt.Errorf("[Node] task processor not initialized")
+	}
+	if n.chainManager == nil {
+		return fmt.Errorf("[Node] chain manager not initialized")
+	}
+	if n.epochState == nil {
+		return fmt.Errorf("[Node] epoch state querier not initialized")
+	}
+
 	log.Printf("[Node] Starting operator node with ID: %s", n.host.ID())
 	log.Printf("[Node] Listening addresses: %v", n.host.Addrs())
 
@@ -210,19 +296,6 @@ func (n *Node) Stop() error {
 		log.Printf("[Node] Error stopping API server: %v", err)
 	}
 	
-	// Close database connection
-	n.db.Close()
-	
-	// Close chain clients
-	if err := n.chainClient.Close(); err != nil {
-		log.Printf("[Node] Error closing chain clients: %v", err)
-	}
-
-	// Clean up task processor resources
-	if n.taskProcessor != nil {
-		n.taskProcessor.Stop()
-	}
-	
 	return n.host.Close()
 }
 
@@ -253,12 +326,19 @@ func (n *Node) connectToRegistry() error {
 	return nil
 }
 
-func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
-	// Check if database is accessible
-	if err := db.Ping(ctx); err != nil {
-		return fmt.Errorf("[Node] failed to ping database: %w", err)
+
+// PingPeer implements ping functionality for the node
+func (n *Node) PingPeer(ctx context.Context, p peer.ID) error {
+	// Add ping timeout
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
+	defer cancel()
+
+	result := <-n.pingService.Ping(ctx, p)
+	if result.Error != nil {
+		return fmt.Errorf("ping failed: %v", result.Error)
 	}
-	log.Printf("[Node] Successfully connected to database")
+
+	log.Printf("Successfully pinged peer: %s (RTT: %v)", p, result.RTT)
 	return nil
 }
 

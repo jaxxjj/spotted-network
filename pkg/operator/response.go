@@ -9,13 +9,21 @@ import (
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
+	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
-	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pb "github.com/galxe/spotted-network/proto"
+	"github.com/jackc/pgx/v5/pgtype"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"google.golang.org/protobuf/proto"
 )
+
+
+type TaskResponseQuerier interface {
+	CreateTaskResponse(ctx context.Context, arg task_responses.CreateTaskResponseParams) (task_responses.TaskResponses, error)
+	GetTaskResponse(ctx context.Context, arg task_responses.GetTaskResponseParams) (task_responses.TaskResponses, error)
+}
 
 // handleResponses handles incoming task responses
 func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
@@ -33,26 +41,20 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			log.Printf("[Response] Failed to unmarshal message: %v", err)
 			continue
 		}
-		log.Printf("[Response] Received task response for task %s from operator %s", pbMsg.TaskId, pbMsg.OperatorAddr)
+		log.Printf("[Response] Received task response for task %s from operator %s", pbMsg.TaskId, pbMsg.OperatorAddress)
 
 		// Check if consensus already exists for this task
-		_, err = tp.consensusDB.GetConsensusResponse(context.Background(), pbMsg.TaskId)
+		_, err = tp.consensusResponse.GetConsensusResponseByTaskId(context.Background(), pbMsg.TaskId)
 		if err == nil {
 			// Consensus already exists, skip this response
 			log.Printf("[Response] Consensus already exists for task %s, skipping response from %s", 
-				pbMsg.TaskId, pbMsg.OperatorAddr)
+				pbMsg.TaskId, pbMsg.OperatorAddress)
 			continue
 		}
 
-		// Skip messages from self (检查operator address)
-		if strings.EqualFold(pbMsg.OperatorAddr, tp.signer.Address()) {
-			log.Printf("[Response] Skipping message from self operator: %s", pbMsg.OperatorAddr)
-			continue
-		}
-
-		// Skip messages with our signing key
-		if strings.EqualFold(pbMsg.SigningKey, tp.signer.GetSigningKey()) {
-			log.Printf("[Response] Skipping message with self signing key: %s", pbMsg.SigningKey)
+		// Skip messages from self (operator address)
+		if strings.EqualFold(pbMsg.OperatorAddress, tp.signer.GetOperatorAddress().Hex()) {
+			log.Printf("[Response] Skipping message from self operator: %s", pbMsg.OperatorAddress)
 			continue
 		}
 
@@ -71,58 +73,58 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		}
 
 		// Get operator weight
-		weight, err := tp.getOperatorWeight(response.OperatorAddr)
+		weight, err := tp.getOperatorWeight(response.OperatorAddress)
 		if err != nil {
-			log.Printf("[Response] Invalid operator %s: %v", response.OperatorAddr, err)
+			log.Printf("[Response] Invalid operator %s: %v", response.OperatorAddress, err)
 			continue
 		}
-		log.Printf("[Response] Got operator weight for %s: %s", response.OperatorAddr, weight.String())
+		log.Printf("[Response] Got operator weight for %s: %s", response.OperatorAddress, weight.String())
 
 		// Verify response
 		if err := tp.verifyResponse(response); err != nil {
-			log.Printf("[Response] Invalid response from %s: %v", response.OperatorAddr, err)
+			log.Printf("[Response] Invalid response from %s: %v", response.OperatorAddress, err)
 			continue
 		}
-		log.Printf("[Response] Verified response signature from operator %s", response.OperatorAddr)
+		log.Printf("[Response] Verified response signature from operator %s", response.OperatorAddress)
 
 		// Store response in local map
 		tp.responsesMutex.Lock()
 		if _, exists := tp.responses[response.TaskID]; !exists {
-			tp.responses[response.TaskID] = make(map[string]*types.TaskResponse)
+			tp.responses[response.TaskID] = make(map[string]*task_responses.TaskResponses)
 		}
-		tp.responses[response.TaskID][response.OperatorAddr] = response
+		tp.responses[response.TaskID][response.OperatorAddress] = response
 		tp.responsesMutex.Unlock()
-		log.Printf("[Response] Stored response in memory for task %s from operator %s", response.TaskID, response.OperatorAddr)
+		log.Printf("[Response] Stored response in memory for task %s from operator %s", response.TaskID, response.OperatorAddress)
 
 		// Store weight in local map
 		tp.weightsMutex.Lock()
 		if _, exists := tp.taskWeights[response.TaskID]; !exists {
 			tp.taskWeights[response.TaskID] = make(map[string]*big.Int)
 		}
-		tp.taskWeights[response.TaskID][response.OperatorAddr] = weight
+		tp.taskWeights[response.TaskID][response.OperatorAddress] = weight
 		tp.weightsMutex.Unlock()
-		log.Printf("[Response] Stored weight in memory for task %s from operator %s", response.TaskID, response.OperatorAddr)
+		log.Printf("[Response] Stored weight in memory for task %s from operator %s", response.TaskID, response.OperatorAddress)
 
-		// Store in database
+		// Store in database TODO: need to store?
 		if err := tp.storeResponse(context.Background(), response); err != nil {
 			if !strings.Contains(err.Error(), "duplicate key value") {
 				log.Printf("[Response] Failed to store response: %v", err)
 			} else {
-				log.Printf("[Response] Response already exists in database for task %s from operator %s", response.TaskID, response.OperatorAddr)
+				log.Printf("[Response] Response already exists in database for task %s from operator %s", response.TaskID, response.OperatorAddress)
 			}
 			continue
 		}
-		log.Printf("[Response] Successfully stored response in database for task %s from operator %s", response.TaskID, response.OperatorAddr)
+		log.Printf("[Response] Successfully stored response in database for task %s from operator %s", response.TaskID, response.OperatorAddress)
 
 		// Check if we need to process this task
 		tp.responsesMutex.RLock()
-		_, processed := tp.responses[response.TaskID][tp.signer.Address()]
+		_, processed := tp.responses[response.TaskID][tp.signer.GetOperatorAddress().Hex()]
 		tp.responsesMutex.RUnlock()
 
 		if !processed {
 			// Process task and broadcast our response
-			if err := tp.ProcessTask(context.Background(), &types.Task{
-				ID:            response.TaskID,
+			if err := tp.ProcessTask(context.Background(), &tasks.Tasks{
+				TaskID:        response.TaskID,
 				Value:         response.Value,
 				BlockNumber:   response.BlockNumber,
 				ChainID:       response.ChainID,
@@ -146,21 +148,22 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 
 
 // broadcastResponse broadcasts a task response to other operators
-func (tp *TaskProcessor) broadcastResponse(resp *types.TaskResponse) error {
-	log.Printf("[Response] Starting to broadcast response for task %s", resp.TaskID)
+func (tp *TaskProcessor) broadcastResponse(response *task_responses.TaskResponses) error {
+	log.Printf("[Response] Starting to broadcast response for task %s", response.TaskID)
 	
 	// Create protobuf message
 	msg := &pb.TaskResponseMessage{
-		TaskId:        resp.TaskID,
-		OperatorAddr:  resp.OperatorAddr,
-		SigningKey:    tp.signer.GetSigningKey(),
-		Signature:     resp.Signature,
-		Value:         resp.Value.String(),
-		BlockNumber:   resp.BlockNumber.String(),
-		ChainId:       int32(resp.ChainID),
-		TargetAddress: resp.TargetAddress,
-		Key:          resp.Key.String(),
-		Epoch:        resp.Epoch,
+		TaskId:        response.TaskID,
+		OperatorAddress:  response.OperatorAddress,
+		SigningKey:    tp.signer.GetSigningAddress().Hex(),
+		Signature:     response.Signature,
+		Value:         commonHelpers.NumericToString(response.Value),
+		BlockNumber:   response.BlockNumber,
+		ChainId:       response.ChainID,
+		TargetAddress: response.TargetAddress,
+		Key:          commonHelpers.NumericToString(response.Key),
+		Epoch:        response.Epoch,
+		Timestamp:    response.Timestamp,
 	}
 
 	// Marshal message
@@ -168,103 +171,106 @@ func (tp *TaskProcessor) broadcastResponse(resp *types.TaskResponse) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal response: %w", err)
 	}
-	log.Printf("[Broadcast] Marshaled response message for task %s", resp.TaskID)
+	log.Printf("[Broadcast] Marshaled response message for task %s", response.TaskID)
 
 	// Publish to topic
 	if err := tp.responseTopic.Publish(context.Background(), data); err != nil {
 		log.Printf("[Response] Failed to publish response: %v", err)
 		return err
 	}
-	log.Printf("[Response] Successfully published response for task %s to topic %s", resp.TaskID, tp.responseTopic.String())
+	log.Printf("[Response] Successfully published response for task %s to topic %s", response.TaskID, tp.responseTopic.String())
 
 	return nil
 }
 
 // convertToTaskResponse converts a protobuf task response to a TaskResponse
-func convertToTaskResponse(msg *pb.TaskResponseMessage) (*types.TaskResponse, error) {
+func convertToTaskResponse(msg *pb.TaskResponseMessage) (*task_responses.TaskResponses, error) {
 	if msg == nil {
 		return nil, fmt.Errorf("message is nil")
 	}
 
-	value := new(big.Int)
-	if _, ok := value.SetString(msg.Value, 10); !ok {
-		return nil, fmt.Errorf("invalid value: %s", msg.Value)
-	}
-
-	blockNumber := new(big.Int)
-	if _, ok := blockNumber.SetString(msg.BlockNumber, 10); !ok {
-		return nil, fmt.Errorf("invalid block number: %s", msg.BlockNumber)
-	}
-
-	key := new(big.Int)
-	if _, ok := key.SetString(msg.Key, 10); !ok {
-		return nil, fmt.Errorf("invalid key: %s", msg.Key)
-	}
-
-	// 设置timestamp
-	timestamp := new(big.Int).SetInt64(time.Now().Unix())
-
-	return &types.TaskResponse{
+	return &task_responses.TaskResponses{
 		TaskID:        msg.TaskId,
-		OperatorAddr:  msg.OperatorAddr,
+		OperatorAddress:  msg.OperatorAddress,
 		SigningKey:    msg.SigningKey,
 		Signature:     msg.Signature,
-		Value:         value,
-		BlockNumber:   blockNumber,
-		ChainID:       uint64(msg.ChainId),
+		Value:         commonHelpers.StringToNumeric(msg.Value),
+		BlockNumber:   msg.BlockNumber,
+		ChainID:       msg.ChainId,
 		TargetAddress: msg.TargetAddress,
-		Key:          key,
+		Key:          commonHelpers.StringToNumeric(msg.Key),
 		Epoch:        msg.Epoch,
-		Timestamp:    timestamp,
-		CreatedAt:    time.Now(),
+		Timestamp:    msg.Timestamp,
+		SubmittedAt:    pgtype.Timestamptz{Time: time.Now(), Valid: true},
 	}, nil
 }
 
 // storeResponse stores a task response in the database
-func (tp *TaskProcessor) storeResponse(ctx context.Context, resp *types.TaskResponse) error {
+func (tp *TaskProcessor) storeResponse(ctx context.Context, response *task_responses.TaskResponses) error {
 	params := task_responses.CreateTaskResponseParams{
-		TaskID:         resp.TaskID,
-		OperatorAddress: resp.OperatorAddr,
-		SigningKey:     resp.SigningKey,
-		Signature:      resp.Signature,
-		Epoch:         int32(resp.Epoch),
-		ChainID:       int32(resp.ChainID),
-		TargetAddress: resp.TargetAddress,
-		Key:           NumericFromBigInt(resp.Key),
-		Value:         NumericFromBigInt(resp.Value),
-		BlockNumber:   NumericFromBigInt(resp.BlockNumber),
-		Timestamp:     NumericFromBigInt(resp.Timestamp),
+		TaskID:         response.TaskID,
+		OperatorAddress: response.OperatorAddress,
+		SigningKey:     response.SigningKey,
+		Signature:      response.Signature,
+		Epoch:         response.Epoch,
+		ChainID:       response.ChainID,
+		TargetAddress: response.TargetAddress,
+		Key:           response.Key,
+		Value:         response.Value,
+		BlockNumber:   response.BlockNumber,
+		Timestamp:     response.Timestamp,
 	}
 
-	_, err := tp.db.CreateTaskResponse(ctx, params)
+	_, err := tp.taskResponse.CreateTaskResponse(ctx, params)
 	return err
 }
 // verifyResponse verifies a task response signature
-func (tp *TaskProcessor) verifyResponse(response *types.TaskResponse) error {
+func (tp *TaskProcessor) verifyResponse(response *task_responses.TaskResponses) error {
+	// basic check
 	if response == nil {
 		return fmt.Errorf("[Response] response is nil")
 	}
-
-	if response.BlockNumber == nil {
+	if response.BlockNumber == 0 {
 		return fmt.Errorf("[Response] block number is nil")
 	}
-	if response.Key == nil {
-		return fmt.Errorf("[Response] key is nil")
-	}
-	if response.Value == nil {
-		return fmt.Errorf("[Response] value is nil")
-	}
-	if response.Timestamp == nil {
+	if response.Timestamp == 0 {
 		return fmt.Errorf("[Response] timestamp is nil")
+	}
+
+	key, err := commonHelpers.NumericToBigInt(response.Key)
+	if err != nil {
+		return fmt.Errorf("[Response] failed to convert key to big int: %w", err)
+	}
+	value, err := commonHelpers.NumericToBigInt(response.Value)
+	if err != nil {
+		return fmt.Errorf("[Response] failed to convert value to big int: %w", err)
 	}
 
 	params := signer.TaskSignParams{
 		User:        ethcommon.HexToAddress(response.TargetAddress),
-		ChainID:     uint32(response.ChainID),
-		BlockNumber: response.BlockNumber.Uint64(),
-		Key:         response.Key,
-		Value:       response.Value,
+		ChainID:     response.ChainID,
+		BlockNumber: response.BlockNumber,
+		Key:         key,
+		Value:       value,
 	}
 
-	return tp.signer.VerifyTaskResponse(params, response.Signature, response.OperatorAddr)
+	// signature verification
+	return tp.signer.VerifyTaskResponse(params, response.Signature, response.SigningKey)
+}
+
+// checkP2PStatus checks the status of P2P topic connections
+func (tp *TaskProcessor) checkP2PStatus() {
+	peers := tp.node.host.Network().Peers()
+	log.Printf("[P2P] Connected to %d peers:", len(peers))
+	for _, peer := range peers {
+		addrs := tp.node.host.Network().Peerstore().Addrs(peer)
+		log.Printf("[P2P] - Peer %s at %v", peer.String(), addrs)
+	}
+
+	// Check pubsub topic
+	peers = tp.responseTopic.ListPeers()
+	log.Printf("[P2P] %d peers subscribed to response topic:", len(peers))
+	for _, peer := range peers {
+		log.Printf("[P2P] - Subscribed peer: %s", peer.String())
+	}
 }

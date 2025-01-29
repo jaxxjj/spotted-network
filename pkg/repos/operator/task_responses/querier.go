@@ -9,11 +9,11 @@ import (
 )
 
 type Querier interface {
-	CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams) (TaskResponse, error)
+	CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams) (TaskResponses, error)
 	DeleteTaskResponse(ctx context.Context, arg DeleteTaskResponseParams) error
-	GetTaskResponse(ctx context.Context, arg GetTaskResponseParams) (TaskResponse, error)
-	ListOperatorResponses(ctx context.Context, arg ListOperatorResponsesParams) ([]TaskResponse, error)
-	ListTaskResponses(ctx context.Context, taskID string) ([]TaskResponse, error)
+	GetTaskResponse(ctx context.Context, arg GetTaskResponseParams) (TaskResponses, error)
+	ListOperatorResponses(ctx context.Context, arg ListOperatorResponsesParams) ([]TaskResponses, error)
+	ListTaskResponses(ctx context.Context, taskID string) ([]TaskResponses, error)
 }
 
 var _ Querier = (*Queries)(nil)

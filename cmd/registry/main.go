@@ -2,108 +2,24 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
 	"os"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/config"
-	"github.com/galxe/spotted-network/pkg/p2p"
-	registrynode "github.com/galxe/spotted-network/pkg/registry"
+	"github.com/galxe/spotted-network/pkg/registry"
+	"github.com/galxe/spotted-network/pkg/registry/server"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/libp2p/go-libp2p"
 	"google.golang.org/grpc"
 )
 
-type registryServer struct {
-	pb.UnimplementedRegistryServer
-	node *registrynode.Node
-}
-
-func (s *registryServer) GetRegistryID(ctx context.Context, req *pb.GetRegistryIDRequest) (*pb.GetRegistryIDResponse, error) {
-	return &pb.GetRegistryIDResponse{
-		RegistryId: s.node.GetHostID(),
-	}, nil
-}
-
-func (s *registryServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
-	// Get operator status from database
-	op, err := s.node.GetOperatorByAddress(ctx, req.Address)
-	if err != nil {
-		return &pb.JoinResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to get operator: %v", err),
-		}, nil
-	}
-
-	// Verify operator is in active status
-	if op.Status != string(registrynode.OperatorStatusActive) {
-		return &pb.JoinResponse{
-			Success: false,
-			Error:   "Operator not in active status",
-		}, nil
-	}
-
-	// Verify signing key matches
-	if op.SigningKey != req.SigningKey {
-		return &pb.JoinResponse{
-			Success: false,
-			Error:   "Signing key mismatch",
-		}, nil
-	}
-
-	// Decode signature
-	sigBytes, err := hex.DecodeString(req.Signature)
-	if err != nil {
-		return &pb.JoinResponse{
-			Success: false,
-			Error:   "Invalid signature format",
-		}, nil
-	}
-
-	// Verify signature
-	addr := common.HexToAddress(req.Address)
-	message := []byte(req.Message)
-	if !signer.VerifySignature(addr, message, sigBytes) {
-		return &pb.JoinResponse{
-			Success: false,
-			Error:   "Invalid signature",
-		}, nil
-	}
-
-	// Update operator status to active
-	if err := s.node.UpdateOperatorStatus(ctx, req.Address, string(registrynode.OperatorStatusActive)); err != nil {
-		return &pb.JoinResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to update operator status: %v", err),
-		}, nil
-	}
-
-	// Get list of active operators
-	activeOperators := make([]*pb.ActiveOperator, 0)
-	for _, peerID := range s.node.GetConnectedOperators() {
-		info := s.node.GetOperatorInfo(peerID)
-		if info != nil && info.Status == string(registrynode.OperatorStatusActive) {
-			addrs := make([]string, len(info.Addrs))
-			for i, addr := range info.Addrs {
-				addrs[i] = addr.String()
-			}
-			activeOperators = append(activeOperators, &pb.ActiveOperator{
-				PeerId: peerID.String(),
-				Multiaddrs: addrs,
-			})
-		}
-	}
-
-	return &pb.JoinResponse{
-		Success: true,
-		ActiveOperators: activeOperators,
-	}, nil
+type ChainManager interface {
+	GetMainnetClient() (*ethereum.ChainClient, error)
 }
 
 func main() {
@@ -122,29 +38,41 @@ func main() {
 	}
 
 	// Initialize database connection
-	dbConn, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	db, err := pgxpool.New(context.Background(), cfg.Database.URL)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatal("Failed to connect to database:", err)
 	}
-	defer dbConn.Close()
+	defer db.Close()
 
 	// Create database queries
-	queries := operators.New(dbConn)
-
-	// Initialize chain clients
-	chainClients, err := ethereum.NewChainClients(cfg)
+	operatorsQuerier := operators.New(db)
+	chainManager, err := ethereum.NewManager(cfg)
 	if err != nil {
-		log.Fatalf("Failed to initialize chain clients: %v", err)
+		log.Fatal("Failed to initialize chain manager:", err)
 	}
-	defer chainClients.Close()
+	defer chainManager.Close()
+	mainnetClient, err := chainManager.GetMainnetClient()
+	if err != nil {
+		log.Fatal("Failed to initialize mainnet client:", err)
+	}
 
-	// Create p2p host configuration
-	p2pConfig := &p2p.Config{
-		ListenAddrs: []string{fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", cfg.P2P.Port)},
+	// Create P2P host
+	host, err := libp2p.New(
+		libp2p.ListenAddrStrings(
+			fmt.Sprintf("/ip4/%s/tcp/%d", cfg.P2P.ExternalIP, cfg.P2P.Port),
+		),
+	)
+	if err != nil {
+		log.Fatal("Failed to create P2P host:", err)
 	}
+	defer host.Close()
 	
 	// Create Registry Node
-	node, err := registrynode.NewNode(ctx, p2pConfig, queries, chainClients)
+	node, err := registry.NewNode(&registry.NodeConfig{
+		Host:          host,
+		Operators:     operatorsQuerier,
+		MainnetClient: mainnetClient,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -155,6 +83,9 @@ func main() {
 		log.Fatalf("Failed to start registry node: %v", err)
 	}
 
+	// Create Registry Server
+	registryServer := server.NewRegistryServer(node, operatorsQuerier)
+
 	// Start gRPC server
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.HTTP.Port))
 	if err != nil {
@@ -162,7 +93,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	pb.RegisterRegistryServer(grpcServer, &registryServer{node: node})
+	pb.RegisterRegistryServer(grpcServer, registryServer)
 
 	log.Printf("Registry gRPC server listening on :%d", cfg.HTTP.Port)
 	if err := grpcServer.Serve(lis); err != nil {

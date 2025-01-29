@@ -12,7 +12,7 @@ import (
 
 // Config represents the main configuration structure
 type Config struct {
-	Chains   map[int64]*ChainConfig  `yaml:"chains"`
+	Chains   map[uint32]*ChainConfig  `yaml:"chains"`
 	Database DatabaseConfig          `yaml:"database"`
 	P2P      P2PConfig              `yaml:"p2p"`
 	HTTP     HTTPConfig             `yaml:"http"`
@@ -23,7 +23,7 @@ type Config struct {
 type ChainConfig struct {
 	RPC                  string          `yaml:"rpc"`
 	Contracts           ContractsConfig  `yaml:"contracts"`
-	RequiredConfirmations int            `yaml:"required_confirmations"`
+	RequiredConfirmations uint16         `yaml:"required_confirmations"`
 	AverageBlockTime     float64         `yaml:"average_block_time"`
 }
 
@@ -139,7 +139,7 @@ func (c *Config) validate() error {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Chains: map[int64]*ChainConfig{
+		Chains: map[uint32]*ChainConfig{
 			1: { // Ethereum mainnet
 				RPC: "http://localhost:8545",
 				Contracts: ContractsConfig{
