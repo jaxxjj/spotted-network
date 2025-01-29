@@ -1,4 +1,7 @@
 -- name: UpsertEpochState :one
+-- -- invalidate: GetEpochState
+-- -- invalidate: GetLatestEpochState
+-- -- invalidate: ListEpochStates
 INSERT INTO epoch_states (
     epoch_number,
     block_number,
@@ -19,15 +22,18 @@ SET
 RETURNING *;
 
 -- name: GetEpochState :one
+-- -- cache: 7d
 SELECT * FROM epoch_states
 WHERE epoch_number = $1;
 
 -- name: GetLatestEpochState :one
+-- -- cache: 1h
 SELECT * FROM epoch_states
 ORDER BY epoch_number DESC
 LIMIT 1;
 
 -- name: ListEpochStates :many
+-- -- cache: 7d
 SELECT * FROM epoch_states
 ORDER BY epoch_number DESC
 LIMIT $1; 

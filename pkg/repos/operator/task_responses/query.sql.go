@@ -43,6 +43,7 @@ type CreateTaskResponseParams struct {
 	Timestamp       uint64         `json:"timestamp"`
 }
 
+// -- invalidate: GetTaskResponse
 func (q *Queries) CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams) (TaskResponses, error) {
 	row := q.db.QueryRow(ctx, createTaskResponse,
 		arg.TaskID,
@@ -86,6 +87,7 @@ type DeleteTaskResponseParams struct {
 	OperatorAddress string `json:"operator_address"`
 }
 
+// -- invalidate: GetTaskResponse
 func (q *Queries) DeleteTaskResponse(ctx context.Context, arg DeleteTaskResponseParams) error {
 	_, err := q.db.Exec(ctx, deleteTaskResponse, arg.TaskID, arg.OperatorAddress)
 	return err
@@ -101,6 +103,8 @@ type GetTaskResponseParams struct {
 	OperatorAddress string `json:"operator_address"`
 }
 
+// Get single task response by task_id and operator_address
+// -- cache: 7d
 func (q *Queries) GetTaskResponse(ctx context.Context, arg GetTaskResponseParams) (TaskResponses, error) {
 	row := q.db.QueryRow(ctx, getTaskResponse, arg.TaskID, arg.OperatorAddress)
 	var i TaskResponses
@@ -134,6 +138,7 @@ type ListOperatorResponsesParams struct {
 	Limit           int32  `json:"limit"`
 }
 
+// Get recent responses for an operator, no cache for real-time data
 func (q *Queries) ListOperatorResponses(ctx context.Context, arg ListOperatorResponsesParams) ([]TaskResponses, error) {
 	rows, err := q.db.Query(ctx, listOperatorResponses, arg.OperatorAddress, arg.Limit)
 	if err != nil {
@@ -173,6 +178,7 @@ SELECT id, task_id, operator_address, signing_key, signature, epoch, chain_id, t
 WHERE task_id = $1
 `
 
+// Get all responses for a task, no cache for real-time data
 func (q *Queries) ListTaskResponses(ctx context.Context, taskID string) ([]TaskResponses, error) {
 	rows, err := q.db.Query(ctx, listTaskResponses, taskID)
 	if err != nil {

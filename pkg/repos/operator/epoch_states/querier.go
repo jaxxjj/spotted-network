@@ -9,9 +9,15 @@ import (
 )
 
 type Querier interface {
+	// -- cache: 7d
 	GetEpochState(ctx context.Context, epochNumber uint32) (EpochState, error)
+	// -- cache: 1h
 	GetLatestEpochState(ctx context.Context) (EpochState, error)
+	// -- cache: 7d
 	ListEpochStates(ctx context.Context, limit int32) ([]EpochState, error)
+	// -- invalidate: GetEpochState
+	// -- invalidate: GetLatestEpochState
+	// -- invalidate: ListEpochStates
 	UpsertEpochState(ctx context.Context, arg UpsertEpochStateParams) (EpochState, error)
 }
 

@@ -35,6 +35,7 @@ type CreateOperatorParams struct {
 }
 
 // Create a new operator record with inactive status
+// -- invalidate: GetOperatorByAddress
 func (q *Queries) CreateOperator(ctx context.Context, arg CreateOperatorParams) (Operators, error) {
 	row := q.db.QueryRow(ctx, createOperator,
 		arg.Address,
@@ -66,6 +67,7 @@ WHERE address = $1
 `
 
 // Get operator information by address
+// -- cache: 7d
 func (q *Queries) GetOperatorByAddress(ctx context.Context, address string) (Operators, error) {
 	row := q.db.QueryRow(ctx, getOperatorByAddress, address)
 	var i Operators
@@ -173,6 +175,7 @@ type UpdateOperatorExitEpochParams struct {
 }
 
 // Update operator exit epoch
+// -- invalidate: GetOperatorByAddress
 func (q *Queries) UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams) (Operators, error) {
 	row := q.db.QueryRow(ctx, updateOperatorExitEpoch, arg.Address, arg.ExitEpoch)
 	var i Operators
@@ -207,6 +210,7 @@ type UpdateOperatorStateParams struct {
 }
 
 // Update operator status and weight
+// -- invalidate: GetOperatorByAddress
 func (q *Queries) UpdateOperatorState(ctx context.Context, arg UpdateOperatorStateParams) (Operators, error) {
 	row := q.db.QueryRow(ctx, updateOperatorState, arg.Address, arg.Status, arg.Weight)
 	var i Operators
@@ -239,6 +243,7 @@ type UpdateOperatorStatusParams struct {
 }
 
 // Update operator status
+// -- invalidate: GetOperatorByAddress
 func (q *Queries) UpdateOperatorStatus(ctx context.Context, arg UpdateOperatorStatusParams) (Operators, error) {
 	row := q.db.QueryRow(ctx, updateOperatorStatus, arg.Address, arg.Status)
 	var i Operators
@@ -291,6 +296,7 @@ type UpsertOperatorParams struct {
 }
 
 // Insert or update operator record
+// -- invalidate: GetOperatorByAddress
 func (q *Queries) UpsertOperator(ctx context.Context, arg UpsertOperatorParams) (Operators, error) {
 	row := q.db.QueryRow(ctx, upsertOperator,
 		arg.Address,

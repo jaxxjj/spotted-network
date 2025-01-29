@@ -9,12 +9,13 @@ import (
 )
 
 type Querier interface {
+	// -- invalidate: GetConsensusResponseByTaskId
+	// -- invalidate: GetConsensusResponseByRequest
 	CreateConsensusResponse(ctx context.Context, arg CreateConsensusResponseParams) (ConsensusResponse, error)
-	DeleteConsensusResponse(ctx context.Context, taskID string) error
+	// -- cache: 7d
 	GetConsensusResponseByRequest(ctx context.Context, arg GetConsensusResponseByRequestParams) (ConsensusResponse, error)
+	// -- cache: 7d
 	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (ConsensusResponse, error)
-	ListPendingConsensus(ctx context.Context) ([]ConsensusResponse, error)
-	UpdateConsensusResponse(ctx context.Context, arg UpdateConsensusResponseParams) (ConsensusResponse, error)
 }
 
 var _ Querier = (*Queries)(nil)

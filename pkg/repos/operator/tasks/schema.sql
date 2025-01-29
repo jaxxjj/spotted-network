@@ -15,15 +15,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Index for status queries
+
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-
--- Index for taskId queries
 CREATE INDEX IF NOT EXISTS idx_tasks_task_id ON tasks(task_id);
-
--- Index for address lookups
 CREATE INDEX IF NOT EXISTS idx_tasks_target_address ON tasks(target_address);
-
--- Composite index for chain, target_address, key, and block_number
 CREATE INDEX IF NOT EXISTS idx_tasks_chain_block ON tasks(chain_id, target_address, key, block_number);
 

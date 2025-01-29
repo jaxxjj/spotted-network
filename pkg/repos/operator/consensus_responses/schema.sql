@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS consensus_responses (
     CONSTRAINT unique_consensus_request UNIQUE (target_address, chain_id, block_number, key)
 );
 
--- Indexes for query optimization
 CREATE INDEX IF NOT EXISTS idx_consensus_responses_epoch ON consensus_responses(epoch);
 CREATE INDEX IF NOT EXISTS idx_consensus_responses_chain_block ON consensus_responses(chain_id, block_number);
 CREATE INDEX IF NOT EXISTS idx_consensus_responses_target ON consensus_responses(target_address);

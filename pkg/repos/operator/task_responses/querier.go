@@ -9,10 +9,16 @@ import (
 )
 
 type Querier interface {
+	// -- invalidate: GetTaskResponse
 	CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams) (TaskResponses, error)
+	// -- invalidate: GetTaskResponse
 	DeleteTaskResponse(ctx context.Context, arg DeleteTaskResponseParams) error
+	// Get single task response by task_id and operator_address
+	// -- cache: 7d
 	GetTaskResponse(ctx context.Context, arg GetTaskResponseParams) (TaskResponses, error)
+	// Get recent responses for an operator, no cache for real-time data
 	ListOperatorResponses(ctx context.Context, arg ListOperatorResponsesParams) ([]TaskResponses, error)
+	// Get all responses for a task, no cache for real-time data
 	ListTaskResponses(ctx context.Context, taskID string) ([]TaskResponses, error)
 }
 

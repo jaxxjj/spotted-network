@@ -1,10 +1,12 @@
 -- name: GetOperatorByAddress :one
 -- Get operator information by address
+-- -- cache: 7d
 SELECT * FROM operators
 WHERE address = $1;
 
 -- name: CreateOperator :one
 -- Create a new operator record with inactive status
+-- -- invalidate: GetOperatorByAddress
 INSERT INTO operators (
     address,
     signing_key,
@@ -18,6 +20,7 @@ RETURNING *;
 
 -- name: UpdateOperatorStatus :one
 -- Update operator status
+-- -- invalidate: GetOperatorByAddress
 UPDATE operators
 SET status = $2,
     updated_at = NOW()
@@ -43,6 +46,7 @@ ORDER BY created_at DESC;
 
 -- name: UpdateOperatorState :one
 -- Update operator status and weight
+-- -- invalidate: GetOperatorByAddress
 UPDATE operators
 SET status = $2,
     weight = $3,
@@ -52,6 +56,7 @@ RETURNING *;
 
 -- name: UpdateOperatorExitEpoch :one
 -- Update operator exit epoch
+-- -- invalidate: GetOperatorByAddress
 UPDATE operators
 SET exit_epoch = $2,
     updated_at = NOW()
@@ -60,6 +65,7 @@ RETURNING *;
 
 -- name: UpsertOperator :one
 -- Insert or update operator record
+-- -- invalidate: GetOperatorByAddress
 INSERT INTO operators (
     address,
     signing_key,

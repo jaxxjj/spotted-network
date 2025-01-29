@@ -12,20 +12,26 @@ import (
 
 type Querier interface {
 	// Create a new operator record with inactive status
+	// -- invalidate: GetOperatorByAddress
 	CreateOperator(ctx context.Context, arg CreateOperatorParams) (Operators, error)
 	// Get operator information by address
+	// -- cache: 7d
 	GetOperatorByAddress(ctx context.Context, address string) (Operators, error)
 	// Get all operators regardless of status
 	ListAllOperators(ctx context.Context) ([]Operators, error)
 	// Get all operators with a specific status
 	ListOperatorsByStatus(ctx context.Context, status types.OperatorStatus) ([]Operators, error)
 	// Update operator exit epoch
+	// -- invalidate: GetOperatorByAddress
 	UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams) (Operators, error)
 	// Update operator status and weight
+	// -- invalidate: GetOperatorByAddress
 	UpdateOperatorState(ctx context.Context, arg UpdateOperatorStateParams) (Operators, error)
 	// Update operator status
+	// -- invalidate: GetOperatorByAddress
 	UpdateOperatorStatus(ctx context.Context, arg UpdateOperatorStatusParams) (Operators, error)
 	// Insert or update operator record
+	// -- invalidate: GetOperatorByAddress
 	UpsertOperator(ctx context.Context, arg UpsertOperatorParams) (Operators, error)
 	// Verify operator status and signing key for join request
 	VerifyOperatorStatus(ctx context.Context, address string) (VerifyOperatorStatusRow, error)

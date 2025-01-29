@@ -1,3 +1,4 @@
+-- Task responses table stores operator responses to tasks
 CREATE TABLE IF NOT EXISTS task_responses (
     id BIGSERIAL PRIMARY KEY,
     task_id VARCHAR(66) NOT NULL,
@@ -15,7 +16,6 @@ CREATE TABLE IF NOT EXISTS task_responses (
     CONSTRAINT task_responses_operator_unique UNIQUE(task_id, operator_address)
 );
 
--- Indexes for query optimization
 CREATE INDEX IF NOT EXISTS idx_task_responses_task_id ON task_responses(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_responses_operator_addr ON task_responses(operator_address);
 CREATE INDEX IF NOT EXISTS idx_task_responses_epoch ON task_responses(epoch);

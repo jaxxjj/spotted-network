@@ -16,6 +16,7 @@ SELECT epoch_number, block_number, minimum_weight, total_weight, threshold_weigh
 WHERE epoch_number = $1
 `
 
+// -- cache: 7d
 func (q *Queries) GetEpochState(ctx context.Context, epochNumber uint32) (EpochState, error) {
 	row := q.db.QueryRow(ctx, getEpochState, epochNumber)
 	var i EpochState
@@ -36,6 +37,7 @@ ORDER BY epoch_number DESC
 LIMIT 1
 `
 
+// -- cache: 1h
 func (q *Queries) GetLatestEpochState(ctx context.Context) (EpochState, error) {
 	row := q.db.QueryRow(ctx, getLatestEpochState)
 	var i EpochState
@@ -56,6 +58,7 @@ ORDER BY epoch_number DESC
 LIMIT $1
 `
 
+// -- cache: 7d
 func (q *Queries) ListEpochStates(ctx context.Context, limit int32) ([]EpochState, error) {
 	rows, err := q.db.Query(ctx, listEpochStates, limit)
 	if err != nil {
@@ -113,6 +116,9 @@ type UpsertEpochStateParams struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+// -- invalidate: GetEpochState
+// -- invalidate: GetLatestEpochState
+// -- invalidate: ListEpochStates
 func (q *Queries) UpsertEpochState(ctx context.Context, arg UpsertEpochStateParams) (EpochState, error) {
 	row := q.db.QueryRow(ctx, upsertEpochState,
 		arg.EpochNumber,

@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS operators (
 );
 
 
--- Indexes for query optimization
 CREATE INDEX IF NOT EXISTS idx_operators_status ON operators(status);
 CREATE INDEX IF NOT EXISTS idx_operators_active_epoch ON operators(active_epoch);
 CREATE INDEX IF NOT EXISTS idx_operators_exit_epoch ON operators(exit_epoch);

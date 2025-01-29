@@ -43,6 +43,8 @@ type CreateConsensusResponseParams struct {
 	ConsensusReachedAt   pgtype.Timestamptz `json:"consensus_reached_at"`
 }
 
+// -- invalidate: GetConsensusResponseByTaskId
+// -- invalidate: GetConsensusResponseByRequest
 func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsensusResponseParams) (ConsensusResponse, error) {
 	row := q.db.QueryRow(ctx, createConsensusResponse,
 		arg.TaskID,
@@ -77,16 +79,6 @@ func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsens
 	return i, err
 }
 
-const deleteConsensusResponse = `-- name: DeleteConsensusResponse :exec
-DELETE FROM consensus_responses
-WHERE task_id = $1
-`
-
-func (q *Queries) DeleteConsensusResponse(ctx context.Context, taskID string) error {
-	_, err := q.db.Exec(ctx, deleteConsensusResponse, taskID)
-	return err
-}
-
 const getConsensusResponseByRequest = `-- name: GetConsensusResponseByRequest :one
 SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
 WHERE target_address = $1 
@@ -103,6 +95,7 @@ type GetConsensusResponseByRequestParams struct {
 	Key           pgtype.Numeric `json:"key"`
 }
 
+// -- cache: 7d
 func (q *Queries) GetConsensusResponseByRequest(ctx context.Context, arg GetConsensusResponseByRequestParams) (ConsensusResponse, error) {
 	row := q.db.QueryRow(ctx, getConsensusResponseByRequest,
 		arg.TargetAddress,
@@ -135,92 +128,9 @@ SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, tar
 WHERE task_id = $1 LIMIT 1
 `
 
+// -- cache: 7d
 func (q *Queries) GetConsensusResponseByTaskId(ctx context.Context, taskID string) (ConsensusResponse, error) {
 	row := q.db.QueryRow(ctx, getConsensusResponseByTaskId, taskID)
-	var i ConsensusResponse
-	err := row.Scan(
-		&i.ID,
-		&i.TaskID,
-		&i.Epoch,
-		&i.Value,
-		&i.Key,
-		&i.TotalWeight,
-		&i.ChainID,
-		&i.BlockNumber,
-		&i.TargetAddress,
-		&i.AggregatedSignatures,
-		&i.OperatorSignatures,
-		&i.ConsensusReachedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const listPendingConsensus = `-- name: ListPendingConsensus :many
-SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
-WHERE status = 'pending'
-ORDER BY created_at DESC
-`
-
-func (q *Queries) ListPendingConsensus(ctx context.Context) ([]ConsensusResponse, error) {
-	rows, err := q.db.Query(ctx, listPendingConsensus)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ConsensusResponse{}
-	for rows.Next() {
-		var i ConsensusResponse
-		if err := rows.Scan(
-			&i.ID,
-			&i.TaskID,
-			&i.Epoch,
-			&i.Value,
-			&i.Key,
-			&i.TotalWeight,
-			&i.ChainID,
-			&i.BlockNumber,
-			&i.TargetAddress,
-			&i.AggregatedSignatures,
-			&i.OperatorSignatures,
-			&i.ConsensusReachedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const updateConsensusResponse = `-- name: UpdateConsensusResponse :one
-UPDATE consensus_responses
-SET consensus_reached_at = $2,
-    aggregated_signatures = $3,
-    operator_signatures = $4
-WHERE task_id = $1
-RETURNING id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at
-`
-
-type UpdateConsensusResponseParams struct {
-	TaskID               string             `json:"task_id"`
-	ConsensusReachedAt   pgtype.Timestamptz `json:"consensus_reached_at"`
-	AggregatedSignatures []byte             `json:"aggregated_signatures"`
-	OperatorSignatures   []byte             `json:"operator_signatures"`
-}
-
-func (q *Queries) UpdateConsensusResponse(ctx context.Context, arg UpdateConsensusResponseParams) (ConsensusResponse, error) {
-	row := q.db.QueryRow(ctx, updateConsensusResponse,
-		arg.TaskID,
-		arg.ConsensusReachedAt,
-		arg.AggregatedSignatures,
-		arg.OperatorSignatures,
-	)
 	var i ConsensusResponse
 	err := row.Scan(
 		&i.ID,
