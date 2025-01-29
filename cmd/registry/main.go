@@ -9,12 +9,12 @@ import (
 
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/config"
-	"github.com/galxe/spotted-network/pkg/p2p"
-	registrynode "github.com/galxe/spotted-network/pkg/registry"
+	"github.com/galxe/spotted-network/pkg/registry"
 	"github.com/galxe/spotted-network/pkg/registry/server"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/libp2p/go-libp2p"
 	"google.golang.org/grpc"
 )
 
@@ -38,15 +38,14 @@ func main() {
 	}
 
 	// Initialize database connection
-	dbConn, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	db, err := pgxpool.New(context.Background(), cfg.Database.URL)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatal("Failed to connect to database:", err)
 	}
-	defer dbConn.Close()
+	defer db.Close()
 
 	// Create database queries
-	operatorsQuerier := operators.New(dbConn)
-
+	operatorsQuerier := operators.New(db)
 	chainManager, err := ethereum.NewManager(cfg)
 	if err != nil {
 		log.Fatal("Failed to initialize chain manager:", err)
@@ -57,14 +56,23 @@ func main() {
 		log.Fatal("Failed to initialize mainnet client:", err)
 	}
 
-
-	// Create p2p host configuration
-	p2pConfig := &p2p.Config{
-		ListenAddrs: []string{fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", cfg.P2P.Port)},
+	// Create P2P host
+	host, err := libp2p.New(
+		libp2p.ListenAddrStrings(
+			fmt.Sprintf("/ip4/%s/tcp/%d", cfg.P2P.ExternalIP, cfg.P2P.Port),
+		),
+	)
+	if err != nil {
+		log.Fatal("Failed to create P2P host:", err)
 	}
+	defer host.Close()
 	
 	// Create Registry Node
-	node, err := registrynode.NewNode(ctx, p2pConfig, operatorsQuerier, mainnetClient)
+	node, err := registry.NewNode(&registry.NodeConfig{
+		Host:          host,
+		Operators:     operatorsQuerier,
+		MainnetClient: mainnetClient,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

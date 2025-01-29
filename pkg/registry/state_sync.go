@@ -22,7 +22,7 @@ const (
 )
 
 // Start initializes the state sync service
-func (n *Node) startStateSync(ctx context.Context) error {
+func (n *Node) startStateSync() error {
 	// Set up protocol handler for state sync requests
 	n.host.SetStreamHandler("/state-sync/1.0.0", n.handleStateSync)
 	

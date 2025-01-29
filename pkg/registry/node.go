@@ -12,9 +12,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	"github.com/galxe/spotted-network/pkg/p2p"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
+	"github.com/multiformats/go-multiaddr"
 )
 
 type MainnetClient interface {
@@ -26,8 +30,27 @@ type MainnetClient interface {
 	IsOperatorRegistered(ctx context.Context, operator common.Address) (bool, error) 
 }
 
+// P2PHost defines the minimal interface required for p2p functionality
+type P2PHost interface {
+	// Core functionality
+	ID() peer.ID
+	Addrs() []multiaddr.Multiaddr
+	Connect(ctx context.Context, pi peer.AddrInfo) error
+	NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error)
+	SetStreamHandler(pid protocol.ID, handler network.StreamHandler)
+	Peerstore() peerstore.Peerstore
+	Close() error
+}
+
+// NodeConfig contains all the dependencies needed by Registry Node
+type NodeConfig struct {
+	Host           host.Host
+	Operators      OperatorsQuerier
+	MainnetClient  MainnetClient
+}
+
 type Node struct {
-	host *p2p.Host
+	host P2PHost
 	
 	// Connected operators
 	operatorsInfo map[peer.ID]*OperatorInfo
@@ -52,42 +75,50 @@ type Node struct {
 	subscribers map[peer.ID]network.Stream
 	subscribersMu sync.RWMutex
 
-
+	// Ping service for health checks
+	pingService *ping.PingService
 }
 
-func NewNode(ctx context.Context, cfg *p2p.Config, operatorsQuerier OperatorsQuerier, chainClients MainnetClient) (*Node, error) {
-	host, err := p2p.NewHost(ctx, cfg)
-	if err != nil {
-		return nil, err
+func NewNode(cfg *NodeConfig) (*Node, error) {
+	// Validate required dependencies
+	if cfg.Host == nil {
+		return nil, fmt.Errorf("host is required")
+	}
+	if cfg.Operators == nil {
+		return nil, fmt.Errorf("operators querier is required")
+	}
+	if cfg.MainnetClient == nil {
+		return nil, fmt.Errorf("mainnet client is required")
 	}
 
+	// Create ping service
+	pingService := ping.NewPingService(cfg.Host)
+
 	node := &Node{
-		host:               host,
+		host:               cfg.Host,
 		operatorsInfo:          make(map[peer.ID]*OperatorInfo),
 		healthCheckInterval: 100 * time.Second,
-		operators:                operatorsQuerier,
-		mainnetClient:      chainClients,
+		operators:                cfg.Operators,
+		mainnetClient:      cfg.MainnetClient,
 		subscribers:       make(map[peer.ID]network.Stream),
+		pingService:      pingService,
 	}
 
 	// Create and initialize event listener
-	node.eventListener = NewEventListener(node, chainClients, operatorsQuerier)
+	node.eventListener = NewEventListener(node, cfg.MainnetClient, cfg.Operators)
 
 	// Create and initialize epoch updator
 	node.epochUpdator = NewEpochUpdator(node)
 
 	// Start listening for chain events
-	if err := node.eventListener.StartListening(ctx); err != nil {
+	if err := node.eventListener.StartListening(context.Background()); err != nil {
 		return nil, fmt.Errorf("failed to start event listener: %w", err)
 	}
 
-	// Set stream handler for operator connections
-	node.SetupProtocols()
-
 	// Start health check
-	go node.startHealthCheck(ctx)
+	go node.startHealthCheck(context.Background())
 
-	log.Printf("Registry Node started. %s\n", host.GetHostInfo())
+	log.Printf("Registry Node started. ID: %s, Addrs: %v\n", cfg.Host.ID(), cfg.Host.Addrs())
 	return node, nil
 }
 
@@ -106,8 +137,12 @@ func (n *Node) Start(ctx context.Context) error {
 		return fmt.Errorf("[Registry] event listener not initialized")
 	}
 
+	// Set up protocol handlers
+	n.host.SetStreamHandler("/spotted/1.0.0", n.handleStream)
+	log.Printf("[Registry] Join request handler set up")
+
 	// Start state sync service
-	if err := n.startStateSync(ctx); err != nil {
+	if err := n.startStateSync(); err != nil {
 		return fmt.Errorf("failed to start state sync service: %w", err)
 	}
 	log.Printf("[Registry] State sync service started")
@@ -146,3 +181,17 @@ func (n *Node) GetHostID() string {
 	return n.host.ID().String()
 }
 
+// PingPeer implements ping functionality for the node
+func (n *Node) PingPeer(ctx context.Context, p peer.ID) error {
+	// Add ping timeout
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
+	defer cancel()
+
+	result := <-n.pingService.Ping(ctx, p)
+	if result.Error != nil {
+		return fmt.Errorf("ping failed: %v", result.Error)
+	}
+
+	log.Printf("Successfully pinged peer: %s (RTT: %v)", p, result.RTT)
+	return nil
+}

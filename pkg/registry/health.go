@@ -26,7 +26,7 @@ func (n *Node) checkOperators(ctx context.Context) {
 
 	for id, info := range n.operatorsInfo {
 		// Ping the operator
-		if err := n.host.PingPeer(ctx, id); err != nil {
+		if err := n.PingPeer(ctx, id); err != nil {
 			log.Printf("Operator %s is unreachable: %v\n", id, err)
 			info.Status = string(OperatorStatusInactive)
 		} else {

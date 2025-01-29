@@ -52,7 +52,7 @@ func main() {
 	}
 
 	// Create signer
-	s, err := signer.NewLocalSigner(*operatorKeyPath, *signingKeyPath, *password)
+	signer, err := signer.NewLocalSigner(*operatorKeyPath, *signingKeyPath, *password)
 	if err != nil {
 		log.Fatal("Failed to create signer:", err)
 	}
@@ -67,13 +67,13 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		addr := s.GetOperatorAddress()
-		sig, err := s.SignJoinRequest([]byte(*message))
+		addr := signer.GetOperatorAddress()
+		sig, err := signer.SignJoinRequest([]byte(*message))
 		if err != nil {
 			log.Fatal("Failed to sign message:", err)
 		}
 
-		success, err := client.Join(ctx, addr.Hex(), *message, hex.EncodeToString(sig), s.GetSigningAddress().Hex())
+		success, err := client.Join(ctx, addr.Hex(), *message, hex.EncodeToString(sig), signer.GetSigningAddress().Hex())
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -85,7 +85,7 @@ func main() {
 
 	if *message != "" {
 		// Sign message with signing key
-		sig, err := s.Sign([]byte(*message))
+		sig, err := signer.Sign([]byte(*message))
 		if err != nil {
 			log.Fatal("Failed to sign message:", err)
 		}
@@ -154,7 +154,7 @@ func main() {
 		Host:            host,
 		DB:              db,
 		ChainManager:    chainManager,
-		Signer:          s,
+		Signer:          signer,
 		TaskQuerier:     taskQuerier,
 		TaskResponseQuerier: taskResponseQuerier,
 		ConsensusResponseQuerier: consensusResponseQuerier,

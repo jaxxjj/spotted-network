@@ -11,6 +11,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 type ChainManager interface {
@@ -23,6 +24,18 @@ type ChainManager interface {
 // PubSubService defines the interface for pubsub functionality needed by TaskProcessor
 type PubSubService interface {
 	Join(topic string, opts ...pubsub.TopicOpt) (*pubsub.Topic, error)
+}
+
+// ResponseTopic defines the interface for response topic functionality
+type ResponseTopic interface {
+	// Subscribe returns a new subscription for the topic
+	Subscribe(opts ...pubsub.SubOpt) (*pubsub.Subscription, error)
+	// Publish publishes data to the topic
+	Publish(ctx context.Context, data []byte, opts ...pubsub.PubOpt) error
+	// ListPeers returns the peer IDs of peers in the topic
+	ListPeers() []peer.ID
+	// String returns the string representation of the topic
+	String() string
 }
 
 // TaskProcessorConfig contains all dependencies needed by TaskProcessor
@@ -46,7 +59,7 @@ type TaskProcessor struct {
 	consensusResponse  ConsensusResponseQuerier
 	epochState         EpochStateQuerier
 	chainManager       ChainManager
-	responseTopic     *pubsub.Topic
+	responseTopic     ResponseTopic
 	responsesMutex     sync.RWMutex
 	responses          map[string]map[string]*task_responses.TaskResponses // taskID -> operatorAddr -> response
 	weightsMutex       sync.RWMutex
