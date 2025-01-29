@@ -7,7 +7,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/galxe/spotted-network/pkg/common"
+	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -18,7 +18,15 @@ import (
 const (
 	heartbeatInterval = 10 * time.Second
 	heartbeatTimeout  = 30 * time.Second
-	maxMessageSize   = 1024 * 1024
+	maxMessageSize    = 1024 * 1024 // 1MB
+)
+
+// State sync message types
+const (
+	MsgTypeGetFullState byte = 0x01
+	MsgTypeSubscribe    byte = 0x02
+	MsgTypeStateUpdate  byte = 0x03
+	MsgTypeHeartbeat    byte = 0x04
 )
 
 // Start initializes the state sync service
@@ -35,22 +43,23 @@ func (n *Node) handleStateSync(stream network.Stream) {
 	remotePeer := stream.Conn().RemotePeer()
 	log.Printf("[StateSync] New state sync request from %s", remotePeer)
 
+	// Read message type
 	msgType := make([]byte, 1)
-	if _, err := stream.Read(msgType); err != nil {
+	if _, err := io.ReadFull(stream, msgType); err != nil {
 		log.Printf("[StateSync] Error reading message type from %s: %v", remotePeer, err)
 		stream.Reset()
 		return
 	}
 
 	switch msgType[0] {
-	case 0x01:
+	case MsgTypeGetFullState:
 		log.Printf("[StateSync] Processing GetFullState request from %s", remotePeer)
 		n.handleGetFullState(stream)
-	case 0x02:
+	case MsgTypeSubscribe:
 		log.Printf("[StateSync] Processing Subscribe request from %s", remotePeer)
 		n.handleSubscribe(stream)
 	default:
-		log.Printf("[StateSync] Unknown message type from %s: %x", remotePeer, msgType[0])
+		log.Printf("[StateSync] Unknown message type from %s: 0x%02x", remotePeer, msgType[0])
 		stream.Reset()
 	}
 }
@@ -83,21 +92,13 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 		return
 	}
 
-	// Write length prefix
-	length := uint32(len(data))
-	lengthBytes := make([]byte, 4)
-	lengthBytes[0] = byte(length >> 24)
-	lengthBytes[1] = byte(length >> 16)
-	lengthBytes[2] = byte(length >> 8)
-	lengthBytes[3] = byte(length)
-
-	if _, err := stream.Write(lengthBytes); err != nil {
+	// Write length prefix and data
+	if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(data))); err != nil {
 		log.Printf("[StateSync] Failed to write length prefix: %v", err)
 		stream.Reset()
 		return
 	}
 
-	// Write response
 	if _, err := stream.Write(data); err != nil {
 		log.Printf("[StateSync] Failed to write response: %v", err)
 		stream.Reset()
@@ -106,7 +107,6 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 
 	log.Printf("[StateSync] Sent full state with %d operators", len(allOperators))
 }
-
 
 func (n *Node) Subscribe(peerID peer.ID, stream network.Stream) {
 	n.subscribersMu.Lock()
@@ -118,7 +118,7 @@ func (n *Node) Subscribe(peerID peer.ID, stream network.Stream) {
 		delete(n.subscribers, peerID)
 	}
 
-	// Add new subscriber without setting fixed deadlines
+	// Add new subscriber
 	n.subscribers[peerID] = stream
 	log.Printf("[StateSync] New subscriber added: %s", peerID)
 }
@@ -126,6 +126,29 @@ func (n *Node) Subscribe(peerID peer.ID, stream network.Stream) {
 func (n *Node) handleSubscribe(stream network.Stream) {
 	peer := stream.Conn().RemotePeer()
 	log.Printf("[StateSync] Handling subscribe request from peer %s", peer)
+
+	// Read request length and data
+	length, err := commonHelpers.ReadLengthPrefix(stream)
+	if err != nil {
+		log.Printf("[StateSync] Failed to read length prefix from %s: %v", peer, err)
+		stream.Reset()
+		return
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(stream, data); err != nil {
+		log.Printf("[StateSync] Failed to read request data from %s: %v", peer, err)
+		stream.Reset()
+		return
+	}
+
+	// Parse request
+	var req pb.SubscribeRequest
+	if err := proto.Unmarshal(data, &req); err != nil {
+		log.Printf("[StateSync] Failed to unmarshal subscribe request from %s: %v", peer, err)
+		stream.Reset()
+		return
+	}
 	
 	n.Subscribe(peer, stream)
 	
@@ -164,7 +187,7 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 
 			// Handle different message types
 			switch msgType[0] {
-			case 0x04: // Heartbeat response
+			case MsgTypeHeartbeat: // Heartbeat response
 				log.Printf("[StateSync] Received heartbeat response from %s", peer)
 				// Update read deadline after receiving heartbeat response
 				stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
@@ -182,12 +205,14 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 
 func (n *Node) sendHeartbeat(peer peer.ID, stream network.Stream) error {
 	// Set write deadline
-	stream.SetWriteDeadline(time.Now().Add(heartbeatTimeout))
+	if err := stream.SetWriteDeadline(time.Now().Add(heartbeatTimeout)); err != nil {
+		return fmt.Errorf("failed to set write deadline for %s: %w", peer, err)
+	}
+	defer stream.SetWriteDeadline(time.Time{})
 	
-	// Send heartbeat message (0x03 represents heartbeat message)
-	_, err := stream.Write([]byte{0x03})
-	if err != nil {
-		return fmt.Errorf("failed to send heartbeat: %w", err)
+	// Send heartbeat message
+	if _, err := stream.Write([]byte{MsgTypeHeartbeat}); err != nil {
+		return fmt.Errorf("failed to send heartbeat to %s: %w", peer, err)
 	}
 	
 	return nil
@@ -223,16 +248,6 @@ func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType st
 		return
 	}
 
-	// Prepare message
-	length := uint32(len(data))
-	message := make([]byte, 5+len(data)) // 1 byte type + 4 bytes length + data
-	message[0] = 0x02 // State update type
-	message[1] = byte(length >> 24)
-	message[2] = byte(length >> 16)
-	message[3] = byte(length >> 8)
-	message[4] = byte(length)
-	copy(message[5:], data)
-
 	n.subscribersMu.RLock()
 	defer n.subscribersMu.RUnlock()
 
@@ -244,31 +259,43 @@ func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType st
 			continue
 		}
 
-		// Write entire message in one call
-		if _, err := stream.Write(message); err != nil {
-			log.Printf("[StateSync] Error sending update to %s: %v", peer, err)
+		// Write message type
+		if _, err := stream.Write([]byte{MsgTypeStateUpdate}); err != nil {
+			log.Printf("[StateSync] Error writing message type to %s: %v", peer, err)
+			n.Unsubscribe(peer)
+			continue
+		}
+
+		// Write length prefix and data
+		if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(data))); err != nil {
+			log.Printf("[StateSync] Error writing length prefix to %s: %v", peer, err)
+			n.Unsubscribe(peer)
+			continue
+		}
+
+		if _, err := stream.Write(data); err != nil {
+			log.Printf("[StateSync] Error writing update data to %s: %v", peer, err)
 			n.Unsubscribe(peer)
 			continue
 		}
 
 		log.Printf("[StateSync] Sent state update to %s - Type: %s, Length: %d, Operators: %d", 
-			peer, updateType, length, len(operators))
+			peer, updateType, len(data), len(operators))
 	}
 }
 
 // Helper functions
 
 func convertToProtoOperator(operator operators.Operators) *pb.OperatorState {
-
 	return &pb.OperatorState{
-		Address:                operator.Address,
-		SigningKey:            operator.SigningKey,
+		Address:                 operator.Address,
+		SigningKey:             operator.SigningKey,
 		RegisteredAtBlockNumber: operator.RegisteredAtBlockNumber,
 		RegisteredAtTimestamp:   operator.RegisteredAtTimestamp,
-		ActiveEpoch:        operator.ActiveEpoch,
+		ActiveEpoch:            operator.ActiveEpoch,
 		ExitEpoch:              &operator.ExitEpoch,
 		Status:                 string(operator.Status),
-		Weight:                 common.NumericToString(operator.Weight),
+		Weight:                 commonHelpers.NumericToString(operator.Weight),
 	}
 }
 
