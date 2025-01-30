@@ -23,6 +23,18 @@ message OperatorStateUpdate {
   repeated OperatorState operators = 2;
 }
 
+// Peer sync messages
+message PeerInfo {
+  string peer_id = 1;
+  repeated string multiaddrs = 2;
+  string status = 3;
+  int64 last_seen = 4;
+}
+
+message PeerSyncMessage {
+  repeated PeerInfo peers = 1;
+}
+
 // State sync service
 service StateSync {
   // Get full operator state

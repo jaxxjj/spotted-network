@@ -2,8 +2,10 @@ package registry
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
+	"time"
 
 	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
@@ -22,6 +24,7 @@ const (
 	MsgTypeGetFullState    byte = 0x01
 	MsgTypeSubscribe       byte = 0x02
 	MsgTypeStateUpdate     byte = 0x03
+	MsgTypePeerSync        byte = 0x04  // New message type for peer sync
 )
 
 // Start initializes the state sync service
@@ -148,20 +151,85 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 	n.Subscribe(peer, stream)
 	log.Printf("[StateSync] Successfully subscribed peer %s", peer)
 
+	// Start peer sync ticker with longer interval
+	peerSyncTicker := time.NewTicker(2 * time.Minute)
+	defer peerSyncTicker.Stop()
+
+	// Send initial peer sync
+	if err := n.syncPeersToOperator(stream); err != nil {
+		log.Printf("[StateSync] Failed to send initial peer sync: %v", err)
+	}
+
 	// Keep reading from the stream to detect when it's closed
 	buf := make([]byte, 1)
 	for {
-		_, err := stream.Read(buf)
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("[StateSync] Error reading from stream: %v", err)
-			} else {
-				log.Printf("[StateSync] Stream closed by peer %s", peer)
+		select {
+		case <-peerSyncTicker.C:
+			// Send periodic peer sync
+			if err := n.syncPeersToOperator(stream); err != nil {
+				log.Printf("[StateSync] Failed to sync peers: %v", err)
+				continue
 			}
-			n.Unsubscribe(peer)
-			return
+		default:
+			_, err := stream.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Printf("[StateSync] Error reading from stream: %v", err)
+				} else {
+					log.Printf("[StateSync] Stream closed by peer %s", peer)
+				}
+				n.Unsubscribe(peer)
+				return
+			}
 		}
 	}
+}
+
+// syncPeersToOperator sends current peer information to a single operator
+func (n *Node) syncPeersToOperator(stream network.Stream) error {
+	// Get current operator info
+	n.operatorsInfoMu.RLock()
+	peers := make([]*pb.PeerInfo, 0, len(n.operatorsInfo))
+	for peerID, info := range n.operatorsInfo {
+		peers = append(peers, &pb.PeerInfo{
+			PeerId:     peerID.String(),
+			Multiaddrs: make([]string, len(info.Addrs)),
+			Status:     info.Status,
+			LastSeen:   info.LastSeen.Unix(),
+		})
+		for i, addr := range info.Addrs {
+			peers[len(peers)-1].Multiaddrs[i] = addr.String()
+		}
+	}
+	n.operatorsInfoMu.RUnlock()
+
+	// Create peer sync message
+	msg := &pb.PeerSyncMessage{
+		Peers: peers,
+	}
+
+	// Marshal message
+	data, err := proto.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal peer sync message: %w", err)
+	}
+
+	// Write message type
+	if _, err := stream.Write([]byte{MsgTypePeerSync}); err != nil {
+		return fmt.Errorf("failed to write message type: %w", err)
+	}
+
+	// Write length prefix and data
+	if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(data))); err != nil {
+		return fmt.Errorf("failed to write length prefix: %w", err)
+	}
+
+	if _, err := stream.Write(data); err != nil {
+		return fmt.Errorf("failed to write peer sync data: %w", err)
+	}
+
+	log.Printf("[StateSync] Sent peer sync with %d operators", len(peers))
+	return nil
 }
 
 // Unsubscribe removes a subscriber

@@ -28,6 +28,7 @@ const (
 	MsgTypeGetFullState    byte = 0x01
 	MsgTypeSubscribe       byte = 0x02
 	MsgTypeStateUpdate     byte = 0x03
+	MsgTypePeerSync        byte = 0x04  // New message type for peer sync
 )
 
 type ChainClient interface {
@@ -187,6 +188,11 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 				log.Printf("[StateSync] Error handling state update: %v", err)
 				return
 			}
+		case MsgTypePeerSync:
+			if err := node.handlePeerSync(stream); err != nil {
+				log.Printf("[StateSync] Error handling peer sync: %v", err)
+				return
+			}
 		default:
 			log.Printf("[StateSync] Invalid message type: 0x%02x", msgType[0])
 			return
@@ -223,6 +229,36 @@ func (node *Node) handleStateUpdate(stream network.Stream) error {
 	// Update local state
 	node.updateOperatorStates(update.Operators)
 	log.Printf("[StateSync] Successfully processed update with %d operators", len(update.Operators))
+	return nil
+}
+
+func (node *Node) handlePeerSync(stream network.Stream) error {
+	// Read length prefix and data
+	length, err := commonHelpers.ReadLengthPrefix(stream)
+	if err != nil {
+		log.Printf("[StateSync] Failed to read peer sync length prefix: %v", err)
+		return err
+	}
+
+	data := make([]byte, length)
+	if _, err := io.ReadFull(stream, data); err != nil {
+		log.Printf("[StateSync] Failed to read peer sync data: %v", err)
+		return err
+	}
+
+	// Parse peer sync message
+	var msg pb.PeerSyncMessage
+	if err := proto.Unmarshal(data, &msg); err != nil {
+		log.Printf("[StateSync] Failed to unmarshal peer sync message: %v", err)
+		return err
+	}
+
+	// Update local peer list
+	for _, peer := range msg.Peers {
+		log.Printf("[StateSync] Received peer info: %s with %d multiaddrs, status: %s", 
+			peer.PeerId, len(peer.Multiaddrs), peer.Status)
+	}
+
 	return nil
 }
 
