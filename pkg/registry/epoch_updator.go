@@ -13,6 +13,10 @@ import (
 	pb "github.com/galxe/spotted-network/proto"
 )
 
+const (
+	epochMonitorInterval = 5 * time.Second
+)
+
 type EpochUpdator struct {
 	node *Node
 	lastProcessedEpoch uint32
@@ -27,7 +31,7 @@ func NewEpochUpdator(node *Node) *EpochUpdator {
 
 // Start starts monitoring epoch updates
 func (e *EpochUpdator) Start(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(epochMonitorInterval)
 	defer ticker.Stop()
 
 	log.Printf("[Epoch] Starting epoch monitoring...")

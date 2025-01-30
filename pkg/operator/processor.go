@@ -18,6 +18,7 @@ import (
 const (
 	TaskResponseProtocol = "/spotted/task-response/1.0.0"
 	TaskResponseTopic    = "/spotted/task-response"
+	p2pStatusCheckInterval = 30 * time.Second
 )
 
 
@@ -160,7 +161,7 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 
 	// Start periodic P2P status check
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(p2pStatusCheckInterval)
 		defer ticker.Stop()
 		for {
 			tp.checkP2PStatus()

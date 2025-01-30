@@ -11,11 +11,14 @@ import (
 
 const (
 	maxRetryCount = 3
+	pendingTaskCheckInterval = 30 * time.Second
+	confirmationCheckInterval = 10 * time.Second
+	cleanupInterval = 1 * time.Hour
 )
 
 // checkTimeouts periodically checks for pending tasks and retries them
 func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(pendingTaskCheckInterval)
 	defer ticker.Stop()
 
 	for {
@@ -101,7 +104,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 
 // checkConfirmations periodically checks block confirmations for tasks in confirming status
 func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(confirmationCheckInterval)
 	defer ticker.Stop()
 
 	for {
@@ -178,7 +181,7 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 
 // periodicCleanup runs cleanup of all task maps periodically
 func (tp *TaskProcessor) periodicCleanup(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
 
 	for {

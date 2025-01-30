@@ -21,10 +21,8 @@ import (
 const (
 	GenesisBlock = 0
 	EpochPeriod  = 12
-)
+	epochMonitorInterval = 5 * time.Second
 
-// State sync message types
-const (
 	MsgTypeGetFullState    byte = 0x01
 	MsgTypeSubscribe       byte = 0x02
 	MsgTypeStateUpdate     byte = 0x03
@@ -368,7 +366,7 @@ func (n *Node) updateEpochState(ctx context.Context, epochNumber uint32) error {
 }
 
 func (n *Node) monitorEpochUpdates(ctx context.Context) {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(epochMonitorInterval)
 	defer ticker.Stop()
 
 	var lastProcessedEpoch uint32

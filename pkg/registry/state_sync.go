@@ -17,6 +17,7 @@ import (
 
 const (
 	maxMessageSize    = 1024 * 1024 // 1MB
+	peerSyncInterval  = 2 * time.Minute
 )
 
 // State sync message types
@@ -152,7 +153,7 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 	log.Printf("[StateSync] Successfully subscribed peer %s", peer)
 
 	// Start peer sync ticker with longer interval
-	peerSyncTicker := time.NewTicker(2 * time.Minute)
+	peerSyncTicker := time.NewTicker(peerSyncInterval)
 	defer peerSyncTicker.Stop()
 
 	// Send initial peer sync
