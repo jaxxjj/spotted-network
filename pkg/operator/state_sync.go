@@ -28,8 +28,6 @@ const (
 	MsgTypeGetFullState    byte = 0x01
 	MsgTypeSubscribe       byte = 0x02
 	MsgTypeStateUpdate     byte = 0x03
-	MsgTypeHeartbeat       byte = 0x04
-	MsgTypeHeartbeatResp   byte = 0x05
 )
 
 type ChainClient interface {
@@ -184,16 +182,9 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 
 		// Handle different message types
 		switch msgType[0] {
-		case MsgTypeStateUpdate: // State update
+		case MsgTypeStateUpdate:
 			if err := node.handleStateUpdate(stream); err != nil {
 				log.Printf("[StateSync] Error handling state update: %v", err)
-				return
-			}
-		case MsgTypeHeartbeat: // Heartbeat
-			log.Printf("[StateSync] Received heartbeat from registry")
-			// Send heartbeat response immediately
-			if err := node.sendHeartbeatResponse(stream); err != nil {
-				log.Printf("[StateSync] Error sending heartbeat response: %v", err)
 				return
 			}
 		default:
@@ -210,7 +201,7 @@ func (node *Node) handleStateUpdate(stream network.Stream) error {
 		return fmt.Errorf("error reading update length: %w", err)
 	}
 	
-	// Validate message length (max 1MB)
+	// Validate message length
 	const maxMessageSize = 1024 * 1024 // 1MB
 	if length > maxMessageSize {
 		return fmt.Errorf("message too large (%d bytes), max allowed size is %d bytes", length, maxMessageSize)
@@ -218,19 +209,10 @@ func (node *Node) handleStateUpdate(stream network.Stream) error {
 
 	log.Printf("[StateSync] Received state update - Length: %d bytes", length)
 	
-	// Read the full update with timeout
+	// Read the full update
 	data := make([]byte, length)
-	if err := stream.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
-		return fmt.Errorf("failed to set read deadline: %w", err)
-	}
-	
 	if _, err := io.ReadFull(stream, data); err != nil {
 		return fmt.Errorf("error reading state update data: %w", err)
-	}
-
-	// Reset deadline
-	if err := stream.SetReadDeadline(time.Time{}); err != nil {
-		return fmt.Errorf("failed to reset read deadline: %w", err)
 	}
 
 	var update pb.OperatorStateUpdate
@@ -238,27 +220,9 @@ func (node *Node) handleStateUpdate(stream network.Stream) error {
 		return fmt.Errorf("error unmarshaling state update: %w", err)
 	}
 
-	log.Printf("[StateSync] Successfully unmarshaled update with %d operators", len(update.Operators))
-	return nil
-}
-
-func (node *Node) sendHeartbeatResponse(stream network.Stream) error {
-	// Set write deadline
-	if err := stream.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		return fmt.Errorf("failed to set write deadline: %w", err)
-	}
-
-	// Send heartbeat response
-	if _, err := stream.Write([]byte{MsgTypeHeartbeatResp}); err != nil {
-		return fmt.Errorf("failed to send heartbeat response: %w", err)
-	}
-
-	// Reset write deadline
-	if err := stream.SetWriteDeadline(time.Time{}); err != nil {
-		return fmt.Errorf("failed to reset write deadline: %w", err)
-	}
-
-	log.Printf("[StateSync] Sent heartbeat response to registry")
+	// Update local state
+	node.updateOperatorStates(update.Operators)
+	log.Printf("[StateSync] Successfully processed update with %d operators", len(update.Operators))
 	return nil
 }
 

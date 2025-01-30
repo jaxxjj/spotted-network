@@ -2,10 +2,8 @@ package registry
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log"
-	"time"
 
 	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
@@ -16,8 +14,6 @@ import (
 )
 
 const (
-	heartbeatInterval = 10 * time.Second
-	heartbeatTimeout  = 30 * time.Second
 	maxMessageSize    = 1024 * 1024 // 1MB
 )
 
@@ -26,8 +22,6 @@ const (
 	MsgTypeGetFullState    byte = 0x01
 	MsgTypeSubscribe       byte = 0x02
 	MsgTypeStateUpdate     byte = 0x03
-	MsgTypeHeartbeat       byte = 0x04
-	MsgTypeHeartbeatResp   byte = 0x05
 )
 
 // Start initializes the state sync service
@@ -152,71 +146,22 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 	}
 	
 	n.Subscribe(peer, stream)
-	
-	// Start heartbeat check
-	heartbeat := time.NewTicker(heartbeatInterval)
-	defer heartbeat.Stop()
+	log.Printf("[StateSync] Successfully subscribed peer %s", peer)
 
-	// Read buffer for message type
-	msgType := make([]byte, 1)
-
-	// Set initial read deadline
-	stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
-
+	// Keep reading from the stream to detect when it's closed
+	buf := make([]byte, 1)
 	for {
-		select {
-		case <-heartbeat.C:
-			// Send heartbeat
-			if err := n.sendHeartbeat(peer, stream); err != nil {
-				log.Printf("[StateSync] Heartbeat failed for %s: %v", peer, err)
-				n.Unsubscribe(peer)
-				return
+		_, err := stream.Read(buf)
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("[StateSync] Error reading from stream: %v", err)
+			} else {
+				log.Printf("[StateSync] Stream closed by peer %s", peer)
 			}
-			// Update read deadline after successful heartbeat
-			stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
-		default:
-			// Read message type
-			if _, err := io.ReadFull(stream, msgType); err != nil {
-				if err != io.EOF {
-					log.Printf("[StateSync] Error reading message type from %s: %v", peer, err)
-				} else {
-					log.Printf("[StateSync] Connection closed by %s", peer)
-				}
-				n.Unsubscribe(peer)
-				return
-			}
-
-			// Handle different message types
-			switch msgType[0] {
-			case MsgTypeHeartbeatResp: // Heartbeat response
-				log.Printf("[StateSync] Received heartbeat response from %s", peer)
-				// Update read deadline after receiving heartbeat response
-				stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))
-			default:
-				log.Printf("[StateSync] Received unknown message type 0x%02x from %s", msgType[0], peer)
-				n.Unsubscribe(peer)
-				return
-			}
-
-			// Small sleep to prevent tight loop
-			time.Sleep(10 * time.Millisecond)
+			n.Unsubscribe(peer)
+			return
 		}
 	}
-}
-
-func (n *Node) sendHeartbeat(peer peer.ID, stream network.Stream) error {
-	// Set write deadline
-	if err := stream.SetWriteDeadline(time.Now().Add(heartbeatTimeout)); err != nil {
-		return fmt.Errorf("failed to set write deadline for %s: %w", peer, err)
-	}
-	defer stream.SetWriteDeadline(time.Time{})
-	
-	// Send heartbeat message
-	if _, err := stream.Write([]byte{MsgTypeHeartbeat}); err != nil {
-		return fmt.Errorf("failed to send heartbeat to %s: %w", peer, err)
-	}
-	
-	return nil
 }
 
 // Unsubscribe removes a subscriber
@@ -253,13 +198,6 @@ func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType st
 	defer n.subscribersMu.RUnlock()
 
 	for peer, stream := range n.subscribers {
-		// Set write deadline
-		if err := stream.SetWriteDeadline(time.Now().Add(heartbeatTimeout)); err != nil {
-			log.Printf("[StateSync] Error setting write deadline for %s: %v", peer, err)
-			n.Unsubscribe(peer)
-			continue
-		}
-
 		// Write message type
 		if _, err := stream.Write([]byte{MsgTypeStateUpdate}); err != nil {
 			log.Printf("[StateSync] Error writing message type to %s: %v", peer, err)
