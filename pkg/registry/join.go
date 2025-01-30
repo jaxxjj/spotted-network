@@ -38,12 +38,6 @@ func (n *Node) handleStream(stream network.Stream) {
 	peerID := stream.Conn().RemotePeer()
 	log.Printf("New p2p connection from peer: %s", peerID.String())
 
-	// Set read deadline
-	if err := stream.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		log.Printf("Warning: Failed to set read deadline: %v", err)
-	}
-	defer stream.SetReadDeadline(time.Time{}) // Reset deadline on exit
-
 	// Read message type
 	msgType := make([]byte, 1)
 	if _, err := io.ReadFull(stream, msgType); err != nil {
@@ -57,16 +51,10 @@ func (n *Node) handleStream(stream network.Stream) {
 		return
 	}
 
-	// Read length and data
-	length, err := commonHelpers.ReadLengthPrefix(stream)
+	// Read request with deadline
+	data, err := commonHelpers.ReadLengthPrefixedDataWithDeadline(stream, 10*time.Second)
 	if err != nil {
-		log.Printf("Failed to read length prefix from peer %s: %v", peerID.String(), err)
-		return
-	}
-
-	data := make([]byte, length)
-	if _, err := io.ReadFull(stream, data); err != nil {
-		log.Printf("Failed to read data from peer %s: %v", peerID.String(), err)
+		log.Printf("Failed to read request from peer %s: %v", peerID.String(), err)
 		return
 	}
 
@@ -112,12 +100,6 @@ func (n *Node) handleStream(stream network.Stream) {
 	n.operatorsInfoMu.RUnlock()
 	log.Printf("Found %d connected peers to send to peer %s", len(activePeers), peerID.String())
 
-	// Set write deadline
-	if err := stream.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		log.Printf("Warning: Failed to set write deadline: %v", err)
-	}
-	defer stream.SetWriteDeadline(time.Time{}) // Reset deadline on exit
-
 	// Send success response with active peers
 	log.Printf("Sending success response with %d active peers to peer %s", len(activePeers), peerID.String())
 	
@@ -138,14 +120,9 @@ func (n *Node) handleStream(stream network.Stream) {
 		return
 	}
 
-	// Write length prefix and data
-	if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(respData))); err != nil {
-		log.Printf("Failed to write length prefix to peer %s: %v", peerID.String(), err)
-		return
-	}
-
-	if _, err := stream.Write(respData); err != nil {
-		log.Printf("Failed to write response data to peer %s: %v", peerID.String(), err)
+	// Write response with deadline
+	if err := commonHelpers.WriteLengthPrefixedDataWithDeadline(stream, respData, 10*time.Second); err != nil {
+		log.Printf("Failed to write response to peer %s: %v", peerID.String(), err)
 		return
 	}
 

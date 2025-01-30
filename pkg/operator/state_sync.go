@@ -101,34 +101,15 @@ func (node *Node) getFullState() error {
 		return fmt.Errorf("[StateSync] failed to marshal get state request: %w", err)
 	}
 
-	// Send length prefix
-	length := uint32(len(data))
-	if err := commonHelpers.WriteLengthPrefix(stream, length); err != nil {
-		return fmt.Errorf("[StateSync] failed to write length prefix: %w", err)
+	// Send length-prefixed data
+	if err := commonHelpers.WriteLengthPrefixedData(stream, data); err != nil {
+		return fmt.Errorf("[StateSync] failed to write request: %w", err)
 	}
 
-	log.Printf("[StateSync] Sending GetFullState request to registry (type: 0x01, length: %d)...", length)
-	bytesWritten, err := stream.Write(data)
+	// Read response with deadline
+	respData, err := commonHelpers.ReadLengthPrefixedDataWithDeadline(stream, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("[StateSync] failed to send get state request: %w", err)
-	}
-	log.Printf("[StateSync] Sent %d bytes to registry", bytesWritten)
-
-	// Read response
-	log.Printf("[StateSync] Waiting for response from registry...")
-	
-	// Read length prefix first
-	respLength, err := commonHelpers.ReadLengthPrefix(stream)
-	if err != nil {
-		return fmt.Errorf("failed to read response length: %w", err)
-	}
-	
-	log.Printf("Response length: %d bytes", respLength)
-	
-	// Read the full response
-	respData := make([]byte, respLength)
-	if _, err := io.ReadFull(stream, respData); err != nil {
-		return fmt.Errorf("[StateSync] failed to read response data: %w", err)
+		return fmt.Errorf("[StateSync] failed to read response: %w", err)
 	}
 
 	var resp pb.GetFullStateResponse
@@ -199,24 +180,16 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 }
 
 func (node *Node) handleStateUpdate(stream network.Stream) error {
-	// Read length prefix
-	length, err := commonHelpers.ReadLengthPrefix(stream)
+	// Read length-prefixed data with deadline
+	data, err := commonHelpers.ReadLengthPrefixedDataWithDeadline(stream, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("error reading update length: %w", err)
-	}
-	
-	// Validate message length
-	const maxMessageSize = 1024 * 1024 // 1MB
-	if length > maxMessageSize {
-		return fmt.Errorf("message too large (%d bytes), max allowed size is %d bytes", length, maxMessageSize)
+		return fmt.Errorf("error reading state update: %w", err)
 	}
 
-	log.Printf("[StateSync] Received state update - Length: %d bytes", length)
-	
-	// Read the full update
-	data := make([]byte, length)
-	if _, err := io.ReadFull(stream, data); err != nil {
-		return fmt.Errorf("error reading state update data: %w", err)
+	// Validate message length
+	const maxMessageSize = 1024 * 1024 // 1MB
+	if len(data) > maxMessageSize {
+		return fmt.Errorf("message too large (%d bytes), max allowed size is %d bytes", len(data), maxMessageSize)
 	}
 
 	var update pb.OperatorStateUpdate
@@ -231,15 +204,9 @@ func (node *Node) handleStateUpdate(stream network.Stream) error {
 }
 
 func (node *Node) handlePeerSync(stream network.Stream) error {
-	// Read length prefix and data
-	length, err := commonHelpers.ReadLengthPrefix(stream)
+	// Read length-prefixed data with deadline
+	data, err := commonHelpers.ReadLengthPrefixedDataWithDeadline(stream, 5*time.Second)
 	if err != nil {
-		log.Printf("[StateSync] Failed to read peer sync length prefix: %v", err)
-		return err
-	}
-
-	data := make([]byte, length)
-	if _, err := io.ReadFull(stream, data); err != nil {
 		log.Printf("[StateSync] Failed to read peer sync data: %v", err)
 		return err
 	}

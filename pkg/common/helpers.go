@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -274,4 +275,52 @@ func ReadLengthPrefix(stream network.Stream) (uint32, error) {
     
     length := binary.BigEndian.Uint32(lengthBuf)
     return length, nil
+}
+
+// WriteLengthPrefixedData writes length-prefixed data to a stream
+func WriteLengthPrefixedData(stream network.Stream, data []byte) error {
+    if err := WriteLengthPrefix(stream, uint32(len(data))); err != nil {
+        return err
+    }
+    
+    if _, err := stream.Write(data); err != nil {
+        return fmt.Errorf("failed to write data: %w", err)
+    }
+    
+    return nil
+}
+
+// ReadLengthPrefixedData reads length-prefixed data from a stream
+func ReadLengthPrefixedData(stream network.Stream) ([]byte, error) {
+    length, err := ReadLengthPrefix(stream)
+    if err != nil {
+        return nil, err
+    }
+    
+    data := make([]byte, length)
+    if _, err := io.ReadFull(stream, data); err != nil {
+        return nil, fmt.Errorf("failed to read data: %w", err)
+    }
+    
+    return data, nil
+}
+
+// WriteLengthPrefixedDataWithDeadline writes length-prefixed data with a deadline
+func WriteLengthPrefixedDataWithDeadline(stream network.Stream, data []byte, deadline time.Duration) error {
+    if err := stream.SetWriteDeadline(time.Now().Add(deadline)); err != nil {
+        return fmt.Errorf("failed to set write deadline: %w", err)
+    }
+    defer stream.SetWriteDeadline(time.Time{})
+    
+    return WriteLengthPrefixedData(stream, data)
+}
+
+// ReadLengthPrefixedDataWithDeadline reads length-prefixed data with a deadline
+func ReadLengthPrefixedDataWithDeadline(stream network.Stream, deadline time.Duration) ([]byte, error) {
+    if err := stream.SetReadDeadline(time.Now().Add(deadline)); err != nil {
+        return nil, fmt.Errorf("failed to set read deadline: %w", err)
+    }
+    defer stream.SetReadDeadline(time.Time{})
+    
+    return ReadLengthPrefixedData(stream)
 }

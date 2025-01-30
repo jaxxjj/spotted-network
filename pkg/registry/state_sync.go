@@ -91,14 +91,8 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 		return
 	}
 
-	// Write length prefix and data
-	if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(data))); err != nil {
-		log.Printf("[StateSync] Failed to write length prefix: %v", err)
-		stream.Reset()
-		return
-	}
-
-	if _, err := stream.Write(data); err != nil {
+	// Write length-prefixed data with deadline
+	if err := commonHelpers.WriteLengthPrefixedDataWithDeadline(stream, data, 5*time.Second); err != nil {
 		log.Printf("[StateSync] Failed to write response: %v", err)
 		stream.Reset()
 		return
@@ -126,17 +120,10 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 	peer := stream.Conn().RemotePeer()
 	log.Printf("[StateSync] Handling subscribe request from peer %s", peer)
 
-	// Read request length and data
-	length, err := commonHelpers.ReadLengthPrefix(stream)
+	// Read request with deadline
+	data, err := commonHelpers.ReadLengthPrefixedDataWithDeadline(stream, 5*time.Second)
 	if err != nil {
-		log.Printf("[StateSync] Failed to read length prefix from %s: %v", peer, err)
-		stream.Reset()
-		return
-	}
-
-	data := make([]byte, length)
-	if _, err := io.ReadFull(stream, data); err != nil {
-		log.Printf("[StateSync] Failed to read request data from %s: %v", peer, err)
+		log.Printf("[StateSync] Failed to read request from %s: %v", peer, err)
 		stream.Reset()
 		return
 	}
@@ -220,12 +207,8 @@ func (n *Node) syncPeersToOperator(stream network.Stream) error {
 		return fmt.Errorf("failed to write message type: %w", err)
 	}
 
-	// Write length prefix and data
-	if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(data))); err != nil {
-		return fmt.Errorf("failed to write length prefix: %w", err)
-	}
-
-	if _, err := stream.Write(data); err != nil {
+	// Write length-prefixed data with deadline
+	if err := commonHelpers.WriteLengthPrefixedDataWithDeadline(stream, data, 5*time.Second); err != nil {
 		return fmt.Errorf("failed to write peer sync data: %w", err)
 	}
 
