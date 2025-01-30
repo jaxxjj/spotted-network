@@ -24,7 +24,6 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pb "github.com/galxe/spotted-network/proto"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // P2PHost defines the minimal interface required for p2p functionality
@@ -49,14 +48,13 @@ type APIServer interface {
 // NodeConfig contains all the dependencies needed by Node
 type NodeConfig struct {
 	Host            host.Host
-	DB              *pgxpool.Pool
 	ChainManager    ChainManager
 	Signer          signer.Signer
 	PubSub          *pubsub.PubSub
-	TaskQuerier     *tasks.Queries
+	TasksQuerier     *tasks.Queries
 	TaskResponseQuerier *task_responses.Queries
 	ConsensusResponseQuerier *consensus_responses.Queries
-	EpochState      *epoch_states.Queries
+	EpochStateQuerier *epoch_states.Queries
 	RegistryAddress string
 	Config          *config.Config
 }
@@ -76,10 +74,10 @@ type Node struct {
 	statesMu       sync.RWMutex
 	apiServer   APIServer
 	taskProcessor *TaskProcessor
-	taskQuerier  TaskQuerier
+	tasksQuerier  TasksQuerier
 	taskResponseQuerier TaskResponseQuerier
 	consensusResponseQuerier ConsensusResponseQuerier
-	epochState  EpochStateQuerier
+	epochStateQuerier EpochStateQuerier
 	config      *config.Config
 }
 
@@ -89,16 +87,13 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 	if cfg.Host == nil {
 		return nil, fmt.Errorf("host is required")
 	}
-	if cfg.DB == nil {
-		return nil, fmt.Errorf("database is required")
-	}
 	if cfg.ChainManager == nil {
 		return nil, fmt.Errorf("chain manager is required")
 	}
 	if cfg.Signer == nil {
 		return nil, fmt.Errorf("signer is required")
 	}
-	if cfg.TaskQuerier == nil {
+	if cfg.TasksQuerier == nil {
 		return nil, fmt.Errorf("task querier is required")
 	}
 	if cfg.TaskResponseQuerier == nil {
@@ -107,7 +102,7 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 	if cfg.ConsensusResponseQuerier == nil {
 		return nil, fmt.Errorf("consensus response querier is required")
 	}
-	if cfg.EpochState == nil {
+	if cfg.EpochStateQuerier == nil {
 		return nil, fmt.Errorf("epoch state querier is required")
 	}
 	if cfg.RegistryAddress == "" {
@@ -143,10 +138,10 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 		operatorsMu:    sync.RWMutex{},
 		operatorStates: make(map[string]*pb.OperatorState),
 		statesMu:       sync.RWMutex{},
-		taskQuerier:   cfg.TaskQuerier,
+		tasksQuerier:   cfg.TasksQuerier,
 		taskResponseQuerier: cfg.TaskResponseQuerier,
 		consensusResponseQuerier: cfg.ConsensusResponseQuerier,
-		epochState:    cfg.EpochState,
+		epochStateQuerier: cfg.EpochStateQuerier,
 		config:        cfg.Config,
 		pingService:   pingService,
 	}
@@ -160,10 +155,10 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 	taskProcessor, err := NewTaskProcessor(&TaskProcessorConfig{
 		Node:               node,
 		Signer:            cfg.Signer,
-		Task:              cfg.TaskQuerier,
+		Tasks:              cfg.TasksQuerier,
 		TaskResponse:      cfg.TaskResponseQuerier,
 		ConsensusResponse: cfg.ConsensusResponseQuerier,
-		EpochState:        cfg.EpochState,
+		EpochState:        cfg.EpochStateQuerier,
 		ChainManager:      cfg.ChainManager,
 		PubSub:            ps,
 	})
@@ -173,7 +168,7 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 	node.taskProcessor = taskProcessor
 
 	// Create API handler and server
-	apiHandler := api.NewHandler(cfg.TaskQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
+	apiHandler := api.NewHandler(cfg.TasksQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
 	node.apiServer = api.NewServer(apiHandler, cfg.Config.HTTP.Port)
 	
 	// Start API server
@@ -203,7 +198,7 @@ func (n *Node) Start(ctx context.Context) error {
 	if n.chainManager == nil {
 		return fmt.Errorf("[Node] chain manager not initialized")
 	}
-	if n.epochState == nil {
+	if n.epochStateQuerier == nil {
 		return fmt.Errorf("[Node] epoch state querier not initialized")
 	}
 

@@ -42,7 +42,7 @@ type ResponseTopic interface {
 type TaskProcessorConfig struct {
 	Node                *Node
 	Signer              OperatorSigner
-	Task                TaskQuerier
+	Tasks                TasksQuerier
 	TaskResponse        TaskResponseQuerier
 	ConsensusResponse   ConsensusResponseQuerier
 	EpochState          EpochStateQuerier
@@ -54,7 +54,7 @@ type TaskProcessorConfig struct {
 type TaskProcessor struct {
 	node               *Node
 	signer             OperatorSigner
-	task               TaskQuerier
+	tasks               TasksQuerier
 	taskResponse       TaskResponseQuerier
 	consensusResponse  ConsensusResponseQuerier
 	epochState         EpochStateQuerier
@@ -77,7 +77,7 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 	if cfg.Signer == nil {
 		return nil, fmt.Errorf("signer is required")
 	}
-	if cfg.Task == nil {
+	if cfg.Tasks == nil {
 		return nil, fmt.Errorf("task querier is required")
 	}
 	if cfg.TaskResponse == nil {
@@ -106,7 +106,7 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 	tp := &TaskProcessor{
 		node:              cfg.Node,
 		signer:            cfg.Signer,
-		task:              cfg.Task,
+		tasks:              cfg.Tasks,
 		taskResponse:      cfg.TaskResponse,
 		consensusResponse: cfg.ConsensusResponse,
 		epochState:        cfg.EpochState,

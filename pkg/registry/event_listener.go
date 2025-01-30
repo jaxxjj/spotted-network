@@ -133,11 +133,10 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *et
 	}
 	log.Printf("Created operator params: %+v", params)
 
-	// Upsert operator in database
-	_, err = el.operators.UpsertOperator(ctx, params)
+	// Update operator in database
+	_, err = el.operators.UpsertOperator(ctx, params, &params.Address)
 	if err != nil {
-		log.Printf("[EventListener] Failed to upsert operator: %v", err)
-		return fmt.Errorf("[EventListener] failed to upsert operator: %w", err)
+		return fmt.Errorf("failed to upsert operator: %w", err)
 	}
 
 	log.Printf("Successfully upserted operator %s in database", event.Operator.Hex())
@@ -194,7 +193,7 @@ func (n *Node) updateStatusAfterOperations(ctx context.Context, operatorAddr str
 			Valid:  true,
 			Exp:    0,
 		},
-	})
+	}, &operatorAddr)
 	if err != nil {
 		return fmt.Errorf("failed to update operator state: %w", err)
 	}
@@ -215,16 +214,16 @@ func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *
 	}
 	log.Printf("[EventListener] Got exit epoch: %d", exitEpoch)
 
-	// Update operator status in database
+	// Update operator exit epoch
+	operatorAddr := event.Operator.Hex()
 	_, err = el.operators.UpdateOperatorExitEpoch(ctx, operators.UpdateOperatorExitEpochParams{
-		Address:   event.Operator.Hex(),
+		Address:   operatorAddr,
 		ExitEpoch: exitEpoch,
-	})
+	}, &operatorAddr)
 	if err != nil {
-		log.Printf("[EventListener] Failed to update operator exit epoch: %v", err)
-		return fmt.Errorf("[EventListener] failed to update operator exit epoch: %w", err)
+		return fmt.Errorf("failed to update operator exit epoch: %w", err)
 	}
-	log.Printf("[EventListener] Updated operator %s exit epoch to %d", event.Operator.Hex(), exitEpoch)
+	log.Printf("[EventListener] Updated operator %s exit epoch to %d", operatorAddr, exitEpoch)
 
 	// Update operator status after setting exit epoch
 	if err := el.node.updateStatusAfterOperations(ctx, event.Operator.String()); err != nil {

@@ -23,20 +23,17 @@ type OperatorInfo struct {
 	Status   string
 }
 
-// TaskQuerier defines the interface for task database operations
-type TaskQuerier interface {
+
+type TasksQuerier interface {
 	CleanupOldTasks(ctx context.Context) error
-	CreateTask(ctx context.Context, arg tasks.CreateTaskParams) (tasks.Tasks, error)
 	DeleteTaskByID(ctx context.Context, taskID string) error
-	GetTaskByID(ctx context.Context, taskID string) (tasks.Tasks, error)
-	IncrementRetryCount(ctx context.Context, taskID string) (tasks.Tasks, error)
-	ListAllTasks(ctx context.Context) ([]tasks.Tasks, error)
+	GetTaskByID(ctx context.Context, taskID string) (*tasks.Tasks, error)
+	IncrementRetryCount(ctx context.Context, taskID string) (*tasks.Tasks, error)
 	ListConfirmingTasks(ctx context.Context) ([]tasks.Tasks, error)
 	ListPendingTasks(ctx context.Context) ([]tasks.Tasks, error)
 	UpdateTaskCompleted(ctx context.Context, taskID string) error
-	UpdateTaskStatus(ctx context.Context, arg tasks.UpdateTaskStatusParams) (tasks.Tasks, error)
+	UpdateTaskStatus(ctx context.Context, arg tasks.UpdateTaskStatusParams) (*tasks.Tasks, error)
 	UpdateTaskToPending(ctx context.Context, taskID string) error
-	UpdateTaskValue(ctx context.Context, arg tasks.UpdateTaskValueParams) (tasks.Tasks, error)
 }
 
 

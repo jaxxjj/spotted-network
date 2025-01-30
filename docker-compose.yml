@@ -93,6 +93,19 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:6-alpine
+    platform: linux/arm64
+    ports:
+      - "6379:6379"
+    networks:
+      - spotted-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   registry:
     build:
       context: .
@@ -103,16 +116,39 @@ services:
       - "9000:9000"  # P2P port
       - "8000:8000"  # HTTP port
     environment:
-      - DATABASE_URL=postgresql://spotted:spotted@postgres:5432/spotted?sslmode=disable
-      - CHAIN_RPC_URL=http://host.docker.internal:8545
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
       - LOG_LEVEL=debug
       - CHAIN_ID=31337
       - P2P_PORT=9000
       - HTTP_PORT=8000
       - CONFIG_PATH=/app/config/registry.yaml
+      # Database Configuration
+      - POSTGRES_USERNAME=spotted
+      - POSTGRES_PASSWORD=spotted
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DBNAME=spotted
+      - POSTGRES_MAX_CONNS=100
+      - POSTGRES_MIN_CONNS=0
+      - POSTGRES_MAX_CONN_LIFETIME=6h
+      - POSTGRES_MAX_CONN_IDLE_TIME=1m
+      - POSTGRES_IS_PROXY=false
+      - POSTGRES_ENABLE_PROMETHEUS=true
+      - POSTGRES_ENABLE_TRACING=true
+      - POSTGRES_APP_NAME=registry
+      # Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_IS_FAILOVER=false
+      - REDIS_IS_ELASTICACHE=false
+      - REDIS_IS_CLUSTER_MODE=false
+      - REDIS_CLUSTER_MAX_REDIRECTS=3
+      - REDIS_READ_TIMEOUT=3s
+      - REDIS_POOL_SIZE=50
     volumes:
       - ./config:/app/config
     networks:
@@ -121,6 +157,8 @@ services:
           - registry
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -134,6 +172,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.operator
+      platforms:
+        - linux/arm64
     ports:
       - "10000:10000"  # P2P port
       - "8001:8001"    # HTTP port
@@ -141,7 +181,6 @@ services:
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
-      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator1:5432/operator1?sslmode=disable
       - OPERATOR_KEY_PATH=/app/keys/operator/operator1.key.json
       - SIGNING_KEY_PATH=/app/keys/signing/operator1.key.json
       - KEYSTORE_PASSWORD=testpassword
@@ -150,6 +189,30 @@ services:
       - P2P_PORT=10000
       - HTTP_PORT=8001
       - CHAIN_RPC_URL=http://host.docker.internal:8545
+      # Database Configuration
+      - POSTGRES_USERNAME=spotted
+      - POSTGRES_PASSWORD=spotted
+      - POSTGRES_HOST=postgres_operator1
+      - POSTGRES_PORT=5432
+      - POSTGRES_DBNAME=operator1
+      - POSTGRES_MAX_CONNS=100
+      - POSTGRES_MIN_CONNS=0
+      - POSTGRES_MAX_CONN_LIFETIME=6h
+      - POSTGRES_MAX_CONN_IDLE_TIME=1m
+      - POSTGRES_IS_PROXY=false
+      - POSTGRES_ENABLE_PROMETHEUS=true
+      - POSTGRES_ENABLE_TRACING=true
+      - POSTGRES_APP_NAME=operator1
+      # Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_IS_FAILOVER=false
+      - REDIS_IS_ELASTICACHE=false
+      - REDIS_IS_CLUSTER_MODE=false
+      - REDIS_CLUSTER_MAX_REDIRECTS=3
+      - REDIS_READ_TIMEOUT=3s
+      - REDIS_POOL_SIZE=50
     volumes:
       - ./keys/operator/operator1.key.json:/app/keys/operator/operator1.key.json
       - ./keys/signing/operator1.key.json:/app/keys/signing/operator1.key.json
@@ -161,6 +224,8 @@ services:
           - operator1
     depends_on:
       postgres_operator1:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       registry:
         condition: service_healthy
@@ -177,6 +242,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.operator
+      platforms:
+        - linux/arm64
     ports:
       - "10001:10001"  # P2P port
       - "8002:8002"    # HTTP port
@@ -184,14 +251,38 @@ services:
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
-      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator2:5432/operator2?sslmode=disable
-      - P2P_PORT=10001
-      - HTTP_PORT=8002
-      - LOG_LEVEL=debug
       - OPERATOR_KEY_PATH=/app/keys/operator/operator2.key.json
       - SIGNING_KEY_PATH=/app/keys/signing/operator2.key.json
       - KEYSTORE_PASSWORD=testpassword
       - CONFIG_PATH=/app/config/operator.yaml
+      - LOG_LEVEL=debug
+      - P2P_PORT=10001
+      - HTTP_PORT=8002
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
+      # Database Configuration
+      - POSTGRES_USERNAME=spotted
+      - POSTGRES_PASSWORD=spotted
+      - POSTGRES_HOST=postgres_operator2
+      - POSTGRES_PORT=5432
+      - POSTGRES_DBNAME=operator2
+      - POSTGRES_MAX_CONNS=100
+      - POSTGRES_MIN_CONNS=0
+      - POSTGRES_MAX_CONN_LIFETIME=6h
+      - POSTGRES_MAX_CONN_IDLE_TIME=1m
+      - POSTGRES_IS_PROXY=false
+      - POSTGRES_ENABLE_PROMETHEUS=true
+      - POSTGRES_ENABLE_TRACING=true
+      - POSTGRES_APP_NAME=operator2
+      # Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_IS_FAILOVER=false
+      - REDIS_IS_ELASTICACHE=false
+      - REDIS_IS_CLUSTER_MODE=false
+      - REDIS_CLUSTER_MAX_REDIRECTS=3
+      - REDIS_READ_TIMEOUT=3s
+      - REDIS_POOL_SIZE=50
     volumes:
       - ./keys/operator/operator2.key.json:/app/keys/operator/operator2.key.json
       - ./keys/signing/operator2.key.json:/app/keys/signing/operator2.key.json
@@ -203,6 +294,8 @@ services:
           - operator2
     depends_on:
       postgres_operator2:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       registry:
         condition: service_healthy
@@ -219,6 +312,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.operator
+      platforms:
+        - linux/arm64
     ports:
       - "10002:10002"  # P2P port
       - "8003:8003"    # HTTP port
@@ -226,14 +321,38 @@ services:
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
-      - DATABASE_URL=postgresql://spotted:spotted@postgres_operator3:5432/operator3?sslmode=disable
-      - P2P_PORT=10002
-      - HTTP_PORT=8003
-      - LOG_LEVEL=debug
       - OPERATOR_KEY_PATH=/app/keys/operator/operator3.key.json
       - SIGNING_KEY_PATH=/app/keys/signing/operator3.key.json
       - KEYSTORE_PASSWORD=testpassword
       - CONFIG_PATH=/app/config/operator.yaml
+      - LOG_LEVEL=debug
+      - P2P_PORT=10002
+      - HTTP_PORT=8003
+      - CHAIN_RPC_URL=http://host.docker.internal:8545
+      # Database Configuration
+      - POSTGRES_USERNAME=spotted
+      - POSTGRES_PASSWORD=spotted
+      - POSTGRES_HOST=postgres_operator3
+      - POSTGRES_PORT=5432
+      - POSTGRES_DBNAME=operator3
+      - POSTGRES_MAX_CONNS=100
+      - POSTGRES_MIN_CONNS=0
+      - POSTGRES_MAX_CONN_LIFETIME=6h
+      - POSTGRES_MAX_CONN_IDLE_TIME=1m
+      - POSTGRES_IS_PROXY=false
+      - POSTGRES_ENABLE_PROMETHEUS=true
+      - POSTGRES_ENABLE_TRACING=true
+      - POSTGRES_APP_NAME=operator3
+      # Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_IS_FAILOVER=false
+      - REDIS_IS_ELASTICACHE=false
+      - REDIS_IS_CLUSTER_MODE=false
+      - REDIS_CLUSTER_MAX_REDIRECTS=3
+      - REDIS_READ_TIMEOUT=3s
+      - REDIS_POOL_SIZE=50
     volumes:
       - ./keys/operator/operator3.key.json:/app/keys/operator/operator3.key.json
       - ./keys/signing/operator3.key.json:/app/keys/signing/operator3.key.json
@@ -245,6 +364,8 @@ services:
           - operator3
     depends_on:
       postgres_operator3:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       registry:
         condition: service_healthy

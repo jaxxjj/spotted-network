@@ -11,13 +11,6 @@ chains:
     required_confirmations: 12
     average_block_time: 12.5
 
-# Database Configuration
-database:
-  url: ${DATABASE_URL}
-  max_open_conns: 20
-  max_idle_conns: 5
-  conn_max_lifetime: 1h
-
 # P2P Configuration
 p2p:
   port: ${P2P_PORT}
@@ -32,4 +25,34 @@ http:
 # Logging Configuration
 logging:
   level: ${LOG_LEVEL}
-  format: "json" 
+  format: "json"
+
+# Database Configuration
+database:
+  username: ${POSTGRES_USERNAME:-postgres}
+  password: ${POSTGRES_PASSWORD:-my-secret}
+  host: ${POSTGRES_HOST:-localhost}
+  port: ${POSTGRES_PORT:-5432}
+  dbname: ${POSTGRES_DBNAME:-spotted}
+  max_conns: ${POSTGRES_MAX_CONNS:-100}
+  min_conns: ${POSTGRES_MIN_CONNS:-0}
+  max_conn_lifetime: ${POSTGRES_MAX_CONN_LIFETIME:-6h}
+  max_conn_idle_time: ${POSTGRES_MAX_CONN_IDLE_TIME:-1m}
+  is_proxy: ${POSTGRES_IS_PROXY:-false}
+  enable_prometheus: ${POSTGRES_ENABLE_PROMETHEUS:-true}
+  enable_tracing: ${POSTGRES_ENABLE_TRACING:-true}
+  app_name: ${POSTGRES_APP_NAME:-registry}
+  replica_prefixes: ${POSTGRES_REPLICA_PREFIXES:-[]}
+
+# Redis Configuration
+redis:
+  host: ${REDIS_HOST:-127.0.0.1}
+  port: ${REDIS_PORT:-6379}
+  password: ${REDIS_PASSWORD:-""}
+  is_failover: ${REDIS_IS_FAILOVER:-false}
+  is_elasticache: ${REDIS_IS_ELASTICACHE:-false}
+  is_cluster_mode: ${REDIS_IS_CLUSTER_MODE:-false}
+  cluster_addrs: ${REDIS_CLUSTER_ADDRS:-[]}
+  cluster_max_redirects: ${REDIS_CLUSTER_MAX_REDIRECTS:-3}
+  read_timeout: ${REDIS_READ_TIMEOUT:-3s}
+  pool_size: ${REDIS_POOL_SIZE:-50}

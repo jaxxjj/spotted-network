@@ -14,8 +14,8 @@ import (
 )
 
 type OperatorQuerier interface {
-	GetOperatorByAddress(ctx context.Context, address string) (operators.Operators, error)
-	UpdateOperatorStatus(ctx context.Context, arg operators.UpdateOperatorStatusParams) (operators.Operators, error)
+	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
+	UpdateOperatorStatus(ctx context.Context, arg operators.UpdateOperatorStatusParams, getOperatorByAddress *string) (*operators.Operators, error)
 }
 
 // RegistryServer implements the Registry gRPC service

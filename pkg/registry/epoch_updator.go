@@ -88,7 +88,7 @@ func (e *EpochUpdator) updateOperatorStates(ctx context.Context, currentEpoch ui
 			updatedOp, err := e.node.operators.UpdateOperatorState(ctx, operators.UpdateOperatorStateParams{
 				Address: operator.Address,
 				Status:  newStatus,
-			})
+			}, &operator.Address)
 			if err != nil {
 				log.Printf("[Epoch] Failed to update operator %s state: %v", operator.Address, err)
 				continue

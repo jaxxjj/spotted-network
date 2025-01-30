@@ -22,12 +22,12 @@ const (
 )
 
 type OperatorsQuerier interface {
-	UpdateOperatorStatus(ctx context.Context, arg operators.UpdateOperatorStatusParams) (operators.Operators, error)
+	UpdateOperatorStatus(ctx context.Context, arg operators.UpdateOperatorStatusParams, getOperatorByAddress *string) (*operators.Operators, error)
 	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
-	GetOperatorByAddress(ctx context.Context, address string) (operators.Operators, error)
-	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams) (operators.Operators, error)
-	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams) (operators.Operators, error)
-	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams) (operators.Operators, error)
+	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
+	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams, getOperatorByAddress *string) (*operators.Operators, error)
+	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string) (*operators.Operators, error)
+	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string) (*operators.Operators, error)
 }
 
 // handleStream handles incoming p2p streams

@@ -1,20 +1,17 @@
 version: "2"
 sql:
-  - engine: "postgresql"
-    queries: 
-      - "registry/operators/query.sql"
-    schema: 
+  - schema: 
       - "registry/operators/schema.sql"
+    queries: "registry/operators/query.sql"
+    engine: "postgresql"
     gen:
       go:
         package: "operators"
         out: "registry/operators"
-        sql_package: "pgx/v5"
+        sql_package: "wpgx"
         emit_json_tags: true
-        emit_prepared_queries: true
         emit_interface: true
         emit_exact_table_names: true
-        emit_empty_slices: true
         overrides:
           - column: "operators.registered_at_block_number"
             go_type: "uint64"
@@ -30,19 +27,18 @@ sql:
               package: "types"
               type: "OperatorStatus"
             
-  - schema: "operator/tasks/schema.sql"
+  - schema: 
+      - "operator/tasks/schema.sql"
     queries: "operator/tasks/query.sql"
     engine: "postgresql"
     gen:
       go:
         package: "tasks"
         out: "operator/tasks"
-        sql_package: "pgx/v5"
+        sql_package: "wpgx"
         emit_json_tags: true
-        emit_prepared_queries: true
         emit_interface: true
         emit_exact_table_names: true
-        emit_empty_slices: true
         overrides:
           # Column-specific mappings for tasks table
           - column: "tasks.required_confirmations"
@@ -63,16 +59,17 @@ sql:
               package: "types"
               type: "TaskStatus"
   
-  - schema: "operator/task_responses/schema.sql"
+  - schema: 
+      - "operator/task_responses/schema.sql"
+      - "operator/tasks/schema.sql"
     queries: "operator/task_responses/query.sql"
     engine: "postgresql"
     gen:
       go:
         package: "task_responses"
         out: "operator/task_responses"
-        sql_package: "pgx/v5"
+        sql_package: "wpgx"
         emit_json_tags: true
-        emit_prepared_queries: true
         emit_interface: true
         emit_exact_table_names: true
         emit_empty_slices: true
@@ -87,15 +84,17 @@ sql:
           - column: "task_responses.timestamp"
             go_type: "uint64"
 
-  
-  - schema: "operator/consensus_responses/schema.sql"
+
+  - schema: 
+      - "operator/consensus_responses/schema.sql"
+      - "operator/tasks/schema.sql"
     queries: "operator/consensus_responses/query.sql"
     engine: "postgresql"
     gen:
       go:
         package: "consensus_responses"
         out: "operator/consensus_responses"
-        sql_package: "pgx/v5"
+        sql_package: "wpgx"
         emit_json_tags: true
         emit_interface: true
         emit_empty_slices: true
@@ -113,7 +112,7 @@ sql:
       go:
         package: "epoch_states"
         out: "operator/epoch_states"
-        sql_package: "pgx/v5"
+        sql_package: "wpgx"
         emit_json_tags: true
         emit_interface: true
         emit_empty_slices: true

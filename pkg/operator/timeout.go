@@ -26,7 +26,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 			log.Printf("[Timeout] Starting pending tasks check...")
 			
 			// Get all pending tasks
-			tasks, err := tp.task.ListPendingTasks(ctx)
+			tasks, err := tp.tasks.ListPendingTasks(ctx)
 			if err != nil {
 				log.Printf("[Timeout] Failed to list pending tasks: %v", err)
 				continue
@@ -45,7 +45,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 				tp.weightsMutex.Unlock()
 
 				// Increment retry count before processing
-				newRetryCount, err := tp.task.IncrementRetryCount(ctx, task.TaskID)
+				newRetryCount, err := tp.tasks.IncrementRetryCount(ctx, task.TaskID)
 				if err != nil {
 					log.Printf("[Timeout] Failed to increment retry count: %v", err)
 					continue
@@ -55,7 +55,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 				// If retry count reaches max, delete the task
 				if newRetryCount.RetryCount >= maxRetryCount {
 					log.Printf("[Timeout] Task %s reached max retries, deleting", task.TaskID)
-					if err := tp.task.DeleteTaskByID(ctx, task.TaskID); err != nil {
+					if err := tp.tasks.DeleteTaskByID(ctx, task.TaskID); err != nil {
 						log.Printf("[Timeout] Failed to delete task: %v", err)
 					}
 
@@ -106,7 +106,7 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 			log.Printf("[Confirmation] Starting confirmation check...")
 			
 			// Get all tasks in confirming status
-			tasks, err := tp.task.ListConfirmingTasks(ctx)
+			tasks, err := tp.tasks.ListConfirmingTasks(ctx)
 			if err != nil {
 				log.Printf("[Confirmation] Failed to list confirming tasks: %v", err)
 				continue
@@ -148,7 +148,7 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 						task.TaskID, latestBlock, targetBlock)
 					
 					// Change task status to pending
-					err = tp.task.UpdateTaskToPending(ctx, task.TaskID)
+					err = tp.tasks.UpdateTaskToPending(ctx, task.TaskID)
 					if err != nil {
 						log.Printf("[Confirmation] Failed to update task status to pending: %v", err)
 						continue

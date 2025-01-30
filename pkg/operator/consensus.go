@@ -17,13 +17,13 @@ import (
 )
 
 type EpochStateQuerier interface {
-    GetLatestEpochState(ctx context.Context) (epoch_states.EpochState, error)
-	UpsertEpochState(ctx context.Context, arg epoch_states.UpsertEpochStateParams) (epoch_states.EpochState, error)
+    GetLatestEpochState(ctx context.Context) (*epoch_states.EpochState, error)
+	UpsertEpochState(ctx context.Context, arg epoch_states.UpsertEpochStateParams, listEpochStates *int32) (*epoch_states.EpochState, error)
 }
 
 type ConsensusResponseQuerier interface {
-	CreateConsensusResponse(ctx context.Context, arg consensus_responses.CreateConsensusResponseParams) (consensus_responses.ConsensusResponse, error)
-	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (consensus_responses.ConsensusResponse, error)
+	CreateConsensusResponse(ctx context.Context, arg consensus_responses.CreateConsensusResponseParams, getConsensusResponseByRequest *consensus_responses.GetConsensusResponseByRequestParams) (*consensus_responses.ConsensusResponse, error)
+	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (*consensus_responses.ConsensusResponse, error)
 }
 
 // checkConsensus checks if consensus has been re.ched for a task
@@ -99,7 +99,7 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	aggregatedSigs := tp.signer.AggregateSignatures(signatures)
 	log.Printf("[Consensus] Aggregated %d signatures for task %s", len(signatures), taskID)
 
-
+	now := time.Now()
 	// Create consensus response
 	consensus := consensus_responses.CreateConsensusResponseParams{
 		TaskID:              taskID,
@@ -112,7 +112,7 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 		AggregatedSignatures: aggregatedSigs,
 		OperatorSignatures:  operatorSigsJSON,
 		TotalWeight:        pgtype.Numeric{Int: totalWeight, Exp: 0, Valid: true},
-		ConsensusReachedAt:  pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		ConsensusReachedAt:  &now,
 	}
 
 	// Store consensus in database
@@ -122,9 +122,9 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	log.Printf("[Consensus] Successfully stored consensus response for task %s", taskID)
 
 	// If we have the task locally, mark it as completed
-	_, err = tp.task.GetTaskByID(context.Background(), taskID)
+	_, err = tp.tasks.GetTaskByID(context.Background(), taskID)
 	if err == nil {
-		if _, err = tp.task.UpdateTaskStatus(context.Background(), tasks.UpdateTaskStatusParams{
+		if _, err = tp.tasks.UpdateTaskStatus(context.Background(), tasks.UpdateTaskStatusParams{
 			TaskID: taskID,
 			Status: "completed",
 		}); err != nil {
@@ -157,22 +157,17 @@ func (tp *TaskProcessor) getConsensusThreshold(ctx context.Context) (*big.Int, e
 
 // storeConsensus stores a consensus response in the database
 func (tp *TaskProcessor) storeConsensus(ctx context.Context, consensus consensus_responses.CreateConsensusResponseParams) error {
-	// Create consensus response
-	_, err := tp.consensusResponse.CreateConsensusResponse(ctx, consensus_responses.CreateConsensusResponseParams{
-		TaskID:              consensus.TaskID,
-		Epoch:              consensus.Epoch,
-		Value:              consensus.Value,
-		BlockNumber:        consensus.BlockNumber,
-		ChainID:           consensus.ChainID,
-		TargetAddress:     consensus.TargetAddress,
-		Key:               consensus.Key,
-		AggregatedSignatures: consensus.AggregatedSignatures,
-		OperatorSignatures:  consensus.OperatorSignatures,
-		TotalWeight:        consensus.TotalWeight,
-		ConsensusReachedAt:  consensus.ConsensusReachedAt,
-	})
+	// Create GetConsensusResponseByRequestParams for cache invalidation
+	getConsensusResponseByRequest := &consensus_responses.GetConsensusResponseByRequestParams{
+		TargetAddress: consensus.TargetAddress,
+		ChainID:      consensus.ChainID,
+		BlockNumber:  consensus.BlockNumber,
+		Key:         consensus.Key,
+	}
+
+	_, err := tp.consensusResponse.CreateConsensusResponse(ctx, consensus, getConsensusResponseByRequest)
 	return err
-} 
+}
 
 // cleanupTask removes task data from local maps
 func (tp *TaskProcessor) cleanupTask(taskID string) {

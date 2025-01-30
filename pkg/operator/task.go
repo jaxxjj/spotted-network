@@ -13,7 +13,6 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 type OperatorSigner interface{
 	SignTaskResponse(params signer.TaskSignParams) ([]byte, error)
@@ -119,7 +118,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 		Key:          task.Key,
 		Epoch:        task.Epoch,
 		Timestamp:    task.Timestamp,
-		SubmittedAt:  pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		SubmittedAt:  time.Now(),
 	}
 
 	// Store response in database

@@ -14,7 +14,6 @@ import (
 	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
 	pb "github.com/galxe/spotted-network/proto"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/network"
 	"google.golang.org/protobuf/proto"
 )
@@ -349,20 +348,16 @@ func (n *Node) updateEpochState(ctx context.Context, epochNumber uint32) error {
 		return fmt.Errorf("failed to get threshold weight: %w", err)
 	}
 
-	// Update epoch state in database
-	now := time.Now()
+	var listLimit int32 = 10
 	
-	updatedAt := pgtype.Timestamptz{}
-	updatedAt.Scan(now)
-	
-	_, err = n.epochState.UpsertEpochState(ctx, epoch_states.UpsertEpochStateParams{
+	_, err = n.epochStateQuerier.UpsertEpochState(ctx, epoch_states.UpsertEpochStateParams{
 		EpochNumber: epochNumber,
 		BlockNumber: uint64(epochNumber * EpochPeriod),
 		MinimumWeight: commonHelpers.BigIntToNumeric(minimumStake),
 		TotalWeight: commonHelpers.BigIntToNumeric(totalWeight),
 		ThresholdWeight: commonHelpers.BigIntToNumeric(thresholdWeight),
-		UpdatedAt: updatedAt,
-	})
+		UpdatedAt: time.Now(),
+	}, &listLimit)
 	if err != nil {
 		return fmt.Errorf("failed to update epoch state: %w", err)
 	}

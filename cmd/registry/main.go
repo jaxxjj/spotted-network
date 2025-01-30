@@ -13,9 +13,11 @@ import (
 	"github.com/galxe/spotted-network/pkg/registry/server"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/libp2p/go-libp2p"
 	"google.golang.org/grpc"
+
+	"github.com/galxe/spotted-network/internal/database/cache"
+	dbwpgx "github.com/galxe/spotted-network/internal/database/wpgx"
 )
 
 type ChainManager interface {
@@ -23,8 +25,6 @@ type ChainManager interface {
 }
 
 func main() {
-	ctx := context.Background()
-
 	// Get config path from environment variable
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -37,25 +37,6 @@ func main() {
 		log.Fatal("Failed to load config:", err)
 	}
 
-	// Initialize database connection
-	db, err := pgxpool.New(context.Background(), cfg.Database.URL)
-	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
-	}
-	defer db.Close()
-
-	// Create database queries
-	operatorsQuerier := operators.New(db)
-	chainManager, err := ethereum.NewManager(cfg)
-	if err != nil {
-		log.Fatal("Failed to initialize chain manager:", err)
-	}
-	defer chainManager.Close()
-	mainnetClient, err := chainManager.GetMainnetClient()
-	if err != nil {
-		log.Fatal("Failed to initialize mainnet client:", err)
-	}
-
 	// Create P2P host
 	host, err := libp2p.New(
 		libp2p.ListenAddrStrings(
@@ -66,7 +47,34 @@ func main() {
 		log.Fatal("Failed to create P2P host:", err)
 	}
 	defer host.Close()
-	
+
+	// Initialize database connection
+	ctx := context.Background()
+	db, err := dbwpgx.NewWPGXPool(ctx, "POSTGRES")
+	if err != nil {
+		log.Fatal("Failed to connect to database:", err)
+	}
+	defer db.Close()
+
+	// Initialize Redis and DCache
+	redisConn, dCache, err := cache.InitCache("registry")
+	if err != nil {
+		log.Fatal("Failed to initialize cache:", err)
+	}
+	defer redisConn.Close()
+
+	// Create database queries
+	operatorsQuerier := operators.New(db.WConn(), dCache)
+	chainManager, err := ethereum.NewManager(cfg)
+	if err != nil {
+		log.Fatal("Failed to initialize chain manager:", err)
+	}
+	defer chainManager.Close()
+	mainnetClient, err := chainManager.GetMainnetClient()
+	if err != nil {
+		log.Fatal("Failed to initialize mainnet client:", err)
+	}
+
 	// Create Registry Node
 	node, err := registry.NewNode(&registry.NodeConfig{
 		Host:          host,
@@ -74,7 +82,7 @@ func main() {
 		MainnetClient: mainnetClient,
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed to create node:", err)
 	}
 	defer node.Stop()
 
@@ -99,4 +107,7 @@ func main() {
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+
+	// Wait forever
+	select {}
 } 

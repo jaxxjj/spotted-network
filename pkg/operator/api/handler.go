@@ -49,36 +49,22 @@ type ChainManager interface {
 }
 
 // TaskQuerier defines the interface for task database operations needed by the handler
-type TaskQuerier interface {
-	CreateTask(ctx context.Context, arg tasks.CreateTaskParams) (tasks.Tasks, error)
-	GetTaskByID(ctx context.Context, taskID string) (tasks.Tasks, error)
+type TasksQuerier interface {
+	CreateTask(ctx context.Context, arg tasks.CreateTaskParams) (*tasks.Tasks, error)
+	GetTaskByID(ctx context.Context, taskID string) (*tasks.Tasks, error)
 }
 
 // ConsensusResponseQuerier defines the interface for consensus response database operations
 type ConsensusResponseQuerier interface {
-	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (consensus_responses.ConsensusResponse, error)
-	GetConsensusResponseByRequest(ctx context.Context, arg consensus_responses.GetConsensusResponseByRequestParams) (consensus_responses.ConsensusResponse, error)
-}
-
-type ConsensusResponse struct {
-	TaskID              string            `json:"task_id"`
-	Epoch              uint32            `json:"epoch"`
-	Status             string            `json:"status"`
-	Value              string            `json:"value"`
-	BlockNumber        uint64            `json:"block_number"`
-	ChainID            uint32            `json:"chain_id"`
-	TargetAddress      string            `json:"target_address"`
-	Key                string            `json:"key"`
-	OperatorSignatures []byte 			 `json:"operator_signatures"`
-	TotalWeight        string            `json:"total_weight"`
-	ConsensusReachedAt time.Time         `json:"consensus_reached_at"`
+	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (*consensus_responses.ConsensusResponse, error)
+	GetConsensusResponseByRequest(ctx context.Context, arg consensus_responses.GetConsensusResponseByRequestParams) (*consensus_responses.ConsensusResponse, error)
 }
 
 // Handler handles HTTP requests
 type Handler struct {
-	taskQueries    TaskQuerier
+	tasks    TasksQuerier
 	chainManager   ChainManager
-	consensusDB    ConsensusResponseQuerier
+	consensusResponses    ConsensusResponseQuerier
 	taskProcessor  TaskProcessor
 	config        *config.Config
 }
@@ -100,16 +86,16 @@ type SendRequestResponse struct {
 
 // NewHandler creates a new handler
 func NewHandler(
-	taskQueries TaskQuerier,
+	tasks TasksQuerier,
 	chainManager ChainManager,
-	consensusDB ConsensusResponseQuerier,
+	consensusResponses ConsensusResponseQuerier,
 	taskProcessor TaskProcessor,
 	config *config.Config,
 ) *Handler {
 	return &Handler{
-		taskQueries:   taskQueries,
+		tasks:   tasks,
 		chainManager:  chainManager,
-		consensusDB:   consensusDB,
+		consensusResponses:   consensusResponses,
 		taskProcessor: taskProcessor,
 		config:       config,
 	}
@@ -192,7 +178,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	taskID := h.generateTaskID(&params, value.String())
 
 	// Check if task already exists
-	existingTask, err := h.taskQueries.GetTaskByID(r.Context(), taskID)
+	existingTask, err := h.tasks.GetTaskByID(r.Context(), taskID)
 	if err == nil {
 		// Task exists, return its current status
 		response := SendRequestResponse{
@@ -230,7 +216,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create task
-	task, err := h.taskQueries.CreateTask(r.Context(), tasks.CreateTaskParams{
+	task, err := h.tasks.CreateTask(r.Context(), tasks.CreateTaskParams{
 		TaskID:        taskID,
 		TargetAddress: params.TargetAddress,
 		ChainID:       params.ChainID,
@@ -255,7 +241,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[API] Task %s is pending, processing immediately", task.TaskID)
 		
 		// Use ProcessPendingTask directly with task pointer
-		if err := h.taskProcessor.ProcessTask(r.Context(), &task); err != nil {
+		if err := h.taskProcessor.ProcessTask(r.Context(), task); err != nil {
 			log.Printf("[API] Failed to process pending task %s: %v", task.TaskID, err)
 			// Don't return error here, as the task is already created
 		}
@@ -363,24 +349,24 @@ func (h *Handler) generateTaskID(params *SendRequestParams, value string) string
 func (h *Handler) GetTaskConsensusByTaskID(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
 	
-	consensus, err := h.consensusDB.GetConsensusResponseByTaskId(r.Context(), taskID)
+	consensus, err := h.consensusResponses.GetConsensusResponseByTaskId(r.Context(), taskID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get consensus: %v", err), http.StatusInternalServerError)
 		return
 	}
 
 	// Format response
-	response := ConsensusResponse{
+	response := consensus_responses.ConsensusResponse{
 		TaskID:              consensus.TaskID,
 		Epoch:              consensus.Epoch,
-		Value:              commonHelpers.NumericToString(consensus.Value),
+		Value:              consensus.Value,
 		BlockNumber:        consensus.BlockNumber,
 		ChainID:           consensus.ChainID,
 		TargetAddress:     consensus.TargetAddress,
-		Key:               commonHelpers.NumericToString(consensus.Key),
-		OperatorSignatures: consensus.AggregatedSignatures,
-		TotalWeight:       commonHelpers.NumericToString(consensus.TotalWeight),
-		ConsensusReachedAt: consensus.ConsensusReachedAt.Time,
+		Key:               consensus.Key,
+		OperatorSignatures: consensus.OperatorSignatures,
+		TotalWeight:       consensus.TotalWeight,
+		ConsensusReachedAt: consensus.ConsensusReachedAt,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -421,7 +407,7 @@ func (h *Handler) GetConsensusResponseByRequest(w http.ResponseWriter, r *http.R
 	}
 
 	// Get consensus response
-	consensus, err := h.consensusDB.GetConsensusResponseByRequest(r.Context(), consensus_responses.GetConsensusResponseByRequestParams{
+	consensus, err := h.consensusResponses.GetConsensusResponseByRequest(r.Context(), consensus_responses.GetConsensusResponseByRequestParams{
 		TargetAddress: targetAddress,
 		ChainID:      uint32(chainID),
 		BlockNumber:  blockNumber,
@@ -433,17 +419,17 @@ func (h *Handler) GetConsensusResponseByRequest(w http.ResponseWriter, r *http.R
 	}
 
 	// Format response
-	response := ConsensusResponse{
+	response := consensus_responses.ConsensusResponse{
 		TaskID:              consensus.TaskID,
 		Epoch:              consensus.Epoch,
-		Value:              commonHelpers.NumericToString(consensus.Value),
+		Value:              consensus.Value,
 		BlockNumber:        consensus.BlockNumber,
 		ChainID:           consensus.ChainID,
 		TargetAddress:     consensus.TargetAddress,
-		Key:               commonHelpers.NumericToString(consensus.Key),
-		OperatorSignatures: consensus.AggregatedSignatures,
-		TotalWeight:       commonHelpers.NumericToString(consensus.TotalWeight),
-		ConsensusReachedAt: consensus.ConsensusReachedAt.Time,
+		Key:               consensus.Key,
+		OperatorSignatures: consensus.OperatorSignatures,
+		TotalWeight:       consensus.TotalWeight,
+		ConsensusReachedAt: consensus.ConsensusReachedAt,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

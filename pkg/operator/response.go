@@ -14,15 +14,14 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pb "github.com/galxe/spotted-network/proto"
-	"github.com/jackc/pgx/v5/pgtype"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"google.golang.org/protobuf/proto"
 )
 
 
 type TaskResponseQuerier interface {
-	CreateTaskResponse(ctx context.Context, arg task_responses.CreateTaskResponseParams) (task_responses.TaskResponses, error)
-	GetTaskResponse(ctx context.Context, arg task_responses.GetTaskResponseParams) (task_responses.TaskResponses, error)
+	CreateTaskResponse(ctx context.Context, arg task_responses.CreateTaskResponseParams, getTaskResponse *task_responses.GetTaskResponseParams) (*task_responses.TaskResponses, error)
+	GetTaskResponse(ctx context.Context, arg task_responses.GetTaskResponseParams) (*task_responses.TaskResponses, error)
 }
 
 // handleResponses handles incoming task responses
@@ -201,7 +200,7 @@ func convertToTaskResponse(msg *pb.TaskResponseMessage) (*task_responses.TaskRes
 		Key:          commonHelpers.StringToNumeric(msg.Key),
 		Epoch:        msg.Epoch,
 		Timestamp:    msg.Timestamp,
-		SubmittedAt:    pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		SubmittedAt:    time.Now(),
 	}, nil
 }
 
@@ -221,7 +220,13 @@ func (tp *TaskProcessor) storeResponse(ctx context.Context, response *task_respo
 		Timestamp:     response.Timestamp,
 	}
 
-	_, err := tp.taskResponse.CreateTaskResponse(ctx, params)
+	// GetTaskResponseParams for cache invalidation
+	getTaskResponse := &task_responses.GetTaskResponseParams{
+		TaskID:          response.TaskID,
+		OperatorAddress: response.OperatorAddress,
+	}
+
+	_, err := tp.taskResponse.CreateTaskResponse(ctx, params, getTaskResponse)
 	return err
 }
 // verifyResponse verifies a task response signature

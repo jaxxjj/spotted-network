@@ -1,12 +1,14 @@
 -- name: GetOperatorByAddress :one
 -- Get operator information by address
--- -- cache: 7d
+-- -- cache: 168h
+-- -- timeout: 500ms
 SELECT * FROM operators
 WHERE address = $1;
 
 -- name: CreateOperator :one
 -- Create a new operator record with inactive status
 -- -- invalidate: GetOperatorByAddress
+-- -- timeout: 500ms
 INSERT INTO operators (
     address,
     signing_key,
@@ -21,6 +23,7 @@ RETURNING *;
 -- name: UpdateOperatorStatus :one
 -- Update operator status
 -- -- invalidate: GetOperatorByAddress
+-- -- timeout: 500ms
 UPDATE operators
 SET status = $2,
     updated_at = NOW()
@@ -29,24 +32,28 @@ RETURNING *;
 
 -- name: VerifyOperatorStatus :one
 -- Verify operator status and signing key for join request
+-- -- timeout: 500ms
 SELECT status, signing_key 
 FROM operators
 WHERE address = $1 AND status = 'active';
 
 -- name: ListOperatorsByStatus :many
 -- Get all operators with a specific status
+-- -- timeout: 1s
 SELECT * FROM operators
 WHERE status = $1
 ORDER BY created_at DESC;
 
 -- name: ListAllOperators :many
 -- Get all operators regardless of status
+-- -- timeout: 1s
 SELECT * FROM operators
 ORDER BY created_at DESC;
 
 -- name: UpdateOperatorState :one
 -- Update operator status and weight
 -- -- invalidate: GetOperatorByAddress
+-- -- timeout: 500ms
 UPDATE operators
 SET status = $2,
     weight = $3,
@@ -57,6 +64,7 @@ RETURNING *;
 -- name: UpdateOperatorExitEpoch :one
 -- Update operator exit epoch
 -- -- invalidate: GetOperatorByAddress
+-- -- timeout: 500ms
 UPDATE operators
 SET exit_epoch = $2,
     updated_at = NOW()
@@ -66,6 +74,7 @@ RETURNING *;
 -- name: UpsertOperator :one
 -- Insert or update operator record
 -- -- invalidate: GetOperatorByAddress
+-- -- timeout: 500ms
 INSERT INTO operators (
     address,
     signing_key,

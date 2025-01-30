@@ -1,6 +1,7 @@
 -- name: CreateConsensusResponse :one
 -- -- invalidate: GetConsensusResponseByTaskId
 -- -- invalidate: GetConsensusResponseByRequest
+-- -- timeout: 500ms
 INSERT INTO consensus_responses (
     task_id,
     epoch,
@@ -18,12 +19,14 @@ INSERT INTO consensus_responses (
 ) RETURNING *;
 
 -- name: GetConsensusResponseByTaskId :one
--- -- cache: 7d
+-- -- cache: 168h
+-- -- timeout: 500ms
 SELECT * FROM consensus_responses
 WHERE task_id = $1 LIMIT 1;
 
 -- name: GetConsensusResponseByRequest :one
--- -- cache: 7d
+-- -- cache: 168h
+-- -- timeout: 500ms
 SELECT * FROM consensus_responses
 WHERE target_address = $1 
 AND chain_id = $2 

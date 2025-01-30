@@ -11,6 +11,7 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 
+	"github.com/galxe/spotted-network/internal/database/cache"
 	dbwpgx "github.com/galxe/spotted-network/internal/database/wpgx"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
@@ -127,12 +128,6 @@ func main() {
 	}
 	defer host.Close()
 
-	// Set database environment variables for wpgx
-	os.Setenv("POSTGRES_CONN_STRING", cfg.Database.URL)
-	os.Setenv("POSTGRES_MAX_CONNS", fmt.Sprintf("%d", cfg.Database.MaxOpenConns))
-	os.Setenv("POSTGRES_MIN_CONNS", fmt.Sprintf("%d", cfg.Database.MaxIdleConns))
-	os.Setenv("POSTGRES_MAX_CONN_LIFETIME", cfg.Database.ConnMaxLifetime.String())
-
 	// Initialize database connection
 	ctx := context.Background()
 	db, err := dbwpgx.NewWPGXPool(ctx, "POSTGRES")
@@ -141,27 +136,28 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize database tables
-	if err := initDatabase(ctx, db); err != nil {
-		log.Fatal("Failed to initialize database:", err)
+	// Initialize Redis and DCache
+	redisConn, dCache, err := cache.InitCache("operator")
+	if err != nil {
+		log.Fatal("Failed to initialize cache:", err)
 	}
+	defer redisConn.Close()
 
 	// Initialize database queries
-	taskQuerier := tasks.New(db)
-	taskResponseQuerier := task_responses.New(db)
-	consensusResponseQuerier := consensus_responses.New(db)
-	epochStatesQuerier := epoch_states.New(db)
+	tasksQuerier := tasks.New(db.WConn(), dCache)
+	taskResponseQuerier := task_responses.New(db.WConn(), dCache)
+	consensusResponseQuerier := consensus_responses.New(db.WConn(), dCache)
+	epochStatesQuerier := epoch_states.New(db.WConn(), dCache)
 
 	// Start operator node
 	n, err := operator.NewNode(&operator.NodeConfig{
 		Host:            host,
-		DB:              db,
 		ChainManager:    chainManager,
 		Signer:          signer,
-		TaskQuerier:     taskQuerier,
+		TasksQuerier:     tasksQuerier,
 		TaskResponseQuerier: taskResponseQuerier,
 		ConsensusResponseQuerier: consensusResponseQuerier,
-		EpochState:      epochStatesQuerier,
+		EpochStateQuerier: epochStatesQuerier,
 		RegistryAddress: *registryAddr,
 		Config:          cfg,
 	})
@@ -175,13 +171,5 @@ func main() {
 
 	// Wait forever
 	select {}
-} 
-
-func initDatabase(ctx context.Context, db *dbwpgx.Pool) error {
-	// Check if database is accessible
-	if err := db.Ping(ctx); err != nil {
-		return fmt.Errorf("[Node] failed to ping database: %w", err)
-	}
-	log.Printf("[Node] Successfully connected to database")
-	return nil
 }
+
