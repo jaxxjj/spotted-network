@@ -20,7 +20,7 @@ import (
 
 
 type TaskResponseQuerier interface {
-	CreateTaskResponse(ctx context.Context, arg task_responses.CreateTaskResponseParams, getTaskResponse *task_responses.GetTaskResponseParams) (*task_responses.TaskResponses, error)
+	CreateTaskResponse(ctx context.Context, arg task_responses.CreateTaskResponseParams) (*task_responses.TaskResponses, error)
 	GetTaskResponse(ctx context.Context, arg task_responses.GetTaskResponseParams) (*task_responses.TaskResponses, error)
 }
 
@@ -43,11 +43,16 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		log.Printf("[Response] Received task response for task %s from operator %s", pbMsg.TaskId, pbMsg.OperatorAddress)
 
 		// Check if consensus already exists for this task
-		_, err = tp.consensusResponse.GetConsensusResponseByTaskId(context.Background(), pbMsg.TaskId)
+		consensus, err := tp.consensusResponse.GetConsensusResponseByTaskId(context.Background(), pbMsg.TaskId)
 		if err == nil {
-			// Consensus already exists, skip this response
-			log.Printf("[Response] Consensus already exists for task %s, skipping response from %s", 
-				pbMsg.TaskId, pbMsg.OperatorAddress)
+			if consensus != nil {
+				// Consensus already exists, skip this response
+				log.Printf("[Response] Consensus already exists for task %s, skipping response from %s", 
+					pbMsg.TaskId, pbMsg.OperatorAddress)
+				continue
+			}
+		} else {
+			log.Printf("[Response] Error checking consensus for task %s: %v", pbMsg.TaskId, err)
 			continue
 		}
 
@@ -61,6 +66,10 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		response, err := convertToTaskResponse(&pbMsg)
 		if err != nil {
 			log.Printf("[Response] Failed to convert message: %v", err)
+			continue
+		}
+		if response == nil {
+			log.Printf("[Response] Converted response is nil for task %s", pbMsg.TaskId)
 			continue
 		}
 		log.Printf("[Response] Successfully converted task response for task %s", response.TaskID)
@@ -206,6 +215,14 @@ func convertToTaskResponse(msg *pb.TaskResponseMessage) (*task_responses.TaskRes
 
 // storeResponse stores a task response in the database
 func (tp *TaskProcessor) storeResponse(ctx context.Context, response *task_responses.TaskResponses) error {
+	if response == nil {
+		return fmt.Errorf("response is nil")
+	}
+
+	if tp.taskResponse == nil {
+		return fmt.Errorf("task response querier not initialized")
+	}
+
 	params := task_responses.CreateTaskResponseParams{
 		TaskID:         response.TaskID,
 		OperatorAddress: response.OperatorAddress,
@@ -220,13 +237,7 @@ func (tp *TaskProcessor) storeResponse(ctx context.Context, response *task_respo
 		Timestamp:     response.Timestamp,
 	}
 
-	// GetTaskResponseParams for cache invalidation
-	getTaskResponse := &task_responses.GetTaskResponseParams{
-		TaskID:          response.TaskID,
-		OperatorAddress: response.OperatorAddress,
-	}
-
-	_, err := tp.taskResponse.CreateTaskResponse(ctx, params, getTaskResponse)
+	_, err := tp.taskResponse.CreateTaskResponse(ctx, params)
 	return err
 }
 // verifyResponse verifies a task response signature

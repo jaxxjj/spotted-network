@@ -10,9 +10,17 @@ import (
 
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
+
+const (
+	// Task processor constants
+	TaskResponseProtocol = "/spotted/task-response/1.0.0"
+	TaskResponseTopic    = "/spotted/task-response"
+)
+
 
 type ChainManager interface {
 	// GetMainnetClient returns the mainnet client
@@ -37,7 +45,17 @@ type ResponseTopic interface {
 	// String returns the string representation of the topic
 	String() string
 }
-
+type TasksQuerier interface {
+	CleanupOldTasks(ctx context.Context) error
+	DeleteTaskByID(ctx context.Context, taskID string) error 
+	GetTaskByID(ctx context.Context, taskID string) (*tasks.Tasks, error)
+	IncrementRetryCount(ctx context.Context, taskID string) (*tasks.Tasks, error) 
+	ListConfirmingTasks(ctx context.Context) ([]tasks.Tasks, error)
+	ListPendingTasks(ctx context.Context) ([]tasks.Tasks, error)
+	UpdateTaskCompleted(ctx context.Context, taskID string) error
+	UpdateTaskStatus(ctx context.Context, arg tasks.UpdateTaskStatusParams) (*tasks.Tasks, error)
+	UpdateTaskToPending(ctx context.Context, taskID string) error
+}
 // TaskProcessorConfig contains all dependencies needed by TaskProcessor
 type TaskProcessorConfig struct {
 	Node                *Node
@@ -69,31 +87,31 @@ type TaskProcessor struct {
 // NewTaskProcessor creates a new task processor
 func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("config is required")
+		log.Fatal("[TaskProcessor] config is nil")
 	}
 	if cfg.Node == nil {
-		return nil, fmt.Errorf("node is required")
+		log.Fatal("[TaskProcessor] node is nil")
 	}
 	if cfg.Signer == nil {
-		return nil, fmt.Errorf("signer is required")
+		log.Fatal("[TaskProcessor] signer is nil")
 	}
 	if cfg.Tasks == nil {
-		return nil, fmt.Errorf("task querier is required")
+		log.Fatal("[TaskProcessor] task querier is nil")
 	}
 	if cfg.TaskResponse == nil {
-		return nil, fmt.Errorf("task response querier is required")
+		log.Fatal("[TaskProcessor] task response querier is nil")
 	}
 	if cfg.ConsensusResponse == nil {
-		return nil, fmt.Errorf("consensus response querier is required")
+		log.Fatal("[TaskProcessor] consensus response querier is nil")
 	}
 	if cfg.EpochState == nil {
-		return nil, fmt.Errorf("epoch state querier is required")
+		log.Fatal("[TaskProcessor] epoch state querier is nil")
 	}
 	if cfg.ChainManager == nil {
-		return nil, fmt.Errorf("chain manager is required")
+		log.Fatal("[TaskProcessor] chain manager is nil")
 	}
 	if cfg.PubSub == nil {
-		return nil, fmt.Errorf("pubsub is required")
+		log.Fatal("[TaskProcessor] pubsub is nil")
 	}
 
 	// Create response topic

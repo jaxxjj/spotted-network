@@ -18,11 +18,11 @@ import (
 
 type EpochStateQuerier interface {
     GetLatestEpochState(ctx context.Context) (*epoch_states.EpochState, error)
-	UpsertEpochState(ctx context.Context, arg epoch_states.UpsertEpochStateParams, listEpochStates *int32) (*epoch_states.EpochState, error)
+	UpsertEpochState(ctx context.Context, arg epoch_states.UpsertEpochStateParams) (*epoch_states.EpochState, error)
 }
 
 type ConsensusResponseQuerier interface {
-	CreateConsensusResponse(ctx context.Context, arg consensus_responses.CreateConsensusResponseParams, getConsensusResponseByRequest *consensus_responses.GetConsensusResponseByRequestParams) (*consensus_responses.ConsensusResponse, error)
+	CreateConsensusResponse(ctx context.Context, arg consensus_responses.CreateConsensusResponseParams) (*consensus_responses.ConsensusResponse, error)
 	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (*consensus_responses.ConsensusResponse, error)
 }
 
@@ -85,8 +85,15 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	// Get a sample response for task details
 	var sampleResp *task_responses.TaskResponses
 	for _, resp := range responses {
+		if resp == nil {
+			continue
+		}
 		sampleResp = resp
 		break
+	}
+	
+	if sampleResp == nil {
+		return fmt.Errorf("no valid response found for task %s", taskID)
 	}
 
 	// Convert operator signatures to JSONB
@@ -97,6 +104,9 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 
 	// Aggregate signatures using signer package
 	aggregatedSigs := tp.signer.AggregateSignatures(signatures)
+	if aggregatedSigs == nil {
+		return fmt.Errorf("failed to aggregate signatures")
+	}
 	log.Printf("[Consensus] Aggregated %d signatures for task %s", len(signatures), taskID)
 
 	now := time.Now()
@@ -143,9 +153,17 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 
 // getConsensusThreshold returns the threshold weight for consensus from the latest epoch state
 func (tp *TaskProcessor) getConsensusThreshold(ctx context.Context) (*big.Int, error) {
+	if tp.epochState == nil {
+		return nil, fmt.Errorf("epoch state querier not initialized")
+	}
+
 	latestEpoch, err := tp.epochState.GetLatestEpochState(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get latest epoch state: %w", err)
+	}
+	
+	if latestEpoch == nil {
+		return nil, fmt.Errorf("latest epoch state is nil")
 	}
 	
 	if !latestEpoch.ThresholdWeight.Valid || latestEpoch.ThresholdWeight.Int == nil {
@@ -157,16 +175,15 @@ func (tp *TaskProcessor) getConsensusThreshold(ctx context.Context) (*big.Int, e
 
 // storeConsensus stores a consensus response in the database
 func (tp *TaskProcessor) storeConsensus(ctx context.Context, consensus consensus_responses.CreateConsensusResponseParams) error {
-	// Create GetConsensusResponseByRequestParams for cache invalidation
-	getConsensusResponseByRequest := &consensus_responses.GetConsensusResponseByRequestParams{
-		TargetAddress: consensus.TargetAddress,
-		ChainID:      consensus.ChainID,
-		BlockNumber:  consensus.BlockNumber,
-		Key:         consensus.Key,
-	}
 
-	_, err := tp.consensusResponse.CreateConsensusResponse(ctx, consensus, getConsensusResponseByRequest)
-	return err
+	response, err := tp.consensusResponse.CreateConsensusResponse(ctx, consensus)
+	if err != nil {
+		return fmt.Errorf("failed to create consensus response: %w", err)
+	}
+	if response == nil {
+		return fmt.Errorf("created consensus response is nil")
+	}
+	return nil
 }
 
 // cleanupTask removes task data from local maps

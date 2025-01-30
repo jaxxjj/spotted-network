@@ -165,7 +165,7 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 		log.Printf("[StateSync] State update handler stopping, closing stream...")
 		stream.Close()
 	}()
-	
+
 	log.Printf("[StateSync] Started handling state updates from registry")
 	log.Printf("[StateSync] Stream ID: %s", stream.ID())
 
@@ -187,15 +187,15 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 			if err := node.handleStateUpdate(stream); err != nil {
 				log.Printf("[StateSync] Error handling state update: %v", err)
 				return
-			}
+		}
 		case 0x03: // Heartbeat
 			log.Printf("[StateSync] Received heartbeat from registry")
 			// Send heartbeat response
 			if err := node.sendHeartbeatResponse(stream); err != nil {
 				log.Printf("[StateSync] Error sending heartbeat response: %v", err)
 				return
-			}
-		default:
+	}
+	default:
 			log.Printf("[StateSync] Invalid message type: 0x%02x", msgType[0])
 			return
 		}
@@ -347,8 +347,6 @@ func (n *Node) updateEpochState(ctx context.Context, epochNumber uint32) error {
 	if err != nil {
 		return fmt.Errorf("failed to get threshold weight: %w", err)
 	}
-
-	var listLimit int32 = 10
 	
 	_, err = n.epochStateQuerier.UpsertEpochState(ctx, epoch_states.UpsertEpochStateParams{
 		EpochNumber: epochNumber,
@@ -357,7 +355,7 @@ func (n *Node) updateEpochState(ctx context.Context, epochNumber uint32) error {
 		TotalWeight: commonHelpers.BigIntToNumeric(totalWeight),
 		ThresholdWeight: commonHelpers.BigIntToNumeric(thresholdWeight),
 		UpdatedAt: time.Now(),
-	}, &listLimit)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to update epoch state: %w", err)
 	}

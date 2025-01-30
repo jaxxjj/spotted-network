@@ -50,7 +50,7 @@ type ChainManager interface {
 
 // TaskQuerier defines the interface for task database operations needed by the handler
 type TasksQuerier interface {
-	CreateTask(ctx context.Context, arg tasks.CreateTaskParams) (*tasks.Tasks, error)
+	CreateTask(ctx context.Context, arg tasks.CreateTaskParams) (*tasks.Tasks, error) 
 	GetTaskByID(ctx context.Context, taskID string) (*tasks.Tasks, error)
 }
 
@@ -92,6 +92,19 @@ func NewHandler(
 	taskProcessor TaskProcessor,
 	config *config.Config,
 ) *Handler {
+	if taskProcessor == nil {
+		log.Fatal("[API] Task processor not initialized")
+	}
+	if chainManager == nil {
+		log.Fatal("[API] Chain manager not initialized")
+	}
+
+	if tasks == nil {
+		log.Fatal("[API] Tasks querier not initialized")
+	}
+	if consensusResponses == nil {
+		log.Fatal("[API] Consensus responses querier not initialized")
+	}
 	return &Handler{
 		tasks:   tasks,
 		chainManager:  chainManager,
@@ -126,6 +139,9 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Failed to get mainnet client: %v", err), http.StatusInternalServerError)
 		return
 	}
+	if mainnetClient == nil {
+		log.Fatal("[API] Mainnet client not initialized")
+	}
 	currentEpoch, err := mainnetClient.GetCurrentEpoch(r.Context())
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get current epoch: %v", err), http.StatusInternalServerError)
@@ -136,6 +152,11 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	stateClient, err := h.chainManager.GetClientByChainId(params.ChainID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to get state client for chain %d: %v", params.ChainID, err), http.StatusBadRequest)
+		return
+	}
+	if stateClient == nil {
+		log.Printf("[API] State client is nil for chain %d", params.ChainID)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -179,7 +200,14 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Check if task already exists
 	existingTask, err := h.tasks.GetTaskByID(r.Context(), taskID)
-	if err == nil {
+	if err != nil {
+		// Query error
+		log.Printf("[API] Failed to query task: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError) 
+		return
+	}
+
+	if existingTask != nil {
 		// Task exists, return its current status
 		response := SendRequestResponse{
 			TaskID: existingTask.TaskID,
@@ -233,6 +261,12 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if task == nil {
+		log.Printf("[API] CreateTask returned nil task without error")
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	log.Printf("[API] Created new task %s with status %s", task.TaskID, task.Status)
 	if task.Status == commonTypes.TaskStatusConfirming {
 		log.Printf("[API] Task %s requires %d block confirmations", task.TaskID, requiredConfirmations)
@@ -240,7 +274,6 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		// If task is pending, process it immediately
 		log.Printf("[API] Task %s is pending, processing immediately", task.TaskID)
 		
-		// Use ProcessPendingTask directly with task pointer
 		if err := h.taskProcessor.ProcessTask(r.Context(), task); err != nil {
 			log.Printf("[API] Failed to process pending task %s: %v", task.TaskID, err)
 			// Don't return error here, as the task is already created
@@ -354,6 +387,10 @@ func (h *Handler) GetTaskConsensusByTaskID(w http.ResponseWriter, r *http.Reques
 		http.Error(w, fmt.Sprintf("failed to get consensus: %v", err), http.StatusInternalServerError)
 		return
 	}
+	if consensus == nil {
+		http.Error(w, "consensus not found", http.StatusNotFound)
+		return
+	}
 
 	// Format response
 	response := consensus_responses.ConsensusResponse{
@@ -415,6 +452,10 @@ func (h *Handler) GetConsensusResponseByRequest(w http.ResponseWriter, r *http.R
 	})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get consensus: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if consensus == nil {
+		http.Error(w, "consensus not found", http.StatusNotFound)
 		return
 	}
 

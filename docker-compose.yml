@@ -126,19 +126,19 @@ services:
       - HTTP_PORT=8000
       - CONFIG_PATH=/app/config/registry.yaml
       # Database Configuration
+      - POSTGRES_APPNAME=registry
       - POSTGRES_USERNAME=spotted
       - POSTGRES_PASSWORD=spotted
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DBNAME=spotted
-      - POSTGRES_MAX_CONNS=100
-      - POSTGRES_MIN_CONNS=0
-      - POSTGRES_MAX_CONN_LIFETIME=6h
-      - POSTGRES_MAX_CONN_IDLE_TIME=1m
-      - POSTGRES_IS_PROXY=false
-      - POSTGRES_ENABLE_PROMETHEUS=true
-      - POSTGRES_ENABLE_TRACING=true
-      - POSTGRES_APP_NAME=registry
+      - POSTGRES_MAXCONNS=100
+      - POSTGRES_MINCONNS=0
+      - POSTGRES_MAXCONNLIFETIME=6h
+      - POSTGRES_MAXCONNIDLETIME=1m
+      - POSTGRES_ISPROXY=false
+      - POSTGRES_ENABLEPROMETHEUS=true
+      - POSTGRES_ENABLETRACING=true
       # Redis Configuration
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -190,19 +190,19 @@ services:
       - HTTP_PORT=8001
       - CHAIN_RPC_URL=http://host.docker.internal:8545
       # Database Configuration
+      - POSTGRES_APPNAME=operator1
       - POSTGRES_USERNAME=spotted
       - POSTGRES_PASSWORD=spotted
       - POSTGRES_HOST=postgres_operator1
       - POSTGRES_PORT=5432
       - POSTGRES_DBNAME=operator1
-      - POSTGRES_MAX_CONNS=100
-      - POSTGRES_MIN_CONNS=0
-      - POSTGRES_MAX_CONN_LIFETIME=6h
-      - POSTGRES_MAX_CONN_IDLE_TIME=1m
-      - POSTGRES_IS_PROXY=false
-      - POSTGRES_ENABLE_PROMETHEUS=true
-      - POSTGRES_ENABLE_TRACING=true
-      - POSTGRES_APP_NAME=operator1
+      - POSTGRES_MAXCONNS=100
+      - POSTGRES_MINCONNS=0
+      - POSTGRES_MAXCONNLIFETIME=6h
+      - POSTGRES_MAXCONNIDLETIME=1m
+      - POSTGRES_ISPROXY=false
+      - POSTGRES_ENABLEPROMETHEUS=true
+      - POSTGRES_ENABLETRACING=true
       # Redis Configuration
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -260,19 +260,19 @@ services:
       - HTTP_PORT=8002
       - CHAIN_RPC_URL=http://host.docker.internal:8545
       # Database Configuration
+      - POSTGRES_APPNAME=operator2
       - POSTGRES_USERNAME=spotted
       - POSTGRES_PASSWORD=spotted
       - POSTGRES_HOST=postgres_operator2
       - POSTGRES_PORT=5432
       - POSTGRES_DBNAME=operator2
-      - POSTGRES_MAX_CONNS=100
-      - POSTGRES_MIN_CONNS=0
-      - POSTGRES_MAX_CONN_LIFETIME=6h
-      - POSTGRES_MAX_CONN_IDLE_TIME=1m
-      - POSTGRES_IS_PROXY=false
-      - POSTGRES_ENABLE_PROMETHEUS=true
-      - POSTGRES_ENABLE_TRACING=true
-      - POSTGRES_APP_NAME=operator2
+      - POSTGRES_MAXCONNS=100
+      - POSTGRES_MINCONNS=0
+      - POSTGRES_MAXCONNLIFETIME=6h
+      - POSTGRES_MAXCONNIDLETIME=1m
+      - POSTGRES_ISPROXY=false
+      - POSTGRES_ENABLEPROMETHEUS=true
+      - POSTGRES_ENABLETRACING=true
       # Redis Configuration
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -330,19 +330,19 @@ services:
       - HTTP_PORT=8003
       - CHAIN_RPC_URL=http://host.docker.internal:8545
       # Database Configuration
+      - POSTGRES_APPNAME=operator3
       - POSTGRES_USERNAME=spotted
       - POSTGRES_PASSWORD=spotted
       - POSTGRES_HOST=postgres_operator3
       - POSTGRES_PORT=5432
       - POSTGRES_DBNAME=operator3
-      - POSTGRES_MAX_CONNS=100
-      - POSTGRES_MIN_CONNS=0
-      - POSTGRES_MAX_CONN_LIFETIME=6h
-      - POSTGRES_MAX_CONN_IDLE_TIME=1m
-      - POSTGRES_IS_PROXY=false
-      - POSTGRES_ENABLE_PROMETHEUS=true
-      - POSTGRES_ENABLE_TRACING=true
-      - POSTGRES_APP_NAME=operator3
+      - POSTGRES_MAXCONNS=100
+      - POSTGRES_MINCONNS=0
+      - POSTGRES_MAXCONNLIFETIME=6h
+      - POSTGRES_MAXCONNIDLETIME=1m
+      - POSTGRES_ISPROXY=false
+      - POSTGRES_ENABLEPROMETHEUS=true
+      - POSTGRES_ENABLETRACING=true
       # Redis Configuration
       - REDIS_HOST=redis
       - REDIS_PORT=6379

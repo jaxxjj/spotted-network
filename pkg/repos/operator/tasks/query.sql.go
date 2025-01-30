@@ -27,7 +27,6 @@ AND status IN ('completed')
 `
 
 // -- timeout: 5s
-// -- invalidate: ListAllTasks
 func (q *Queries) CleanupOldTasks(ctx context.Context) error {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*5000)
 	defer cancel()
@@ -35,29 +34,12 @@ func (q *Queries) CleanupOldTasks(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// invalidate
-	_ = q.db.PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			key := "tasks:ListAllTasks:"
-			err = q.cache.Invalidate(ctx, key)
-			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msgf(
-					"Failed to invalidate: %s", key)
-				anyErr <- err
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
+
 	return nil
 }
 
 const createTask = `-- name: CreateTask :one
+
 INSERT INTO tasks (
     task_id,
     target_address,
@@ -88,15 +70,11 @@ type CreateTaskParams struct {
 }
 
 // -- timeout: 500ms
-// -- invalidate: GetTaskByID
-// -- invalidate: ListAllTasks
-// -- invalidate: ListPendingTasks
-// -- invalidate: ListConfirmingTasks
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (*Tasks, error) {
-	return _CreateTask(ctx, q, arg)
+	return _CreateTask(ctx, q.AsReadOnly(), arg)
 }
 
-func _CreateTask(ctx context.Context, q CacheWGConn, arg CreateTaskParams) (*Tasks, error) {
+func _CreateTask(ctx context.Context, q CacheQuerierConn, arg CreateTaskParams) (*Tasks, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	row := q.GetConn().WQueryRow(qctx, "tasks.CreateTask", createTask,
@@ -132,36 +110,16 @@ func _CreateTask(ctx context.Context, q CacheWGConn, arg CreateTaskParams) (*Tas
 		return nil, err
 	}
 
-	// invalidate
-	_ = q.GetConn().PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			key := "tasks:ListConfirmingTasks:"
-			err = q.GetCache().Invalidate(ctx, key)
-			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msgf(
-					"Failed to invalidate: %s", key)
-				anyErr <- err
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
 	return i, err
 }
 
 const deleteTaskByID = `-- name: DeleteTaskByID :exec
+
 DELETE FROM tasks
 WHERE task_id = $1
 `
 
 // -- timeout: 500ms
-// -- invalidate: GetTaskByID
-// -- invalidate: ListAllTasks
 func (q *Queries) DeleteTaskByID(ctx context.Context, taskID string) error {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
@@ -169,25 +127,7 @@ func (q *Queries) DeleteTaskByID(ctx context.Context, taskID string) error {
 	if err != nil {
 		return err
 	}
-	// invalidate
-	_ = q.db.PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			key := "tasks:ListAllTasks:"
-			err = q.cache.Invalidate(ctx, key)
-			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msgf(
-					"Failed to invalidate: %s", key)
-				anyErr <- err
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
+
 	return nil
 }
 
@@ -197,7 +137,6 @@ WHERE task_id = $1
 `
 
 // -- timeout: 500ms
-// -- cache: 30s
 func (q *Queries) GetTaskByID(ctx context.Context, taskID string) (*Tasks, error) {
 	return _GetTaskByID(ctx, q.AsReadOnly(), taskID)
 }
@@ -210,38 +149,26 @@ func _GetTaskByID(ctx context.Context, q CacheQuerierConn, taskID string) (*Task
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	q.GetConn().CountIntent("tasks.GetTaskByID")
-	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 30000)
-		row := q.GetConn().WQueryRow(qctx, "tasks.GetTaskByID", getTaskByID, taskID)
-		var i *Tasks = new(Tasks)
-		err := row.Scan(
-			&i.TaskID,
-			&i.ChainID,
-			&i.TargetAddress,
-			&i.Key,
-			&i.BlockNumber,
-			&i.Timestamp,
-			&i.Value,
-			&i.Epoch,
-			&i.Status,
-			&i.RequiredConfirmations,
-			&i.RetryCount,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		)
-		if err == pgx.ErrNoRows {
-			return (*Tasks)(nil), cacheDuration, nil
-		}
-		return i, cacheDuration, err
-	}
-	if q.GetCache() == nil {
-		i, _, err := dbRead()
-		return i.(*Tasks), err
-	}
-
-	var i *Tasks
-	err := q.GetCache().GetWithTtl(qctx, "tasks:GetTaskByID:"+hashIfLong(fmt.Sprintf("%+v", taskID)), &i, dbRead, false, false)
-	if err != nil {
+	row := q.GetConn().WQueryRow(qctx, "tasks.GetTaskByID", getTaskByID, taskID)
+	var i *Tasks = new(Tasks)
+	err := row.Scan(
+		&i.TaskID,
+		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
+		&i.BlockNumber,
+		&i.Timestamp,
+		&i.Value,
+		&i.Epoch,
+		&i.Status,
+		&i.RequiredConfirmations,
+		&i.RetryCount,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return (*Tasks)(nil), nil
+	} else if err != nil {
 		return nil, err
 	}
 
@@ -249,6 +176,8 @@ func _GetTaskByID(ctx context.Context, q CacheQuerierConn, taskID string) (*Task
 }
 
 const incrementRetryCount = `-- name: IncrementRetryCount :one
+
+
 UPDATE tasks
 SET retry_count = retry_count + 1,
     updated_at = NOW()
@@ -257,13 +186,11 @@ RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value
 `
 
 // -- timeout: 500ms
-// -- invalidate: GetTaskByID
-// -- invalidate: ListAllTasks
 func (q *Queries) IncrementRetryCount(ctx context.Context, taskID string) (*Tasks, error) {
-	return _IncrementRetryCount(ctx, q, taskID)
+	return _IncrementRetryCount(ctx, q.AsReadOnly(), taskID)
 }
 
-func _IncrementRetryCount(ctx context.Context, q CacheWGConn, taskID string) (*Tasks, error) {
+func _IncrementRetryCount(ctx context.Context, q CacheQuerierConn, taskID string) (*Tasks, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	row := q.GetConn().WQueryRow(qctx, "tasks.IncrementRetryCount", incrementRetryCount, taskID)
@@ -289,25 +216,6 @@ func _IncrementRetryCount(ctx context.Context, q CacheWGConn, taskID string) (*T
 		return nil, err
 	}
 
-	// invalidate
-	_ = q.GetConn().PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			key := "tasks:ListAllTasks:"
-			err = q.GetCache().Invalidate(ctx, key)
-			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msgf(
-					"Failed to invalidate: %s", key)
-				anyErr <- err
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
 	return i, err
 }
 
@@ -315,8 +223,7 @@ const listAllTasks = `-- name: ListAllTasks :many
 SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks ORDER BY created_at DESC
 `
 
-// -- timeout: 1s
-// -- cache: 5s
+// -- timeout: 500ms
 func (q *Queries) ListAllTasks(ctx context.Context) ([]Tasks, error) {
 	return _ListAllTasks(ctx, q.AsReadOnly())
 }
@@ -326,50 +233,37 @@ func (q *ReadOnlyQueries) ListAllTasks(ctx context.Context) ([]Tasks, error) {
 }
 
 func _ListAllTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, error) {
-	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*1000)
+	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	q.GetConn().CountIntent("tasks.ListAllTasks")
-	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 5000)
-		rows, err := q.GetConn().WQuery(qctx, "tasks.ListAllTasks", listAllTasks)
-		if err != nil {
-			return []Tasks(nil), 0, err
-		}
-		defer rows.Close()
-		var items []Tasks
-		for rows.Next() {
-			var i *Tasks = new(Tasks)
-			if err := rows.Scan(
-				&i.TaskID,
-				&i.ChainID,
-				&i.TargetAddress,
-				&i.Key,
-				&i.BlockNumber,
-				&i.Timestamp,
-				&i.Value,
-				&i.Epoch,
-				&i.Status,
-				&i.RequiredConfirmations,
-				&i.RetryCount,
-				&i.CreatedAt,
-				&i.UpdatedAt,
-			); err != nil {
-				return []Tasks(nil), 0, err
-			}
-			items = append(items, *i)
-		}
-		if err := rows.Err(); err != nil {
-			return []Tasks(nil), 0, err
-		}
-		return items, cacheDuration, nil
-	}
-	if q.GetCache() == nil {
-		items, _, err := dbRead()
-		return items.([]Tasks), err
-	}
-	var items []Tasks
-	err := q.GetCache().GetWithTtl(qctx, "tasks:ListAllTasks:", &items, dbRead, false, false)
+	rows, err := q.GetConn().WQuery(qctx, "tasks.ListAllTasks", listAllTasks)
 	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Tasks
+	for rows.Next() {
+		var i *Tasks = new(Tasks)
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.ChainID,
+			&i.TargetAddress,
+			&i.Key,
+			&i.BlockNumber,
+			&i.Timestamp,
+			&i.Value,
+			&i.Epoch,
+			&i.Status,
+			&i.RequiredConfirmations,
+			&i.RetryCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, *i)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
@@ -382,8 +276,7 @@ WHERE status = 'confirming'
 ORDER BY created_at DESC
 `
 
-// -- timeout: 1s
-// -- cache: 5s
+// -- timeout: 500ms
 func (q *Queries) ListConfirmingTasks(ctx context.Context) ([]Tasks, error) {
 	return _ListConfirmingTasks(ctx, q.AsReadOnly())
 }
@@ -393,50 +286,37 @@ func (q *ReadOnlyQueries) ListConfirmingTasks(ctx context.Context) ([]Tasks, err
 }
 
 func _ListConfirmingTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, error) {
-	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*1000)
+	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	q.GetConn().CountIntent("tasks.ListConfirmingTasks")
-	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 5000)
-		rows, err := q.GetConn().WQuery(qctx, "tasks.ListConfirmingTasks", listConfirmingTasks)
-		if err != nil {
-			return []Tasks(nil), 0, err
-		}
-		defer rows.Close()
-		var items []Tasks
-		for rows.Next() {
-			var i *Tasks = new(Tasks)
-			if err := rows.Scan(
-				&i.TaskID,
-				&i.ChainID,
-				&i.TargetAddress,
-				&i.Key,
-				&i.BlockNumber,
-				&i.Timestamp,
-				&i.Value,
-				&i.Epoch,
-				&i.Status,
-				&i.RequiredConfirmations,
-				&i.RetryCount,
-				&i.CreatedAt,
-				&i.UpdatedAt,
-			); err != nil {
-				return []Tasks(nil), 0, err
-			}
-			items = append(items, *i)
-		}
-		if err := rows.Err(); err != nil {
-			return []Tasks(nil), 0, err
-		}
-		return items, cacheDuration, nil
-	}
-	if q.GetCache() == nil {
-		items, _, err := dbRead()
-		return items.([]Tasks), err
-	}
-	var items []Tasks
-	err := q.GetCache().GetWithTtl(qctx, "tasks:ListConfirmingTasks:", &items, dbRead, false, false)
+	rows, err := q.GetConn().WQuery(qctx, "tasks.ListConfirmingTasks", listConfirmingTasks)
 	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Tasks
+	for rows.Next() {
+		var i *Tasks = new(Tasks)
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.ChainID,
+			&i.TargetAddress,
+			&i.Key,
+			&i.BlockNumber,
+			&i.Timestamp,
+			&i.Value,
+			&i.Epoch,
+			&i.Status,
+			&i.RequiredConfirmations,
+			&i.RetryCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, *i)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
@@ -449,8 +329,7 @@ WHERE status = 'pending'
 ORDER BY created_at ASC
 `
 
-// -- timeout: 1s
-// -- cache: 5s
+// -- timeout: 500ms
 func (q *Queries) ListPendingTasks(ctx context.Context) ([]Tasks, error) {
 	return _ListPendingTasks(ctx, q.AsReadOnly())
 }
@@ -460,50 +339,37 @@ func (q *ReadOnlyQueries) ListPendingTasks(ctx context.Context) ([]Tasks, error)
 }
 
 func _ListPendingTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, error) {
-	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*1000)
+	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	q.GetConn().CountIntent("tasks.ListPendingTasks")
-	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 5000)
-		rows, err := q.GetConn().WQuery(qctx, "tasks.ListPendingTasks", listPendingTasks)
-		if err != nil {
-			return []Tasks(nil), 0, err
-		}
-		defer rows.Close()
-		var items []Tasks
-		for rows.Next() {
-			var i *Tasks = new(Tasks)
-			if err := rows.Scan(
-				&i.TaskID,
-				&i.ChainID,
-				&i.TargetAddress,
-				&i.Key,
-				&i.BlockNumber,
-				&i.Timestamp,
-				&i.Value,
-				&i.Epoch,
-				&i.Status,
-				&i.RequiredConfirmations,
-				&i.RetryCount,
-				&i.CreatedAt,
-				&i.UpdatedAt,
-			); err != nil {
-				return []Tasks(nil), 0, err
-			}
-			items = append(items, *i)
-		}
-		if err := rows.Err(); err != nil {
-			return []Tasks(nil), 0, err
-		}
-		return items, cacheDuration, nil
-	}
-	if q.GetCache() == nil {
-		items, _, err := dbRead()
-		return items.([]Tasks), err
-	}
-	var items []Tasks
-	err := q.GetCache().GetWithTtl(qctx, "tasks:ListPendingTasks:", &items, dbRead, false, false)
+	rows, err := q.GetConn().WQuery(qctx, "tasks.ListPendingTasks", listPendingTasks)
 	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Tasks
+	for rows.Next() {
+		var i *Tasks = new(Tasks)
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.ChainID,
+			&i.TargetAddress,
+			&i.Key,
+			&i.BlockNumber,
+			&i.Timestamp,
+			&i.Value,
+			&i.Epoch,
+			&i.Status,
+			&i.RequiredConfirmations,
+			&i.RetryCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, *i)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
@@ -511,6 +377,8 @@ func _ListPendingTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, error)
 }
 
 const updateTaskCompleted = `-- name: UpdateTaskCompleted :exec
+
+
 UPDATE tasks
 SET status = 'completed',
     updated_at = NOW()
@@ -518,10 +386,6 @@ WHERE task_id = $1
 `
 
 // -- timeout: 500ms
-// -- invalidate: GetTaskByID
-// -- invalidate: ListAllTasks
-// -- invalidate: ListPendingTasks
-// -- invalidate: ListConfirmingTasks
 func (q *Queries) UpdateTaskCompleted(ctx context.Context, taskID string) error {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
@@ -529,29 +393,12 @@ func (q *Queries) UpdateTaskCompleted(ctx context.Context, taskID string) error 
 	if err != nil {
 		return err
 	}
-	// invalidate
-	_ = q.db.PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			key := "tasks:ListConfirmingTasks:"
-			err = q.cache.Invalidate(ctx, key)
-			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msgf(
-					"Failed to invalidate: %s", key)
-				anyErr <- err
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
+
 	return nil
 }
 
 const updateTaskStatus = `-- name: UpdateTaskStatus :one
+
 UPDATE tasks
 SET status = $2,
     updated_at = NOW()
@@ -565,15 +412,11 @@ type UpdateTaskStatusParams struct {
 }
 
 // -- timeout: 500ms
-// -- invalidate: GetTaskByID
-// -- invalidate: ListAllTasks
-// -- invalidate: ListPendingTasks
-// -- invalidate: ListConfirmingTasks
 func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusParams) (*Tasks, error) {
-	return _UpdateTaskStatus(ctx, q, arg)
+	return _UpdateTaskStatus(ctx, q.AsReadOnly(), arg)
 }
 
-func _UpdateTaskStatus(ctx context.Context, q CacheWGConn, arg UpdateTaskStatusParams) (*Tasks, error) {
+func _UpdateTaskStatus(ctx context.Context, q CacheQuerierConn, arg UpdateTaskStatusParams) (*Tasks, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	row := q.GetConn().WQueryRow(qctx, "tasks.UpdateTaskStatus", updateTaskStatus, arg.TaskID, arg.Status)
@@ -599,29 +442,12 @@ func _UpdateTaskStatus(ctx context.Context, q CacheWGConn, arg UpdateTaskStatusP
 		return nil, err
 	}
 
-	// invalidate
-	_ = q.GetConn().PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			key := "tasks:ListConfirmingTasks:"
-			err = q.GetCache().Invalidate(ctx, key)
-			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msgf(
-					"Failed to invalidate: %s", key)
-				anyErr <- err
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
 	return i, err
 }
 
 const updateTaskToPending = `-- name: UpdateTaskToPending :exec
+
+
 UPDATE tasks 
 SET status = 'pending', 
     updated_at = NOW()
@@ -629,10 +455,6 @@ WHERE task_id = $1
 `
 
 // -- timeout: 500ms
-// -- invalidate: GetTaskByID
-// -- invalidate: ListAllTasks
-// -- invalidate: ListPendingTasks
-// -- invalidate: ListConfirmingTasks
 func (q *Queries) UpdateTaskToPending(ctx context.Context, taskID string) error {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
@@ -640,97 +462,8 @@ func (q *Queries) UpdateTaskToPending(ctx context.Context, taskID string) error 
 	if err != nil {
 		return err
 	}
-	// invalidate
-	_ = q.db.PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			key := "tasks:ListConfirmingTasks:"
-			err = q.cache.Invalidate(ctx, key)
-			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msgf(
-					"Failed to invalidate: %s", key)
-				anyErr <- err
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
+
 	return nil
-}
-
-const updateTaskValue = `-- name: UpdateTaskValue :one
-UPDATE tasks
-SET value = $2,
-    status = 'pending',
-    updated_at = NOW()
-WHERE task_id = $1
-RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
-`
-
-type UpdateTaskValueParams struct {
-	TaskID string         `json:"task_id"`
-	Value  pgtype.Numeric `json:"value"`
-}
-
-// -- timeout: 500ms
-// -- invalidate: GetTaskByID
-// -- invalidate: ListAllTasks
-// -- invalidate: ListPendingTasks
-// -- invalidate: ListConfirmingTasks
-func (q *Queries) UpdateTaskValue(ctx context.Context, arg UpdateTaskValueParams) (*Tasks, error) {
-	return _UpdateTaskValue(ctx, q, arg)
-}
-
-func _UpdateTaskValue(ctx context.Context, q CacheWGConn, arg UpdateTaskValueParams) (*Tasks, error) {
-	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
-	defer cancel()
-	row := q.GetConn().WQueryRow(qctx, "tasks.UpdateTaskValue", updateTaskValue, arg.TaskID, arg.Value)
-	var i *Tasks = new(Tasks)
-	err := row.Scan(
-		&i.TaskID,
-		&i.ChainID,
-		&i.TargetAddress,
-		&i.Key,
-		&i.BlockNumber,
-		&i.Timestamp,
-		&i.Value,
-		&i.Epoch,
-		&i.Status,
-		&i.RequiredConfirmations,
-		&i.RetryCount,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	if err == pgx.ErrNoRows {
-		return (*Tasks)(nil), nil
-	} else if err != nil {
-		return nil, err
-	}
-
-	// invalidate
-	_ = q.GetConn().PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			key := "tasks:ListConfirmingTasks:"
-			err = q.GetCache().Invalidate(ctx, key)
-			if err != nil {
-				log.Ctx(ctx).Error().Err(err).Msgf(
-					"Failed to invalidate: %s", key)
-				anyErr <- err
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
-	return i, err
 }
 
 //// auto generated functions

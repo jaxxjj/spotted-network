@@ -51,14 +51,12 @@ type CreateConsensusResponseParams struct {
 	ConsensusReachedAt   *time.Time     `json:"consensus_reached_at"`
 }
 
-// -- invalidate: GetConsensusResponseByTaskId
-// -- invalidate: GetConsensusResponseByRequest
 // -- timeout: 500ms
-func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsensusResponseParams, getConsensusResponseByRequest *GetConsensusResponseByRequestParams) (*ConsensusResponse, error) {
-	return _CreateConsensusResponse(ctx, q, arg, getConsensusResponseByRequest)
+func (q *Queries) CreateConsensusResponse(ctx context.Context, arg CreateConsensusResponseParams) (*ConsensusResponse, error) {
+	return _CreateConsensusResponse(ctx, q.AsReadOnly(), arg)
 }
 
-func _CreateConsensusResponse(ctx context.Context, q CacheWGConn, arg CreateConsensusResponseParams, getConsensusResponseByRequest *GetConsensusResponseByRequestParams) (*ConsensusResponse, error) {
+func _CreateConsensusResponse(ctx context.Context, q CacheQuerierConn, arg CreateConsensusResponseParams) (*ConsensusResponse, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	row := q.GetConn().WQueryRow(qctx, "consensus_responses.CreateConsensusResponse", createConsensusResponse,
@@ -96,27 +94,6 @@ func _CreateConsensusResponse(ctx context.Context, q CacheWGConn, arg CreateCons
 		return nil, err
 	}
 
-	// invalidate
-	_ = q.GetConn().PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if getConsensusResponseByRequest != nil {
-				key := (*getConsensusResponseByRequest).CacheKey()
-				err = q.GetCache().Invalidate(ctx, key)
-				if err != nil {
-					log.Ctx(ctx).Error().Err(err).Msgf(
-						"Failed to invalidate: %s", key)
-					anyErr <- err
-				}
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
 	return i, err
 }
 
@@ -136,18 +113,6 @@ type GetConsensusResponseByRequestParams struct {
 	Key           pgtype.Numeric `json:"key"`
 }
 
-// CacheKey - cache key
-func (arg GetConsensusResponseByRequestParams) CacheKey() string {
-	prefix := "consensus_responses:GetConsensusResponseByRequest:"
-	return prefix + hashIfLong(fmt.Sprintf("%+v,%+v,%+v,%+v",
-		arg.TargetAddress,
-		arg.ChainID,
-		arg.BlockNumber,
-		arg.Key,
-	))
-}
-
-// -- cache: 168h
 // -- timeout: 500ms
 func (q *Queries) GetConsensusResponseByRequest(ctx context.Context, arg GetConsensusResponseByRequestParams) (*ConsensusResponse, error) {
 	return _GetConsensusResponseByRequest(ctx, q.AsReadOnly(), arg)
@@ -161,43 +126,31 @@ func _GetConsensusResponseByRequest(ctx context.Context, q CacheQuerierConn, arg
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	q.GetConn().CountIntent("consensus_responses.GetConsensusResponseByRequest")
-	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 604800000)
-		row := q.GetConn().WQueryRow(qctx, "consensus_responses.GetConsensusResponseByRequest", getConsensusResponseByRequest,
-			arg.TargetAddress,
-			arg.ChainID,
-			arg.BlockNumber,
-			arg.Key)
-		var i *ConsensusResponse = new(ConsensusResponse)
-		err := row.Scan(
-			&i.ID,
-			&i.TaskID,
-			&i.Epoch,
-			&i.Value,
-			&i.Key,
-			&i.TotalWeight,
-			&i.ChainID,
-			&i.BlockNumber,
-			&i.TargetAddress,
-			&i.AggregatedSignatures,
-			&i.OperatorSignatures,
-			&i.ConsensusReachedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		)
-		if err == pgx.ErrNoRows {
-			return (*ConsensusResponse)(nil), cacheDuration, nil
-		}
-		return i, cacheDuration, err
-	}
-	if q.GetCache() == nil {
-		i, _, err := dbRead()
-		return i.(*ConsensusResponse), err
-	}
-
-	var i *ConsensusResponse
-	err := q.GetCache().GetWithTtl(qctx, arg.CacheKey(), &i, dbRead, false, false)
-	if err != nil {
+	row := q.GetConn().WQueryRow(qctx, "consensus_responses.GetConsensusResponseByRequest", getConsensusResponseByRequest,
+		arg.TargetAddress,
+		arg.ChainID,
+		arg.BlockNumber,
+		arg.Key)
+	var i *ConsensusResponse = new(ConsensusResponse)
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.Epoch,
+		&i.Value,
+		&i.Key,
+		&i.TotalWeight,
+		&i.ChainID,
+		&i.BlockNumber,
+		&i.TargetAddress,
+		&i.AggregatedSignatures,
+		&i.OperatorSignatures,
+		&i.ConsensusReachedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return (*ConsensusResponse)(nil), nil
+	} else if err != nil {
 		return nil, err
 	}
 
@@ -209,7 +162,6 @@ SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, tar
 WHERE task_id = $1 LIMIT 1
 `
 
-// -- cache: 168h
 // -- timeout: 500ms
 func (q *Queries) GetConsensusResponseByTaskId(ctx context.Context, taskID string) (*ConsensusResponse, error) {
 	return _GetConsensusResponseByTaskId(ctx, q.AsReadOnly(), taskID)
@@ -223,39 +175,27 @@ func _GetConsensusResponseByTaskId(ctx context.Context, q CacheQuerierConn, task
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	q.GetConn().CountIntent("consensus_responses.GetConsensusResponseByTaskId")
-	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 604800000)
-		row := q.GetConn().WQueryRow(qctx, "consensus_responses.GetConsensusResponseByTaskId", getConsensusResponseByTaskId, taskID)
-		var i *ConsensusResponse = new(ConsensusResponse)
-		err := row.Scan(
-			&i.ID,
-			&i.TaskID,
-			&i.Epoch,
-			&i.Value,
-			&i.Key,
-			&i.TotalWeight,
-			&i.ChainID,
-			&i.BlockNumber,
-			&i.TargetAddress,
-			&i.AggregatedSignatures,
-			&i.OperatorSignatures,
-			&i.ConsensusReachedAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		)
-		if err == pgx.ErrNoRows {
-			return (*ConsensusResponse)(nil), cacheDuration, nil
-		}
-		return i, cacheDuration, err
-	}
-	if q.GetCache() == nil {
-		i, _, err := dbRead()
-		return i.(*ConsensusResponse), err
-	}
-
-	var i *ConsensusResponse
-	err := q.GetCache().GetWithTtl(qctx, "consensus_responses:GetConsensusResponseByTaskId:"+hashIfLong(fmt.Sprintf("%+v", taskID)), &i, dbRead, false, false)
-	if err != nil {
+	row := q.GetConn().WQueryRow(qctx, "consensus_responses.GetConsensusResponseByTaskId", getConsensusResponseByTaskId, taskID)
+	var i *ConsensusResponse = new(ConsensusResponse)
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.Epoch,
+		&i.Value,
+		&i.Key,
+		&i.TotalWeight,
+		&i.ChainID,
+		&i.BlockNumber,
+		&i.TargetAddress,
+		&i.AggregatedSignatures,
+		&i.OperatorSignatures,
+		&i.ConsensusReachedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return (*ConsensusResponse)(nil), nil
+	} else if err != nil {
 		return nil, err
 	}
 

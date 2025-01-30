@@ -33,6 +33,12 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 			}
 
 			for _, task := range tasks {
+				// Add nil check for task
+				if task.TaskID == "" {
+					log.Printf("[Timeout] Invalid task with empty ID")
+					continue
+				}
+
 				log.Printf("[Timeout] Processing pending task %s (retry count: %d)", task.TaskID, task.RetryCount)
 				
 				// Clean up memory maps before retrying

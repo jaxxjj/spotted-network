@@ -51,13 +51,12 @@ type CreateTaskResponseParams struct {
 	Timestamp       uint64         `json:"timestamp"`
 }
 
-// -- invalidate: GetTaskResponse
 // -- timeout: 500ms
-func (q *Queries) CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams, getTaskResponse *GetTaskResponseParams) (*TaskResponses, error) {
-	return _CreateTaskResponse(ctx, q, arg, getTaskResponse)
+func (q *Queries) CreateTaskResponse(ctx context.Context, arg CreateTaskResponseParams) (*TaskResponses, error) {
+	return _CreateTaskResponse(ctx, q.AsReadOnly(), arg)
 }
 
-func _CreateTaskResponse(ctx context.Context, q CacheWGConn, arg CreateTaskResponseParams, getTaskResponse *GetTaskResponseParams) (*TaskResponses, error) {
+func _CreateTaskResponse(ctx context.Context, q CacheQuerierConn, arg CreateTaskResponseParams) (*TaskResponses, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	row := q.GetConn().WQueryRow(qctx, "task_responses.CreateTaskResponse", createTaskResponse,
@@ -94,27 +93,6 @@ func _CreateTaskResponse(ctx context.Context, q CacheWGConn, arg CreateTaskRespo
 		return nil, err
 	}
 
-	// invalidate
-	_ = q.GetConn().PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if getTaskResponse != nil {
-				key := (*getTaskResponse).CacheKey()
-				err = q.GetCache().Invalidate(ctx, key)
-				if err != nil {
-					log.Ctx(ctx).Error().Err(err).Msgf(
-						"Failed to invalidate: %s", key)
-					anyErr <- err
-				}
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
 	return i, err
 }
 
@@ -128,36 +106,15 @@ type DeleteTaskResponseParams struct {
 	OperatorAddress string `json:"operator_address"`
 }
 
-// -- invalidate: GetTaskResponse
 // -- timeout: 500ms
-func (q *Queries) DeleteTaskResponse(ctx context.Context, arg DeleteTaskResponseParams, getTaskResponse *GetTaskResponseParams) error {
+func (q *Queries) DeleteTaskResponse(ctx context.Context, arg DeleteTaskResponseParams) error {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	_, err := q.db.WExec(qctx, "task_responses.DeleteTaskResponse", deleteTaskResponse, arg.TaskID, arg.OperatorAddress)
 	if err != nil {
 		return err
 	}
-	// invalidate
-	_ = q.db.PostExec(func() error {
-		anyErr := make(chan error, 1)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if getTaskResponse != nil {
-				key := (*getTaskResponse).CacheKey()
-				err = q.cache.Invalidate(ctx, key)
-				if err != nil {
-					log.Ctx(ctx).Error().Err(err).Msgf(
-						"Failed to invalidate: %s", key)
-					anyErr <- err
-				}
-			}
-		}()
-		wg.Wait()
-		close(anyErr)
-		return <-anyErr
-	})
+
 	return nil
 }
 
@@ -171,14 +128,6 @@ type GetTaskResponseParams struct {
 	OperatorAddress string `json:"operator_address"`
 }
 
-// CacheKey - cache key
-func (arg GetTaskResponseParams) CacheKey() string {
-	prefix := "task_responses:GetTaskResponse:"
-	return prefix + hashIfLong(fmt.Sprintf("%+v,%+v", arg.TaskID, arg.OperatorAddress))
-}
-
-// Get single task response by task_id and operator_address
-// -- cache: 168h
 // -- timeout: 500ms
 func (q *Queries) GetTaskResponse(ctx context.Context, arg GetTaskResponseParams) (*TaskResponses, error) {
 	return _GetTaskResponse(ctx, q.AsReadOnly(), arg)
@@ -192,38 +141,26 @@ func _GetTaskResponse(ctx context.Context, q CacheQuerierConn, arg GetTaskRespon
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	q.GetConn().CountIntent("task_responses.GetTaskResponse")
-	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 604800000)
-		row := q.GetConn().WQueryRow(qctx, "task_responses.GetTaskResponse", getTaskResponse, arg.TaskID, arg.OperatorAddress)
-		var i *TaskResponses = new(TaskResponses)
-		err := row.Scan(
-			&i.ID,
-			&i.TaskID,
-			&i.OperatorAddress,
-			&i.SigningKey,
-			&i.Signature,
-			&i.Epoch,
-			&i.ChainID,
-			&i.TargetAddress,
-			&i.Key,
-			&i.Value,
-			&i.BlockNumber,
-			&i.Timestamp,
-			&i.SubmittedAt,
-		)
-		if err == pgx.ErrNoRows {
-			return (*TaskResponses)(nil), cacheDuration, nil
-		}
-		return i, cacheDuration, err
-	}
-	if q.GetCache() == nil {
-		i, _, err := dbRead()
-		return i.(*TaskResponses), err
-	}
-
-	var i *TaskResponses
-	err := q.GetCache().GetWithTtl(qctx, arg.CacheKey(), &i, dbRead, false, false)
-	if err != nil {
+	row := q.GetConn().WQueryRow(qctx, "task_responses.GetTaskResponse", getTaskResponse, arg.TaskID, arg.OperatorAddress)
+	var i *TaskResponses = new(TaskResponses)
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.OperatorAddress,
+		&i.SigningKey,
+		&i.Signature,
+		&i.Epoch,
+		&i.ChainID,
+		&i.TargetAddress,
+		&i.Key,
+		&i.Value,
+		&i.BlockNumber,
+		&i.Timestamp,
+		&i.SubmittedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return (*TaskResponses)(nil), nil
+	} else if err != nil {
 		return nil, err
 	}
 
@@ -242,7 +179,6 @@ type ListOperatorResponsesParams struct {
 	Limit           int32  `json:"limit"`
 }
 
-// Get recent responses for an operator, no cache for real-time data
 // -- timeout: 1s
 func (q *Queries) ListOperatorResponses(ctx context.Context, arg ListOperatorResponsesParams) ([]TaskResponses, error) {
 	return _ListOperatorResponses(ctx, q.AsReadOnly(), arg)
@@ -295,7 +231,6 @@ SELECT id, task_id, operator_address, signing_key, signature, epoch, chain_id, t
 WHERE task_id = $1
 `
 
-// Get all responses for a task, no cache for real-time data
 // -- timeout: 1s
 func (q *Queries) ListTaskResponses(ctx context.Context, taskID string) ([]TaskResponses, error) {
 	return _ListTaskResponses(ctx, q.AsReadOnly(), taskID)

@@ -162,7 +162,6 @@ SELECT address, signing_key, registered_at_block_number, registered_at_timestamp
 ORDER BY created_at DESC
 `
 
-// Get all operators regardless of status
 // -- timeout: 1s
 func (q *Queries) ListAllOperators(ctx context.Context) ([]Operators, error) {
 	return _ListAllOperators(ctx, q.AsReadOnly())
@@ -213,7 +212,6 @@ WHERE status = $1
 ORDER BY created_at DESC
 `
 
-// Get all operators with a specific status
 // -- timeout: 1s
 func (q *Queries) ListOperatorsByStatus(ctx context.Context, status types.OperatorStatus) ([]Operators, error) {
 	return _ListOperatorsByStatus(ctx, q.AsReadOnly(), status)
@@ -271,7 +269,6 @@ type UpdateOperatorExitEpochParams struct {
 	ExitEpoch uint32 `json:"exit_epoch"`
 }
 
-// Update operator exit epoch
 // -- invalidate: GetOperatorByAddress
 // -- timeout: 500ms
 func (q *Queries) UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams, getOperatorByAddress *string) (*Operators, error) {
@@ -340,7 +337,6 @@ type UpdateOperatorStateParams struct {
 	Weight  pgtype.Numeric       `json:"weight"`
 }
 
-// Update operator status and weight
 // -- invalidate: GetOperatorByAddress
 // -- timeout: 500ms
 func (q *Queries) UpdateOperatorState(ctx context.Context, arg UpdateOperatorStateParams, getOperatorByAddress *string) (*Operators, error) {
@@ -407,7 +403,6 @@ type UpdateOperatorStatusParams struct {
 	Status  types.OperatorStatus `json:"status"`
 }
 
-// Update operator status
 // -- invalidate: GetOperatorByAddress
 // -- timeout: 500ms
 func (q *Queries) UpdateOperatorStatus(ctx context.Context, arg UpdateOperatorStatusParams, getOperatorByAddress *string) (*Operators, error) {
@@ -494,7 +489,6 @@ type UpsertOperatorParams struct {
 	ExitEpoch               uint32         `json:"exit_epoch"`
 }
 
-// Insert or update operator record
 // -- invalidate: GetOperatorByAddress
 // -- timeout: 500ms
 func (q *Queries) UpsertOperator(ctx context.Context, arg UpsertOperatorParams, getOperatorByAddress *string) (*Operators, error) {
@@ -566,7 +560,6 @@ type VerifyOperatorStatusRow struct {
 	SigningKey string               `json:"signing_key"`
 }
 
-// Verify operator status and signing key for join request
 // -- timeout: 500ms
 func (q *Queries) VerifyOperatorStatus(ctx context.Context, address string) (*VerifyOperatorStatusRow, error) {
 	return _VerifyOperatorStatus(ctx, q.AsReadOnly(), address)

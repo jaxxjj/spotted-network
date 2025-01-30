@@ -20,6 +20,12 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
 )
+type OperatorInfo struct {
+	ID       peer.ID
+	Addrs    []multiaddr.Multiaddr
+	LastSeen time.Time
+	Status   string
+}
 
 type MainnetClient interface {
 	GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error)
@@ -82,13 +88,13 @@ type Node struct {
 func NewNode(cfg *NodeConfig) (*Node, error) {
 	// Validate required dependencies
 	if cfg.Host == nil {
-		return nil, fmt.Errorf("host is required")
+		log.Fatal("[Registry] host not initialized")
 	}
 	if cfg.Operators == nil {
-		return nil, fmt.Errorf("operators querier is required")
+		log.Fatal("[Registry] operators querier not initialized")
 	}
 	if cfg.MainnetClient == nil {
-		return nil, fmt.Errorf("mainnet client is required")
+		log.Fatal("[Registry] mainnet client not initialized")
 	}
 
 	// Create ping service

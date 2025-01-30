@@ -14,6 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const (
+	// Epoch-related constants
+	GenesisBlock = 0     
+	EpochPeriod  = 12    
+)
 type EventListener struct {
 	node *Node
 	mainnetClient MainnetClient
@@ -21,6 +26,12 @@ type EventListener struct {
 }
 
 func NewEventListener(node *Node, mainnetClient MainnetClient, operators OperatorsQuerier) *EventListener {
+	if mainnetClient == nil {
+		log.Fatal("[EventListener] mainnet client not initialized")
+	}
+	if operators == nil {
+		log.Fatal("[EventListener] operators querier not initialized")
+	}
 	log.Printf("[EventListener] Creating new EventListener instance")
 	return &EventListener{
 		node: node,

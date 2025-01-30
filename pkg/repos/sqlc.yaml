@@ -10,7 +10,6 @@ sql:
         out: "registry/operators"
         sql_package: "wpgx"
         emit_json_tags: true
-        emit_interface: true
         emit_exact_table_names: true
         overrides:
           - column: "operators.registered_at_block_number"
@@ -37,7 +36,6 @@ sql:
         out: "operator/tasks"
         sql_package: "wpgx"
         emit_json_tags: true
-        emit_interface: true
         emit_exact_table_names: true
         overrides:
           # Column-specific mappings for tasks table
@@ -70,7 +68,6 @@ sql:
         out: "operator/task_responses"
         sql_package: "wpgx"
         emit_json_tags: true
-        emit_interface: true
         emit_exact_table_names: true
         emit_empty_slices: true
         overrides:
@@ -96,7 +93,6 @@ sql:
         out: "operator/consensus_responses"
         sql_package: "wpgx"
         emit_json_tags: true
-        emit_interface: true
         emit_empty_slices: true
         overrides:
           - column: "consensus_responses.chain_id"
@@ -114,7 +110,6 @@ sql:
         out: "operator/epoch_states"
         sql_package: "wpgx"
         emit_json_tags: true
-        emit_interface: true
         emit_empty_slices: true
         overrides:
           - column: "epoch_states.epoch_number"

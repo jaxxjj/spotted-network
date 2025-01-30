@@ -126,7 +126,6 @@ ORDER BY epoch_number DESC
 LIMIT $1
 `
 
-// -- cache: 168h
 // -- timeout: 1s
 func (q *Queries) ListEpochStates(ctx context.Context, limit int32) ([]EpochState, error) {
 	return _ListEpochStates(ctx, q.AsReadOnly(), limit)
@@ -140,40 +139,27 @@ func _ListEpochStates(ctx context.Context, q CacheQuerierConn, limit int32) ([]E
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*1000)
 	defer cancel()
 	q.GetConn().CountIntent("epoch_states.ListEpochStates")
-	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 604800000)
-		rows, err := q.GetConn().WQuery(qctx, "epoch_states.ListEpochStates", listEpochStates, limit)
-		if err != nil {
-			return []EpochState(nil), 0, err
-		}
-		defer rows.Close()
-		var items []EpochState
-		for rows.Next() {
-			var i *EpochState = new(EpochState)
-			if err := rows.Scan(
-				&i.EpochNumber,
-				&i.BlockNumber,
-				&i.MinimumWeight,
-				&i.TotalWeight,
-				&i.ThresholdWeight,
-				&i.UpdatedAt,
-			); err != nil {
-				return []EpochState(nil), 0, err
-			}
-			items = append(items, *i)
-		}
-		if err := rows.Err(); err != nil {
-			return []EpochState(nil), 0, err
-		}
-		return items, cacheDuration, nil
-	}
-	if q.GetCache() == nil {
-		items, _, err := dbRead()
-		return items.([]EpochState), err
-	}
-	var items []EpochState
-	err := q.GetCache().GetWithTtl(qctx, "epoch_states:ListEpochStates:"+hashIfLong(fmt.Sprintf("%+v", limit)), &items, dbRead, false, false)
+	rows, err := q.GetConn().WQuery(qctx, "epoch_states.ListEpochStates", listEpochStates, limit)
 	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpochState
+	for rows.Next() {
+		var i *EpochState = new(EpochState)
+		if err := rows.Scan(
+			&i.EpochNumber,
+			&i.BlockNumber,
+			&i.MinimumWeight,
+			&i.TotalWeight,
+			&i.ThresholdWeight,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, *i)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
@@ -212,13 +198,12 @@ type UpsertEpochStateParams struct {
 
 // -- invalidate: GetEpochState
 // -- invalidate: GetLatestEpochState
-// -- invalidate: ListEpochStates
 // -- timeout: 500ms
-func (q *Queries) UpsertEpochState(ctx context.Context, arg UpsertEpochStateParams, listEpochStates *int32) (*EpochState, error) {
-	return _UpsertEpochState(ctx, q, arg, listEpochStates)
+func (q *Queries) UpsertEpochState(ctx context.Context, arg UpsertEpochStateParams) (*EpochState, error) {
+	return _UpsertEpochState(ctx, q, arg)
 }
 
-func _UpsertEpochState(ctx context.Context, q CacheWGConn, arg UpsertEpochStateParams, listEpochStates *int32) (*EpochState, error) {
+func _UpsertEpochState(ctx context.Context, q CacheWGConn, arg UpsertEpochStateParams) (*EpochState, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	row := q.GetConn().WQueryRow(qctx, "epoch_states.UpsertEpochState", upsertEpochState,
@@ -250,14 +235,12 @@ func _UpsertEpochState(ctx context.Context, q CacheWGConn, arg UpsertEpochStateP
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if listEpochStates != nil {
-				key := "epoch_states:ListEpochStates:" + hashIfLong(fmt.Sprintf("%+v", (*listEpochStates)))
-				err = q.GetCache().Invalidate(ctx, key)
-				if err != nil {
-					log.Ctx(ctx).Error().Err(err).Msgf(
-						"Failed to invalidate: %s", key)
-					anyErr <- err
-				}
+			key := "epoch_states:GetLatestEpochState:"
+			err = q.GetCache().Invalidate(ctx, key)
+			if err != nil {
+				log.Ctx(ctx).Error().Err(err).Msgf(
+					"Failed to invalidate: %s", key)
+				anyErr <- err
 			}
 		}()
 		wg.Wait()

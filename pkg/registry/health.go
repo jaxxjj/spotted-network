@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"time"
+
+	commonTypes "github.com/galxe/spotted-network/pkg/common/types"
 )
 
 func (n *Node) startHealthCheck(ctx context.Context) {
@@ -28,10 +30,10 @@ func (n *Node) checkOperators(ctx context.Context) {
 		// Ping the operator
 		if err := n.PingPeer(ctx, id); err != nil {
 			log.Printf("Operator %s is unreachable: %v\n", id, err)
-			info.Status = string(OperatorStatusInactive)
+			info.Status = string(commonTypes.OperatorStatusInactive)
 		} else {
 			info.LastSeen = time.Now()
-			info.Status = string(OperatorStatusActive)
+			info.Status = string(commonTypes.OperatorStatusActive)
 			log.Printf("Operator %s is healthy\n", id)
 		}
 	}

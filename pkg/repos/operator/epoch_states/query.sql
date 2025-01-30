@@ -1,7 +1,6 @@
 -- name: UpsertEpochState :one
 -- -- invalidate: GetEpochState
 -- -- invalidate: GetLatestEpochState
--- -- invalidate: ListEpochStates
 -- -- timeout: 500ms
 INSERT INTO epoch_states (
     epoch_number,
@@ -36,7 +35,6 @@ ORDER BY epoch_number DESC
 LIMIT 1;
 
 -- name: ListEpochStates :many
--- -- cache: 168h
 -- -- timeout: 1s
 SELECT * FROM epoch_states
 ORDER BY epoch_number DESC

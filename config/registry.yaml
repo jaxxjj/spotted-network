@@ -34,15 +34,15 @@ database:
   host: ${POSTGRES_HOST:-localhost}
   port: ${POSTGRES_PORT:-5432}
   dbname: ${POSTGRES_DBNAME:-spotted}
-  max_conns: ${POSTGRES_MAX_CONNS:-100}
-  min_conns: ${POSTGRES_MIN_CONNS:-0}
-  max_conn_lifetime: ${POSTGRES_MAX_CONN_LIFETIME:-6h}
-  max_conn_idle_time: ${POSTGRES_MAX_CONN_IDLE_TIME:-1m}
-  is_proxy: ${POSTGRES_IS_PROXY:-false}
-  enable_prometheus: ${POSTGRES_ENABLE_PROMETHEUS:-true}
-  enable_tracing: ${POSTGRES_ENABLE_TRACING:-true}
-  app_name: ${POSTGRES_APP_NAME:-registry}
-  replica_prefixes: ${POSTGRES_REPLICA_PREFIXES:-[]}
+  max_conns: ${POSTGRES_MAXCONNS:-100}
+  min_conns: ${POSTGRES_MINCONNS:-0}
+  max_conn_lifetime: ${POSTGRES_MAXCONNLIFETIME:-6h}
+  max_conn_idle_time: ${POSTGRES_MAXCONNIDLETIME:-1m}
+  is_proxy: ${POSTGRES_ISPROXY:-false}
+  enable_prometheus: ${POSTGRES_ENABLEPROMETHEUS:-true}
+  enable_tracing: ${POSTGRES_ENABLETRACING:-true}
+  app_name: ${POSTGRES_APPNAME:-registry}
+  replica_prefixes: ${POSTGRES_REPLICAPREFIXES:-[]}
 
 # Redis Configuration
 redis:

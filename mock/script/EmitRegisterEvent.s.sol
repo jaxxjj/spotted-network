@@ -21,6 +21,11 @@ contract EmitRegisterEvent is Script {
             0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5, // operator2
             0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B // operator3
         ];
+        address[3] memory signingKeys = [
+            0x9F0D8BAC11C5693a290527f09434b86651c66Bf2, // operator1
+            0xeBBAce05Db3D717A5BA82EAB8AdE712dFb151b13, // operator2
+            0x083739b681B85cc2c9e394471486321D6446b25b // operator3
+        ];
 
         for (uint256 i = 0; i < operators.length; i++) {
             console.log("Emitting OperatorRegistered event for operator", i + 1);
@@ -32,7 +37,7 @@ contract EmitRegisterEvent is Script {
             // Emit event
             registry.emitOperatorRegistered(
                 operators[i],
-                operators[i], // Using same address as signing key
+                signingKeys[i], // Using same address as signing key
                 avs
             );
         }

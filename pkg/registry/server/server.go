@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/common/types"
+	commonTypes "github.com/galxe/spotted-network/pkg/common/types"
 	registrynode "github.com/galxe/spotted-network/pkg/registry"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
@@ -90,7 +91,7 @@ func (s *RegistryServer) Join(ctx context.Context, req *pb.JoinRequest) (*pb.Joi
 	activeOperators := make([]*pb.ActiveOperator, 0)
 	for _, peerID := range s.node.GetConnectedOperators() {
 		info := s.node.GetOperatorInfo(peerID)
-		if info != nil && info.Status == string(registrynode.OperatorStatusActive) {
+		if info != nil && info.Status == string(commonTypes.OperatorStatusActive) {
 			addrs := make([]string, len(info.Addrs))
 			for i, addr := range info.Addrs {
 				addrs[i] = addr.String()

@@ -44,6 +44,13 @@ type APIServer interface {
 	Stop(ctx context.Context) error
 }
 
+type OperatorInfo struct {
+	ID       peer.ID
+	Addrs    []multiaddr.Multiaddr
+	LastSeen time.Time
+	Status   string
+}
+
 
 // NodeConfig contains all the dependencies needed by Node
 type NodeConfig struct {
@@ -166,7 +173,6 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 		return nil, fmt.Errorf("failed to create task processor: %w", err)
 	}
 	node.taskProcessor = taskProcessor
-
 	// Create API handler and server
 	apiHandler := api.NewHandler(cfg.TasksQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
 	node.apiServer = api.NewServer(apiHandler, cfg.Config.HTTP.Port)
@@ -184,22 +190,22 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 func (n *Node) Start(ctx context.Context) error {
 	// Validate required components
 	if n.signer == nil {
-		return fmt.Errorf("[Node] signer not initialized")
+		log.Fatal("[Node] signer not initialized")
 	}
 	if n.host == nil {
-		return fmt.Errorf("[Node] host not initialized")
+		log.Fatal("[Node] host not initialized")
 	}
 	if n.registryID == "" {
-		return fmt.Errorf("[Node] registry ID not set")
+		log.Fatal("[Node] registry ID not set")
 	}
 	if n.taskProcessor == nil {
-		return fmt.Errorf("[Node] task processor not initialized")
+		log.Fatal("[Node] task processor not initialized")
 	}
 	if n.chainManager == nil {
-		return fmt.Errorf("[Node] chain manager not initialized")
+		log.Fatal("[Node] chain manager not initialized")
 	}
 	if n.epochStateQuerier == nil {
-		return fmt.Errorf("[Node] epoch state querier not initialized")
+		log.Fatal("[Node] epoch state querier not initialized")
 	}
 
 	log.Printf("[Node] Starting operator node with ID: %s", n.host.ID())
