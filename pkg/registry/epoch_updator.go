@@ -8,6 +8,7 @@ import (
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
+	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 )
@@ -82,28 +83,31 @@ func (e *EpochUpdator) updateOperatorStates(ctx context.Context, currentEpoch ui
 		newStatus, logMsg := DetermineOperatorStatus(currentBlock, activeEpoch, exitEpoch)
 		log.Printf("[Node] %s", logMsg)
 
-		// Only update if status has changed
-		if newStatus != operator.Status {
+		// Get weight if operator is currently active
+		var weight *big.Int
+		if operator.Status == "active" {
+			weight, err = e.node.mainnetClient.GetOperatorWeight(ctx, ethcommon.HexToAddress(operator.Address))
+			if err != nil {
+				log.Printf("[Epoch] Failed to get weight for operator %s: %v", operator.Address, err)
+				continue
+			}
+		} else {
+			weight = big.NewInt(0)
+		}
+
+		// Update if status changed or operator is active
+		shouldUpdate := newStatus != operator.Status || operator.Status == "active"
+		weightNum := commonHelpers.BigIntToNumeric(weight)
+		if shouldUpdate {
 			// Update operator state in database
 			updatedOp, err := e.node.operators.UpdateOperatorState(ctx, operators.UpdateOperatorStateParams{
 				Address: operator.Address,
 				Status:  newStatus,
+				Weight:  weightNum,
 			}, &operator.Address)
 			if err != nil {
 				log.Printf("[Epoch] Failed to update operator %s state: %v", operator.Address, err)
 				continue
-			}
-
-			// Get weight if status is active
-			var weight *big.Int
-			if newStatus == "active" {
-				weight, err = e.node.mainnetClient.GetOperatorWeight(ctx, ethcommon.HexToAddress(operator.Address))
-				if err != nil {
-					log.Printf("[Epoch] Failed to get weight for operator %s: %v", operator.Address, err)
-					continue
-				}
-			} else {
-				weight = big.NewInt(0)
 			}
 
 			// Add to updated operators list
@@ -124,8 +128,14 @@ func (e *EpochUpdator) updateOperatorStates(ctx context.Context, currentEpoch ui
 				Weight:                 weight.String(),
 			})
 
-			log.Printf("[Epoch] Updated operator %s status from %s to %s at epoch %d (block %d)", 
-				operator.Address, operator.Status, newStatus, currentEpoch, currentBlock)
+			if newStatus != operator.Status {
+				log.Printf("[Epoch] Updated operator %s status from %s to %s at epoch %d (block %d)", 
+					operator.Address, operator.Status, newStatus, currentEpoch, currentBlock)
+			}
+			if operator.Status == "active" {
+				log.Printf("[Epoch] Updated operator %s weight to %s at epoch %d (block %d)",
+					operator.Address, weight.String(), currentEpoch, currentBlock)
+			}
 		}
 	}
 

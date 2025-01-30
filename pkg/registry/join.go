@@ -38,14 +38,6 @@ func (n *Node) handleStream(stream network.Stream) {
 	peerID := stream.Conn().RemotePeer()
 	log.Printf("New p2p connection from peer: %s", peerID.String())
 
-	// Check operator status in database
-	operator, err := n.operators.GetOperatorByAddress(context.Background(), peerID.String())
-	if err != nil || operator.Status != "active" {
-		log.Printf("Rejecting connection from unauthorized peer %s", peerID.String())
-		stream.Reset()
-		return
-	}
-
 	// Set read deadline
 	if err := stream.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		log.Printf("Warning: Failed to set read deadline: %v", err)

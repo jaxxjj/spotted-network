@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	// Task processor constants
 	TaskResponseProtocol = "/spotted/task-response/1.0.0"
 	TaskResponseTopic    = "/spotted/task-response"
 )

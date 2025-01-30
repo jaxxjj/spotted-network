@@ -23,10 +23,11 @@ const (
 
 // State sync message types
 const (
-	MsgTypeGetFullState byte = 0x01
-	MsgTypeSubscribe    byte = 0x02
-	MsgTypeStateUpdate  byte = 0x03
-	MsgTypeHeartbeat    byte = 0x04
+	MsgTypeGetFullState    byte = 0x01
+	MsgTypeSubscribe       byte = 0x02
+	MsgTypeStateUpdate     byte = 0x03
+	MsgTypeHeartbeat       byte = 0x04
+	MsgTypeHeartbeatResp   byte = 0x05
 )
 
 // Start initializes the state sync service
@@ -187,7 +188,7 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 
 			// Handle different message types
 			switch msgType[0] {
-			case MsgTypeHeartbeat: // Heartbeat response
+			case MsgTypeHeartbeatResp: // Heartbeat response
 				log.Printf("[StateSync] Received heartbeat response from %s", peer)
 				// Update read deadline after receiving heartbeat response
 				stream.SetReadDeadline(time.Now().Add(heartbeatTimeout))

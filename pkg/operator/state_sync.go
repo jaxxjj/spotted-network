@@ -25,10 +25,11 @@ const (
 
 // State sync message types
 const (
-	MsgTypeGetFullState byte = 0x01
-	MsgTypeSubscribe    byte = 0x02
-	MsgTypeStateUpdate  byte = 0x03
-	MsgTypeHeartbeat    byte = 0x04
+	MsgTypeGetFullState    byte = 0x01
+	MsgTypeSubscribe       byte = 0x02
+	MsgTypeStateUpdate     byte = 0x03
+	MsgTypeHeartbeat       byte = 0x04
+	MsgTypeHeartbeatResp   byte = 0x05
 )
 
 type ChainClient interface {
@@ -183,19 +184,19 @@ func (node *Node) handleStateUpdates(stream network.Stream) {
 
 		// Handle different message types
 		switch msgType[0] {
-		case 0x02: // State update
+		case MsgTypeStateUpdate: // State update
 			if err := node.handleStateUpdate(stream); err != nil {
 				log.Printf("[StateSync] Error handling state update: %v", err)
 				return
-		}
-		case 0x03: // Heartbeat
+			}
+		case MsgTypeHeartbeat: // Heartbeat
 			log.Printf("[StateSync] Received heartbeat from registry")
-			// Send heartbeat response
+			// Send heartbeat response immediately
 			if err := node.sendHeartbeatResponse(stream); err != nil {
 				log.Printf("[StateSync] Error sending heartbeat response: %v", err)
 				return
-	}
-	default:
+			}
+		default:
 			log.Printf("[StateSync] Invalid message type: 0x%02x", msgType[0])
 			return
 		}
@@ -247,8 +248,8 @@ func (node *Node) sendHeartbeatResponse(stream network.Stream) error {
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
 
-	// Send heartbeat response (0x04)
-	if _, err := stream.Write([]byte{0x04}); err != nil {
+	// Send heartbeat response
+	if _, err := stream.Write([]byte{MsgTypeHeartbeatResp}); err != nil {
 		return fmt.Errorf("failed to send heartbeat response: %w", err)
 	}
 
@@ -257,6 +258,7 @@ func (node *Node) sendHeartbeatResponse(stream network.Stream) error {
 		return fmt.Errorf("failed to reset write deadline: %w", err)
 	}
 
+	log.Printf("[StateSync] Sent heartbeat response to registry")
 	return nil
 }
 

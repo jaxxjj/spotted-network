@@ -6,6 +6,7 @@ import (
 	"time"
 
 	commonTypes "github.com/galxe/spotted-network/pkg/common/types"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 func (n *Node) startHealthCheck(ctx context.Context) {
@@ -26,15 +27,25 @@ func (n *Node) checkOperators(ctx context.Context) {
 	n.operatorsInfoMu.Lock()
 	defer n.operatorsInfoMu.Unlock()
 
+	// Create a list of operators to remove
+	var toRemove []peer.ID
+
 	for id, info := range n.operatorsInfo {
 		// Ping the operator
 		if err := n.PingPeer(ctx, id); err != nil {
-			log.Printf("Operator %s is unreachable: %v\n", id, err)
+			log.Printf("[Health] Operator %s is unreachable: %v", id, err)
 			info.Status = string(commonTypes.OperatorStatusInactive)
+			toRemove = append(toRemove, id)
 		} else {
 			info.LastSeen = time.Now()
 			info.Status = string(commonTypes.OperatorStatusActive)
-			log.Printf("Operator %s is healthy\n", id)
+			log.Printf("[Health] Operator %s is healthy", id)
 		}
+	}
+
+	// Remove unreachable operators
+	for _, id := range toRemove {
+		delete(n.operatorsInfo, id)
+		log.Printf("[Health] Removed unreachable operator %s from operatorsInfo", id)
 	}
 } 
