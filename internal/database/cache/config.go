@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 	mask "github.com/showa-93/go-mask"
 
-	"github.com/ggsrc/gopkg/goodns"
+	"github.com/galxe/spotted-network/internal/goodns"
 )
 
 type Config struct {

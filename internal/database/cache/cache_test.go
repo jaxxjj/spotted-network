@@ -11,7 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/vmihailenco/msgpack/v5"
 
-	"github.com/ggsrc/gopkg/database/cache"
+	"github.com/galxe/spotted-network/internal/database/cache"
 )
 
 const (

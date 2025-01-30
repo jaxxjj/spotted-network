@@ -9,9 +9,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/libp2p/go-libp2p"
 
+	dbwpgx "github.com/galxe/spotted-network/internal/database/wpgx"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/config"
@@ -127,19 +127,22 @@ func main() {
 	}
 	defer host.Close()
 
+	// Set database environment variables for wpgx
+	os.Setenv("POSTGRES_CONN_STRING", cfg.Database.URL)
+	os.Setenv("POSTGRES_MAX_CONNS", fmt.Sprintf("%d", cfg.Database.MaxOpenConns))
+	os.Setenv("POSTGRES_MIN_CONNS", fmt.Sprintf("%d", cfg.Database.MaxIdleConns))
+	os.Setenv("POSTGRES_MAX_CONN_LIFETIME", cfg.Database.ConnMaxLifetime.String())
+
 	// Initialize database connection
-	db, err := pgxpool.New(context.Background(), cfg.Database.URL)
+	ctx := context.Background()
+	db, err := dbwpgx.NewWPGXPool(ctx, "POSTGRES")
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
 	defer db.Close()
 
-	// Configure database pool
-	db.Config().MaxConns = int32(cfg.Database.MaxOpenConns)
-	db.Config().MinConns = int32(cfg.Database.MaxIdleConns)
-
 	// Initialize database tables
-	if err := initDatabase(context.Background(), db); err != nil {
+	if err := initDatabase(ctx, db); err != nil {
 		log.Fatal("Failed to initialize database:", err)
 	}
 
@@ -174,7 +177,7 @@ func main() {
 	select {}
 } 
 
-func initDatabase(ctx context.Context, db *pgxpool.Pool) error {
+func initDatabase(ctx context.Context, db *dbwpgx.Pool) error {
 	// Check if database is accessible
 	if err := db.Ping(ctx); err != nil {
 		return fmt.Errorf("[Node] failed to ping database: %w", err)
