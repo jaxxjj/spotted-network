@@ -81,6 +81,7 @@ type Node struct {
 	statesMu       sync.RWMutex
 	apiServer   APIServer
 	taskProcessor *TaskProcessor
+	authHandler *AuthHandler
 	tasksQuerier  TasksQuerier
 	taskResponseQuerier TaskResponseQuerier
 	consensusResponseQuerier ConsensusResponseQuerier
@@ -173,6 +174,11 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 		return nil, fmt.Errorf("failed to create task processor: %w", err)
 	}
 	node.taskProcessor = taskProcessor
+	registryId, err := peer.Decode(cfg.Config.RegistryID)
+	if err != nil{
+		log.Fatal()
+	}
+	node.authHandler = NewAuthHandler(node, cfg.Signer.GetOperatorAddress(), cfg.Signer, registryId)
 	// Create API handler and server
 	apiHandler := api.NewHandler(cfg.TasksQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
 	node.apiServer = api.NewServer(apiHandler, cfg.Config.HTTP.Port)
@@ -211,74 +217,40 @@ func (n *Node) Start(ctx context.Context) error {
 	log.Printf("[Node] Starting operator node with ID: %s", n.host.ID())
 	log.Printf("[Node] Listening addresses: %v", n.host.Addrs())
 
+	// Step 1: Connect to registry
 	log.Printf("[Node] Connecting to registry...")
 	if err := n.connectToRegistry(); err != nil {
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
 	log.Printf("[Node] Successfully connected to registry")
 
-	// Start message handler and health check
-	n.host.SetStreamHandler("/spotted/1.0.0", n.handleMessages)
-	// Set up state sync handler
-	n.host.SetStreamHandler("/state-sync/1.0.0", n.handleStateUpdates)
-	go n.healthCheck()
-	log.Printf("[Node] Message handler and health check started")
+	// Step 2: Authenticate with registry
+	log.Printf("[Node] Authenticating with registry...")
+	if err := n.authHandler.AuthToRegistry(ctx); err != nil {
+		return fmt.Errorf("failed to authenticate with registry: %w", err)
+	}
+	log.Printf("[Node] Successfully authenticated with registry")
 
-	// Start epoch monitoring
-	go n.monitorEpochUpdates(ctx)
-
-	// Subscribe to state updates first
+	// Step 3: Subscribe to state updates
+	log.Printf("[Node] Subscribing to state updates...")
 	if err := n.subscribeToStateUpdates(); err != nil {
 		return fmt.Errorf("failed to subscribe to state updates: %w", err)
 	}
-	log.Printf("[Node] Subscribed to state updates")
+	log.Printf("[Node] Successfully subscribed to state updates")
 
-	// Get initial state
+	// Step 4: Wait for and get initial state
+	log.Printf("[Node] Getting initial state...")
 	if err := n.getFullState(); err != nil {
 		return fmt.Errorf("failed to get initial state: %w", err)
 	}
-	log.Printf("[Node] Got initial state")
+	log.Printf("[Node] Successfully received initial state")
 
-	// Announce to registry and get active operators
-	log.Printf("[Node] Announcing to registry...")
-	activeOperators, err := n.announceToRegistry()
-	if err != nil {
-		return fmt.Errorf("failed to announce to registry: %w", err)
-	}
-	log.Printf("[Node] Successfully announced to registry and received %d active operators", len(activeOperators))
+	// Step 5: Start background services
+	go n.healthCheck()
+	log.Printf("[Node] Health check started")
 
-	// Store active operators
-	n.operatorsMu.Lock()
-	for _, addrInfo := range activeOperators {
-		if addrInfo.ID == n.host.ID() {
-			log.Printf("[Node] Skipping self in active operators list")
-			continue
-		}
-		n.knownOperators[addrInfo.ID] = addrInfo
-		log.Printf("[Node] Added operator %s with addresses %v", addrInfo.ID, addrInfo.Addrs)
-	}
-	n.operatorsMu.Unlock()
-
-	// Wait for a short time to allow other operators to be discovered
-	log.Printf("[Node] Waiting for other operators to be discovered...")
-	time.Sleep(5 * time.Second)
-
-	// Connect to known operators
-	n.operatorsMu.RLock()
-	log.Printf("[Node] Found %d known operators", len(n.knownOperators))
-	for _, addrInfo := range n.knownOperators {
-		if addrInfo.ID == n.host.ID() {
-			log.Printf("[Node] Skipping self connection")
-			continue // Skip self
-		}
-		log.Printf("[Node] Connecting to operator %s at %v", addrInfo.ID, addrInfo.Addrs)
-		if err := n.host.Connect(context.Background(), *addrInfo); err != nil {
-			log.Printf("[Node] Failed to connect to operator %s: %v", addrInfo.ID, err)
-			continue
-		}
-		log.Printf("[Node] Successfully connected to operator %s", addrInfo.ID)
-	}
-	n.operatorsMu.RUnlock()
+	go n.monitorEpochUpdates(ctx)
+	log.Printf("[Node] Epoch monitoring started")
 
 	// Print connected peers
 	peers := n.host.Network().Peers()

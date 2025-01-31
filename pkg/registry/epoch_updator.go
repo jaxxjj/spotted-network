@@ -72,7 +72,7 @@ func (e *EpochUpdator) updateOperatorStates(ctx context.Context, currentEpoch ui
 	}
 
 	// Get all operators
-	allOperators, err := e.node.operators.ListAllOperators(ctx)
+	allOperators, err := e.node.operatorsDB.ListAllOperators(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get all operators: %w", err)
 	}
@@ -104,7 +104,7 @@ func (e *EpochUpdator) updateOperatorStates(ctx context.Context, currentEpoch ui
 		weightNum := commonHelpers.BigIntToNumeric(weight)
 		if shouldUpdate {
 			// Update operator state in database
-			updatedOp, err := e.node.operators.UpdateOperatorState(ctx, operators.UpdateOperatorStateParams{
+			updatedOp, err := e.node.operatorsDB.UpdateOperatorState(ctx, operators.UpdateOperatorStateParams{
 				Address: operator.Address,
 				Status:  newStatus,
 				Weight:  weightNum,

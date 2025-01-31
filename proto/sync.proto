@@ -14,8 +14,6 @@ message OperatorState {
   optional uint32 exit_epoch = 6;
   string status = 7;
   string weight = 8;
-  uint32 missing = 9;
-  uint32 successful_response_count = 10;
 }
 
 message OperatorStateUpdate {

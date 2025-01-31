@@ -112,6 +112,7 @@ services:
       dockerfile: Dockerfile.registry
       platforms:
         - linux/arm64
+    profiles: ["registry"]
     ports:
       - "9000:9000"  # P2P port
       - "8000:8000"  # HTTP port
@@ -169,6 +170,7 @@ services:
       retries: 3
 
   operator1:
+    profiles: ["operators"]
     build:
       context: .
       dockerfile: Dockerfile.operator
@@ -178,6 +180,7 @@ services:
       - "10000:10000"  # P2P port
       - "8001:8001"    # HTTP port
     environment:
+      - REGISTRY_PEER_ID=${REGISTRY_PEER_ID}
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
@@ -227,8 +230,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      registry:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "spotted", "-d", "operator1"]
       interval: 5s
@@ -239,6 +240,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   operator2:
+    profiles: ["operators"]
     build:
       context: .
       dockerfile: Dockerfile.operator
@@ -248,6 +250,7 @@ services:
       - "10001:10001"  # P2P port
       - "8002:8002"    # HTTP port
     environment:
+      - REGISTRY_PEER_ID=${REGISTRY_PEER_ID}
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
@@ -297,8 +300,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      registry:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "spotted", "-d", "operator2"]
       interval: 5s
@@ -309,6 +310,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   operator3:
+    profiles: ["operators"]
     build:
       context: .
       dockerfile: Dockerfile.operator
@@ -318,6 +320,7 @@ services:
       - "10002:10002"  # P2P port
       - "8003:8003"    # HTTP port
     environment:
+      - REGISTRY_PEER_ID=${REGISTRY_PEER_ID}
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
       - STATE_MANAGER_ADDRESS=${STATE_MANAGER_ADDRESS}
@@ -366,8 +369,6 @@ services:
       postgres_operator3:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      registry:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "spotted", "-d", "operator3"]

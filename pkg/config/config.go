@@ -17,6 +17,7 @@ type Config struct {
 	P2P      P2PConfig              `yaml:"p2p"`
 	HTTP     HTTPConfig             `yaml:"http"`
 	Logging  LoggingConfig          `yaml:"logging"`
+	RegistryID string `yaml:"registry_id"`
 }
 
 // ChainConfig represents configuration for a specific chain

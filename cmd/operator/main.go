@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"github.com/libp2p/go-libp2p"
 
@@ -29,59 +28,13 @@ func main() {
 	signingKeyPath := flag.String("signing-key", "", "Path to signing keystore file")
 	password := flag.String("password", "", "Password for keystore")
 	message := flag.String("message", "", "Message to sign")
-	getRegistryID := flag.Bool("get-registry-id", false, "Get registry ID")
-	join := flag.Bool("join", false, "Join the network")
 
 	flag.Parse()
-
-	if *getRegistryID {
-		client, err := operator.NewRegistryClient("registry:8000")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer client.Close()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		id, err := client.GetRegistryID(ctx)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Print(id)
-		return
-	}
 
 	// Create signer
 	signer, err := signer.NewLocalSigner(*operatorKeyPath, *signingKeyPath, *password)
 	if err != nil {
 		log.Fatal("Failed to create signer:", err)
-	}
-
-	if *join {
-		client, err := operator.NewRegistryClient("registry:8000")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer client.Close()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		addr := signer.GetOperatorAddress()
-		sig, err := signer.SignJoinRequest([]byte(*message))
-		if err != nil {
-			log.Fatal("Failed to sign message:", err)
-		}
-
-		success, err := client.Join(ctx, addr.Hex(), *message, hex.EncodeToString(sig), signer.GetSigningAddress().Hex())
-		if err != nil {
-			log.Fatal(err)
-		}
-		if !success {
-			log.Fatal("Join request failed")
-		}
-		return
 	}
 
 	if *message != "" {

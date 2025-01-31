@@ -9,6 +9,8 @@ chains:
     required_confirmations: 12
     average_block_time: 12.5
 
+registry_id: ${REGISTRY_PEER_ID}
+
 # P2P Configuration
 p2p:
   port: ${P2P_PORT}

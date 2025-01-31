@@ -20,11 +20,20 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
 )
-type OperatorInfo struct {
-	ID       peer.ID
-	Addrs    []multiaddr.Multiaddr
-	LastSeen time.Time
-	Status   string
+
+// OperatorState represents the complete state of an operator
+type OperatorState struct {
+	// 基本信息
+	Address    string
+	PeerID     peer.ID
+	Multiaddrs []multiaddr.Multiaddr
+	
+	// 运行时状态
+	LastSeen   time.Time
+	Status     string
+	
+	// 状态同步
+	SyncStream network.Stream
 }
 
 type MainnetClient interface {
@@ -58,15 +67,18 @@ type NodeConfig struct {
 type Node struct {
 	host P2PHost
 	
-	// Connected operators
-	operatorsInfo map[peer.ID]*OperatorInfo
-	operatorsInfoMu sync.RWMutex
+	// Operator management
+	operators struct {
+		// Active operators (peer.ID -> OperatorState)
+		active map[peer.ID]*OperatorState
+		mu sync.RWMutex
+	}
 	
 	// Health check interval
 	healthCheckInterval time.Duration
 
 	// Database connection
-	operators OperatorsQuerier
+	operatorsDB OperatorsQuerier
 
 	// Event listener
 	eventListener *EventListener
@@ -77,15 +89,14 @@ type Node struct {
 	// Chain clients manager
 	mainnetClient MainnetClient
 
-	// State sync subscribers
-	subscribers map[peer.ID]network.Stream
-	subscribersMu sync.RWMutex
-
 	// Ping service for health checks
 	pingService *ping.PingService
+
+	// Auth handler
+	authHandler *AuthHandler
 }
 
-func NewNode(cfg *NodeConfig) (*Node, error) {
+func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	// Validate required dependencies
 	if cfg.Host == nil {
 		log.Fatal("[Registry] host not initialized")
@@ -102,27 +113,41 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 
 	node := &Node{
 		host:               cfg.Host,
-		operatorsInfo:          make(map[peer.ID]*OperatorInfo),
 		healthCheckInterval: 100 * time.Second,
-		operators:                cfg.Operators,
+		operatorsDB:        cfg.Operators,
 		mainnetClient:      cfg.MainnetClient,
-		subscribers:       make(map[peer.ID]network.Stream),
-		pingService:      pingService,
+		pingService:        pingService,
 	}
 
+	// Initialize operators management
+	node.operators.active = make(map[peer.ID]*OperatorState)
+	
 	// Create and initialize event listener
 	node.eventListener = NewEventListener(node, cfg.MainnetClient, cfg.Operators)
 
 	// Create and initialize epoch updator
 	node.epochUpdator = NewEpochUpdator(node)
-
-	// Start listening for chain events
-	if err := node.eventListener.StartListening(context.Background()); err != nil {
+	if err := node.eventListener.StartListening(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start event listener: %w", err)
 	}
 
-	// Start health check
-	go node.startHealthCheck(context.Background())
+	// Create and initialize auth handler
+	node.authHandler = NewAuthHandler(node, cfg.Operators)
+
+	// Set up protocol handlers
+	node.host.SetStreamHandler(RegistryProtocolID, node.authHandler.HandleStream)
+	log.Printf("[Registry] Auth handler set up")
+
+	// Start state sync service
+	if err := node.startStateSync(); err != nil {
+		return nil, fmt.Errorf("failed to start state sync service: %w", err)
+	}
+	log.Printf("[Registry] State sync service started")
+
+	go node.startHealthCheck(ctx)
+	// Start epoch monitoring
+	go node.epochUpdator.Start(ctx)
+	log.Printf("[Registry] Epoch monitoring started")
 
 	log.Printf("Registry Node started. ID: %s, Addrs: %v\n", cfg.Host.ID(), cfg.Host.Addrs())
 	return node, nil
@@ -133,7 +158,7 @@ func (n *Node) Start(ctx context.Context) error {
 	if n.host == nil {
 		return fmt.Errorf("[Registry] host not initialized")
 	}
-	if n.operators == nil {
+	if n.operatorsDB == nil {
 		return fmt.Errorf("[Registry] operators database not initialized") 
 	}
 	if n.epochUpdator == nil {
@@ -142,10 +167,6 @@ func (n *Node) Start(ctx context.Context) error {
 	if n.eventListener == nil {
 		return fmt.Errorf("[Registry] event listener not initialized")
 	}
-
-	// Set up protocol handlers
-	n.host.SetStreamHandler("/spotted/1.0.0", n.handleStream)
-	log.Printf("[Registry] Join request handler set up")
 
 	// Start state sync service
 	if err := n.startStateSync(); err != nil {
@@ -164,22 +185,37 @@ func (n *Node) Stop() error {
 	return n.host.Close()
 }
 
-// GetOperatorInfo returns information about a connected operator
-func (n *Node) GetOperatorInfo(id peer.ID) *OperatorInfo {
-	n.operatorsInfoMu.RLock()
-	defer n.operatorsInfoMu.RUnlock()
-	return n.operatorsInfo[id]
+// GetOperatorState returns the state of a connected operator
+func (n *Node) GetOperatorState(id peer.ID) *OperatorState {
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
+	return n.operators.active[id]
 }
 
+// GetConnectedOperators returns all connected operator IDs
 func (n *Node) GetConnectedOperators() []peer.ID {
-	n.operatorsInfoMu.RLock()
-	defer n.operatorsInfoMu.RUnlock()
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
 
-	operators := make([]peer.ID, 0, len(n.operatorsInfo))
-	for id := range n.operatorsInfo {
+	operators := make([]peer.ID, 0, len(n.operators.active))
+	for id := range n.operators.active {
 		operators = append(operators, id)
 	}
 	return operators
+}
+
+// UpdateOperatorState updates an operator's state
+func (n *Node) UpdateOperatorState(id peer.ID, state *OperatorState) {
+	n.operators.mu.Lock()
+	defer n.operators.mu.Unlock()
+	n.operators.active[id] = state
+}
+
+// RemoveOperator removes an operator from the active set
+func (n *Node) RemoveOperator(id peer.ID) {
+	n.operators.mu.Lock()
+	defer n.operators.mu.Unlock()
+	delete(n.operators.active, id)
 }
 
 // GetHostID returns the node's libp2p host ID

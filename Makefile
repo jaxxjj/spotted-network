@@ -1,4 +1,20 @@
-.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all
+
+# Start registry node
+start-registry:
+	@echo "Starting registry node..."
+	@docker compose --profile registry up registry --build
+	@echo "Waiting for registry to be ready..."
+	@sleep 5
+
+# Start operator nodes
+start-operators:
+	@echo "Starting operator nodes..."
+	@docker compose --profile operators up operator1 operator2 operator3 
+
+# Start everything in sequence
+start-all: start-registry get-registry-id start-operators
+	@echo "All nodes started"
 
 # Generate operator keys
 generate-keys:

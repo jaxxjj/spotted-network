@@ -2,223 +2,308 @@ package operator
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
+	"sync"
 	"time"
 
-	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
-	"google.golang.org/protobuf/proto"
-
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	commonHelpers "github.com/galxe/spotted-network/pkg/common"
 	pb "github.com/galxe/spotted-network/proto"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/multiformats/go-multiaddr"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
 	// Protocol message types
-	MsgTypeJoinRequest byte = 0x01
-	MsgTypeJoinResponse byte = 0x02
+	MsgTypeAuthRequest  byte = 0x01
+	MsgTypeAuthResponse byte = 0x02
+	AuthTimeout              = 30 * time.Second
+	RegistryProtocolID       = protocol.ID("/spotted/registry/1.0.0")
 )
 
-func (n *Node) handleMessages(stream network.Stream) {
-	defer stream.Close()
-	
-	log.Printf("[Messages] New stream opened from: %s", stream.Conn().RemotePeer())
-
-	// Read message type
-	msgType := make([]byte, 1)
-	if _, err := io.ReadFull(stream, msgType); err != nil {
-		log.Printf("[Messages] Error reading message type: %v", err)
-		return
-	}
-
-	// Verify message type
-	if msgType[0] != MsgTypeJoinRequest {
-		log.Printf("[Messages] Unexpected message type: %d", msgType[0])
-		return
-	}
-
-	// Read request with deadline
-	data, err := commonHelpers.ReadLengthPrefixedDataWithDeadline(stream, 5*time.Second)
-	if err != nil {
-		log.Printf("[Messages] Error reading request: %v", err)
-		return
-	}
-
-	// Parse protobuf message
-	var req pb.JoinRequest
-	if err := proto.Unmarshal(data, &req); err != nil {
-		log.Printf("[Messages] Error parsing protobuf message: %v", err)
-		return
-	}
-
-	log.Printf("[Messages] Received join request from operator: %s", req.Address)
-
-	// Get our peer info
-	peerInfo := peer.AddrInfo{
-		ID:    n.host.ID(),
-		Addrs: n.host.Addrs(),
-	}
-
-	// Create active operators list with our info
-	activeOperators := []*pb.ActiveOperator{
-		{
-			PeerId:     peerInfo.ID.String(),
-			Multiaddrs: make([]string, len(peerInfo.Addrs)),
-		},
-	}
-	for i, addr := range peerInfo.Addrs {
-		activeOperators[0].Multiaddrs[i] = addr.String()
-	}
-
-	// Send success response with our info
-	resp := &pb.JoinResponse{
-		Success:         true,
-		ActiveOperators: activeOperators,
-	}
-	respData, err := proto.Marshal(resp)
-	if err != nil {
-		log.Printf("[Messages] Error marshaling response: %v", err)
-		return
-	}
-
-	// Write message type
-	if _, err := stream.Write([]byte{MsgTypeJoinResponse}); err != nil {
-		log.Printf("[Messages] Error writing response type: %v", err)
-		return
-	}
-
-	// Write response with deadline
-	if err := commonHelpers.WriteLengthPrefixedDataWithDeadline(stream, respData, 5*time.Second); err != nil {
-		log.Printf("[Messages] Error writing response: %v", err)
-		return
-	}
-
-	log.Printf("[Messages] Successfully processed join request from: %s", req.Address)
+// Uint64ToBytes converts uint64 to bytes
+func Uint64ToBytes(i uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, i)
+	return b
 }
 
-func (n *Node) announceToRegistry() ([]*peer.AddrInfo, error) {
-	// Validate signer
-	if n.signer == nil {
-		return nil, fmt.Errorf("[Announce] signer not initialized")
-	}
-
-	log.Printf("[Announce] Starting to announce to registry %s", n.registryID)
+// AuthHandler handles authentication related operations
+type AuthHandler struct {
+	node       *Node
+	address    common.Address
+	signer     OperatorSigner
+	registryID peer.ID
 	
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Open stream with timeout context
-	stream, err := n.host.NewStream(ctx, peer.ID(n.registryID), "/spotted/1.0.0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to open stream to registry (timeout 30s): %w", err)
-	}
-	defer stream.Close()
-	log.Printf("[Announce] Successfully opened stream to registry")
-
-	// Create join request message
-	message := []byte("join_request")
-	signature, err := n.signer.Sign(message)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign message: %w", err)
-	}
-	log.Printf("[Announce] Created and signed join request message")
-
-	// Send join request
-	return n.sendJoinRequest(stream, message, signature)
+	// 认证状态缓存
+	registryInfo   *peer.AddrInfo
+	registryInfoMu sync.RWMutex
 }
 
-func (n *Node) sendJoinRequest(stream network.Stream, message []byte, signature []byte) ([]*peer.AddrInfo, error) {
-	// Create protobuf request
-	req := &pb.JoinRequest{
-		Address:    n.signer.GetOperatorAddress().Hex(),
-		Message:    string(message),
-		Signature:  hex.EncodeToString(signature),
-		SigningKey: n.signer.GetSigningAddress().Hex(),
+// NewAuthHandler creates a new auth handler
+func NewAuthHandler(node *Node, address common.Address, signer OperatorSigner, registryID peer.ID) *AuthHandler {
+	return &AuthHandler{
+		node:       node,
+		address:    address,
+		signer:     signer,
+		registryID: registryID,
 	}
-	log.Printf("[Announce] Created join request for address: %s", req.Address)
+}
 
-	// Marshal request
-	data, err := proto.Marshal(req)
+// AuthToRegistry authenticates with the registry node
+func (ah *AuthHandler) AuthToRegistry(ctx context.Context) error {
+	// 创建stream
+	stream, err := ah.node.host.NewStream(ctx, ah.registryID, RegistryProtocolID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return fmt.Errorf("failed to create stream: %w", err)
 	}
+	defer stream.Close()
 
-	// Write message type
-	if _, err := stream.Write([]byte{MsgTypeJoinRequest}); err != nil {
-		return nil, fmt.Errorf("failed to write message type: %w", err)
-	}
+	// 准备认证请求
+	timestamp := uint64(time.Now().Unix())
+	message := crypto.Keccak256(
+		[]byte(ah.address.Hex()),
+		Uint64ToBytes(timestamp),
+	)
 
-	// Write request with deadline
-	if err := commonHelpers.WriteLengthPrefixedDataWithDeadline(stream, data, 30*time.Second); err != nil {
-		return nil, fmt.Errorf("failed to write request: %w", err)
-	}
-
-	log.Printf("[Announce] Successfully sent join request to registry")
-
-	// Read response message type
-	msgType := make([]byte, 1)
-	if _, err := io.ReadFull(stream, msgType); err != nil {
-		return nil, fmt.Errorf("[Announce] failed to read response type: %w", err)
-	}
-
-	if msgType[0] != MsgTypeJoinResponse {
-		return nil, fmt.Errorf("[Announce] unexpected response type: 0x%02x", msgType[0])
-	}
-
-	// Read response with deadline
-	respData, err := commonHelpers.ReadLengthPrefixedDataWithDeadline(stream, 30*time.Second)
+	// 签名消息
+	signature, err := ah.signer.Sign(message)
 	if err != nil {
-		return nil, fmt.Errorf("[Announce] failed to read response: %w", err)
+		return fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	// Unmarshal response
-	resp := &pb.JoinResponse{}
-	if err := proto.Unmarshal(respData, resp); err != nil {
-		return nil, fmt.Errorf("[Announce] failed to unmarshal response: %w", err)
+	// 创建请求
+	req := &pb.AuthRequest{
+		Address:   ah.address.Hex(),
+		Timestamp: timestamp,
+		Signature: hex.EncodeToString(signature),
 	}
 
-	log.Printf("[Announce] Successfully unmarshaled response: success=%v, error=%s, active_operators=%d",
-		resp.Success, resp.Error, len(resp.ActiveOperators))
+	// 发送认证请求
+	if err := ah.sendAuthRequest(stream, req); err != nil {
+		return fmt.Errorf("failed to send auth request: %w", err)
+	}
+
+	// 处理认证响应
+	resp, err := ah.handleAuthResponse(stream)
+	if err != nil {
+		return fmt.Errorf("failed to handle auth response: %w", err)
+	}
 
 	if !resp.Success {
-		return nil, fmt.Errorf("[Announce] join request failed: %s", resp.Error)
+		return fmt.Errorf("auth failed: %s", resp.Message)
 	}
 
-	// Convert active operators to AddrInfo
-	activeOperators := make([]*peer.AddrInfo, 0, len(resp.ActiveOperators))
-	for _, op := range resp.ActiveOperators {
-		// Parse peer ID
+	// 处理registry连接
+	if err := ah.handleRegistryConnection(resp.ActiveOperators); err != nil {
+		return fmt.Errorf("failed to handle registry connection: %w", err)
+	}
+
+	log.Printf("[AUTH] Successfully authenticated with registry")
+	return nil
+}
+
+// sendAuthRequest sends the auth request
+func (ah *AuthHandler) sendAuthRequest(stream network.Stream, req *pb.AuthRequest) error {
+	// 序列化请求
+	reqData, err := proto.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// 发送消息类型
+	if _, err := stream.Write([]byte{MsgTypeAuthRequest}); err != nil {
+		return fmt.Errorf("failed to write message type: %w", err)
+	}
+
+	// 发送请求数据
+	if err := commonHelpers.WriteLengthPrefixedDataWithDeadline(stream, reqData, AuthTimeout); err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+
+	return nil
+}
+
+// handleAuthResponse handles the auth response
+func (ah *AuthHandler) handleAuthResponse(stream network.Stream) (*pb.AuthResponse, error) {
+	// 读取响应类型
+	msgType := make([]byte, 1)
+	if _, err := io.ReadFull(stream, msgType); err != nil {
+		return nil, fmt.Errorf("failed to read response type: %w", err)
+	}
+
+	if msgType[0] != MsgTypeAuthResponse {
+		return nil, fmt.Errorf("invalid response type: %d", msgType[0])
+	}
+
+	// 读取响应数据
+	respData, err := commonHelpers.ReadLengthPrefixedDataWithDeadline(stream, AuthTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// 解析响应
+	var resp pb.AuthResponse
+	if err := proto.Unmarshal(respData, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return &resp, nil
+}
+
+// handleRegistryConnection handles the connection with registry
+func (ah *AuthHandler) handleRegistryConnection(activeOperators []*pb.ActiveOperator) error {
+	// 查找registry的信息
+	var registryInfo *pb.ActiveOperator
+	for _, op := range activeOperators {
 		peerID, err := peer.Decode(op.PeerId)
 		if err != nil {
-			log.Printf("[Announce] Failed to decode peer ID %s: %v", op.PeerId, err)
+			log.Printf("[WARN] Failed to decode peer ID %s: %v", op.PeerId, err)
+			continue
+		}
+		if peerID == ah.registryID {
+			registryInfo = op
+			break
+		}
+	}
+
+	if registryInfo == nil {
+		return fmt.Errorf("registry info not found in active operators")
+	}
+
+	// 解析registry的地址
+	addrs := make([]multiaddr.Multiaddr, 0, len(registryInfo.Multiaddrs))
+	for _, addr := range registryInfo.Multiaddrs {
+		maddr, err := multiaddr.NewMultiaddr(addr)
+		if err != nil {
+			log.Printf("[WARN] Failed to parse multiaddr %s: %v", addr, err)
+			continue
+		}
+		addrs = append(addrs, maddr)
+	}
+
+	if len(addrs) == 0 {
+		return fmt.Errorf("no valid addresses found for registry")
+	}
+
+	// 保存registry信息
+	ah.registryInfoMu.Lock()
+	ah.registryInfo = &peer.AddrInfo{
+		ID:    ah.registryID,
+		Addrs: addrs,
+	}
+	ah.registryInfoMu.Unlock()
+
+	// 连接到其他active operators
+	log.Printf("[AUTH] Connecting to other active operators...")
+	for _, op := range activeOperators {
+		// 跳过自己和registry
+		peerID, err := peer.Decode(op.PeerId)
+		if err != nil {
+			log.Printf("[WARN] Failed to decode peer ID %s: %v", op.PeerId, err)
+			continue
+		}
+		if peerID == ah.node.host.ID() || peerID == ah.registryID {
 			continue
 		}
 
-		// Parse multiaddrs
+		// 解析operator地址
 		addrs := make([]multiaddr.Multiaddr, 0, len(op.Multiaddrs))
 		for _, addr := range op.Multiaddrs {
 			maddr, err := multiaddr.NewMultiaddr(addr)
 			if err != nil {
-				log.Printf("[Announce] Failed to parse multiaddr %s: %v", addr, err)
+				log.Printf("[WARN] Failed to parse multiaddr %s: %v", addr, err)
 				continue
 			}
 			addrs = append(addrs, maddr)
 		}
 
-		// Create peer info
-		addrInfo := &peer.AddrInfo{
+		if len(addrs) == 0 {
+			log.Printf("[WARN] No valid addresses found for operator %s", op.PeerId)
+			continue
+		}
+
+		// 连接到operator
+		peerInfo := &peer.AddrInfo{
 			ID:    peerID,
 			Addrs: addrs,
 		}
-		activeOperators = append(activeOperators, addrInfo)
+		if err := ah.node.host.Connect(context.Background(), *peerInfo); err != nil {
+			log.Printf("[WARN] Failed to connect to operator %s: %v", op.PeerId, err)
+			continue
+		}
+		log.Printf("[AUTH] Successfully connected to operator %s", op.PeerId)
 	}
 
-	log.Printf("[Announce] Successfully processed %d active operators", len(activeOperators))
-	return activeOperators, nil
+	log.Printf("[AUTH] Successfully connected to registry (peer %s)", ah.registryID)
+	return nil
 }
+
+// handleAuthResponse processes the authentication response from registry
+func (n *Node) handleAuthResponse(resp *pb.AuthResponse) error {
+	if !resp.Success {
+		return fmt.Errorf("authentication failed: %s", resp.Message)
+	}
+
+	log.Printf("[AUTH] Authentication successful: %s", resp.Message)
+
+	// 连接其他活跃的operators
+	for _, op := range resp.ActiveOperators {
+		// 跳过自己和registry
+		if op.PeerId == n.host.ID().String() || op.PeerId == n.registryID.String() {
+			continue
+		}
+
+		// 解析peer ID
+		peerID, err := peer.Decode(op.PeerId)
+		if err != nil {
+			log.Printf("[AUTH] Failed to decode peer ID %s: %v", op.PeerId, err)
+			continue
+		}
+
+		// 解析multiaddrs
+		addrs := make([]multiaddr.Multiaddr, 0, len(op.Multiaddrs))
+		for _, addrStr := range op.Multiaddrs {
+			addr, err := multiaddr.NewMultiaddr(addrStr)
+			if err != nil {
+				log.Printf("[AUTH] Failed to parse multiaddr %s: %v", addrStr, err)
+				continue
+			}
+			addrs = append(addrs, addr)
+		}
+
+		// 连接到operator
+		ctx := context.Background()
+		if err := n.host.Connect(ctx, peer.AddrInfo{
+			ID:    peerID,
+			Addrs: addrs,
+		}); err != nil {
+			log.Printf("[AUTH] Failed to connect to operator %s: %v", peerID, err)
+			continue
+		}
+
+		log.Printf("[AUTH] Successfully connected to operator %s", peerID)
+	}
+
+	// 获取完整状态
+	if err := n.getFullState(); err != nil {
+		return fmt.Errorf("failed to get full state: %w", err)
+	}
+
+	// 订阅状态更新
+	if err := n.subscribeToStateUpdates(); err != nil {
+		return fmt.Errorf("failed to subscribe to updates: %w", err)
+	}
+
+	return nil
+}
+
 

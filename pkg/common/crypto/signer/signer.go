@@ -107,7 +107,7 @@ func (s *LocalSigner) Sign(message []byte) ([]byte, error) {
 	hash := crypto.Keccak256Hash(message)
 	
 	// Sign the hash
-	signature, err := crypto.Sign(hash.Bytes(), s.signingKey)
+	signature, err := crypto.Sign(hash.Bytes(), s.operatorKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %v", err)
 	}

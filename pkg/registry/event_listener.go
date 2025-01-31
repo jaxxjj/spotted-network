@@ -171,7 +171,7 @@ func (n *Node) updateStatusAfterOperations(ctx context.Context, operatorAddr str
 	}
 
 	// Get operator from database to get active_epoch and exit_epoch
-	operator, err := n.operators.GetOperatorByAddress(ctx, operatorAddr)
+	operator, err := n.operatorsDB.GetOperatorByAddress(ctx, operatorAddr)
 	if err != nil {
 		return fmt.Errorf("[EventListener] failed to get operator from database: %w", err)
 	}
@@ -196,7 +196,7 @@ func (n *Node) updateStatusAfterOperations(ctx context.Context, operatorAddr str
 	}
 
 	// Update operator state in database
-	_, err = n.operators.UpdateOperatorState(ctx, operators.UpdateOperatorStateParams{
+	_, err = n.operatorsDB.UpdateOperatorState(ctx, operators.UpdateOperatorStateParams{
 		Address: operatorAddr,
 		Status:  status,
 		Weight: pgtype.Numeric{

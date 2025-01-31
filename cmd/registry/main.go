@@ -4,17 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"os"
 
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/registry"
-	"github.com/galxe/spotted-network/pkg/registry/server"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
-	pb "github.com/galxe/spotted-network/proto"
 	"github.com/libp2p/go-libp2p"
-	"google.golang.org/grpc"
 
 	"github.com/galxe/spotted-network/internal/database/cache"
 	dbwpgx "github.com/galxe/spotted-network/internal/database/wpgx"
@@ -76,7 +72,7 @@ func main() {
 	}
 
 	// Create Registry Node
-	node, err := registry.NewNode(&registry.NodeConfig{
+	node, err := registry.NewNode(ctx, &registry.NodeConfig{
 		Host:          host,
 		Operators:     operatorsQuerier,
 		MainnetClient: mainnetClient,
@@ -90,24 +86,7 @@ func main() {
 	if err := node.Start(ctx); err != nil {
 		log.Fatalf("Failed to start registry node: %v", err)
 	}
-
-	// Create Registry Server
-	registryServer := server.NewRegistryServer(node, operatorsQuerier)
-
-	// Start gRPC server
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.HTTP.Port))
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	grpcServer := grpc.NewServer()
-	pb.RegisterRegistryServer(grpcServer, registryServer)
-
-	log.Printf("Registry gRPC server listening on :%d", cfg.HTTP.Port)
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-	}
-
+		
 	// Wait forever
 	select {}
 } 

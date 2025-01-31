@@ -66,7 +66,7 @@ func (n *Node) handleStateSync(stream network.Stream) {
 // handleGetFullState handles a request for full state
 func (n *Node) handleGetFullState(stream network.Stream) {
 	// Get all operators from database
-	allOperators, err := n.operators.ListAllOperators(context.Background())
+	allOperators, err := n.operatorsDB.ListAllOperators(context.Background())
 	if err != nil {
 		log.Printf("[StateSync] Failed to get operators: %v", err)
 		stream.Reset()
@@ -102,18 +102,25 @@ func (n *Node) handleGetFullState(stream network.Stream) {
 }
 
 func (n *Node) Subscribe(peerID peer.ID, stream network.Stream) {
-	n.subscribersMu.Lock()
-	defer n.subscribersMu.Unlock()
+	n.operators.mu.Lock()
+	defer n.operators.mu.Unlock()
 
-	// Close existing stream
-	if existingStream, ok := n.subscribers[peerID]; ok {
-		existingStream.Reset()
-		delete(n.subscribers, peerID)
+	// Get operator state
+	state := n.operators.active[peerID]
+	if state == nil {
+		log.Printf("[StateSync] No active operator found for peer %s", peerID)
+		stream.Reset()
+		return
 	}
 
-	// Add new subscriber
-	n.subscribers[peerID] = stream
-	log.Printf("[StateSync] New subscriber added: %s", peerID)
+	// Close existing stream if any
+	if state.SyncStream != nil {
+		state.SyncStream.Reset()
+	}
+
+	// Set new stream
+	state.SyncStream = stream
+	log.Printf("[StateSync] New sync stream added for operator %s", state.Address)
 }
 
 func (n *Node) handleSubscribe(stream network.Stream) {
@@ -176,20 +183,20 @@ func (n *Node) handleSubscribe(stream network.Stream) {
 // syncPeersToOperator sends current peer information to a single operator
 func (n *Node) syncPeersToOperator(stream network.Stream) error {
 	// Get current operator info
-	n.operatorsInfoMu.RLock()
-	peers := make([]*pb.PeerInfo, 0, len(n.operatorsInfo))
-	for peerID, info := range n.operatorsInfo {
+	n.operators.mu.RLock()
+	peers := make([]*pb.PeerInfo, 0, len(n.operators.active))
+	for peerID, state := range n.operators.active {
 		peers = append(peers, &pb.PeerInfo{
 			PeerId:     peerID.String(),
-			Multiaddrs: make([]string, len(info.Addrs)),
-			Status:     info.Status,
-			LastSeen:   info.LastSeen.Unix(),
+			Multiaddrs: make([]string, len(state.Multiaddrs)),
+			Status:     state.Status,
+			LastSeen:   state.LastSeen.Unix(),
 		})
-		for i, addr := range info.Addrs {
+		for i, addr := range state.Multiaddrs {
 			peers[len(peers)-1].Multiaddrs[i] = addr.String()
 		}
 	}
-	n.operatorsInfoMu.RUnlock()
+	n.operators.mu.RUnlock()
 
 	// Create peer sync message
 	msg := &pb.PeerSyncMessage{
@@ -218,13 +225,15 @@ func (n *Node) syncPeersToOperator(stream network.Stream) error {
 
 // Unsubscribe removes a subscriber
 func (n *Node) Unsubscribe(peerID peer.ID) {
-	n.subscribersMu.Lock()
-	defer n.subscribersMu.Unlock()
+	n.operators.mu.Lock()
+	defer n.operators.mu.Unlock()
 
-	if stream, ok := n.subscribers[peerID]; ok {
-		stream.Reset()
-		delete(n.subscribers, peerID)
-		log.Printf("[StateSync] Subscriber removed: %s", peerID)
+	if state := n.operators.active[peerID]; state != nil {
+		if state.SyncStream != nil {
+			state.SyncStream.Reset()
+			state.SyncStream = nil
+		}
+		log.Printf("[StateSync] Sync stream removed for operator %s", state.Address)
 	}
 }
 
@@ -246,32 +255,39 @@ func (n *Node) BroadcastStateUpdate(operators []*pb.OperatorState, updateType st
 		return
 	}
 
-	n.subscribersMu.RLock()
-	defer n.subscribersMu.RUnlock()
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
 
-	for peer, stream := range n.subscribers {
+	for _, state := range n.operators.active {
+		if state.SyncStream == nil {
+			continue
+		}
+
 		// Write message type
-		if _, err := stream.Write([]byte{MsgTypeStateUpdate}); err != nil {
-			log.Printf("[StateSync] Error writing message type to %s: %v", peer, err)
-			n.Unsubscribe(peer)
+		if _, err := state.SyncStream.Write([]byte{MsgTypeStateUpdate}); err != nil {
+			log.Printf("[StateSync] Error writing message type to %s: %v", state.Address, err)
+			state.SyncStream.Reset()
+			state.SyncStream = nil
 			continue
 		}
 
 		// Write length prefix and data
-		if err := commonHelpers.WriteLengthPrefix(stream, uint32(len(data))); err != nil {
-			log.Printf("[StateSync] Error writing length prefix to %s: %v", peer, err)
-			n.Unsubscribe(peer)
+		if err := commonHelpers.WriteLengthPrefix(state.SyncStream, uint32(len(data))); err != nil {
+			log.Printf("[StateSync] Error writing length prefix to %s: %v", state.Address, err)
+			state.SyncStream.Reset()
+			state.SyncStream = nil
 			continue
 		}
 
-		if _, err := stream.Write(data); err != nil {
-			log.Printf("[StateSync] Error writing update data to %s: %v", peer, err)
-			n.Unsubscribe(peer)
+		if _, err := state.SyncStream.Write(data); err != nil {
+			log.Printf("[StateSync] Error writing update data to %s: %v", state.Address, err)
+			state.SyncStream.Reset()
+			state.SyncStream = nil
 			continue
 		}
 
 		log.Printf("[StateSync] Sent state update to %s - Type: %s, Length: %d, Operators: %d", 
-			peer, updateType, len(data), len(operators))
+			state.Address, updateType, len(data), len(operators))
 	}
 }
 
