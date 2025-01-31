@@ -23,7 +23,6 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
-	pb "github.com/galxe/spotted-network/proto"
 )
 
 // P2PHost defines the minimal interface required for p2p functionality
@@ -44,13 +43,31 @@ type APIServer interface {
 	Stop(ctx context.Context) error
 }
 
-type OperatorInfo struct {
-	ID       peer.ID
-	Addrs    []multiaddr.Multiaddr
-	LastSeen time.Time
-	Status   string
+// OperatorState represents the complete state of an operator
+type OperatorState struct {
+	// Basic info
+	Address    string
+	SigningKey string
+	PeerID     peer.ID
+	Multiaddrs []multiaddr.Multiaddr
+	
+	// Runtime state
+	LastSeen   time.Time
+	Status     string
+	Weight     string
+	ActiveEpoch uint32
+	
+	// Connection info
+	AddrInfo   *peer.AddrInfo
 }
 
+type OperatorInfo struct{
+	// Map from address to operator state
+	byAddress map[string]*OperatorState
+	// Map from peer ID to operator state (same objects as in byAddress)
+	byPeerID map[peer.ID]*OperatorState
+	mu sync.RWMutex
+}
 
 // NodeConfig contains all the dependencies needed by Node
 type NodeConfig struct {
@@ -73,20 +90,19 @@ type Node struct {
 	registryAddr   string
 	signer         OperatorSigner
 	chainManager   ChainManager
-	knownOperators map[peer.ID]*peer.AddrInfo
-	operators      map[peer.ID]*OperatorInfo
-	operatorsMu    sync.RWMutex
+	
+	// Operator management - single map for all operator related info
+	operators OperatorInfo
+	
 	pingService    *ping.PingService
-	operatorStates map[string]*pb.OperatorState
-	statesMu       sync.RWMutex
-	apiServer   APIServer
-	taskProcessor *TaskProcessor
-	authHandler *AuthHandler
-	tasksQuerier  TasksQuerier
+	apiServer      APIServer
+	taskProcessor  *TaskProcessor
+	authHandler    *AuthHandler
+	tasksQuerier   TasksQuerier
 	taskResponseQuerier TaskResponseQuerier
 	consensusResponseQuerier ConsensusResponseQuerier
 	epochStateQuerier EpochStateQuerier
-	config      *config.Config
+	config          *config.Config
 }
 
 // NewNode creates a new operator node with the given dependencies
@@ -141,11 +157,6 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 		registryAddr:   cfg.RegistryAddress,
 		signer:         cfg.Signer,
 		chainManager:   cfg.ChainManager,
-		knownOperators: make(map[peer.ID]*peer.AddrInfo),
-		operators:      make(map[peer.ID]*OperatorInfo),
-		operatorsMu:    sync.RWMutex{},
-		operatorStates: make(map[string]*pb.OperatorState),
-		statesMu:       sync.RWMutex{},
 		tasksQuerier:   cfg.TasksQuerier,
 		taskResponseQuerier: cfg.TaskResponseQuerier,
 		consensusResponseQuerier: cfg.ConsensusResponseQuerier,
@@ -153,6 +164,11 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 		config:        cfg.Config,
 		pingService:   pingService,
 	}
+
+	// Initialize operators management
+	node.operators.byAddress = make(map[string]*OperatorState)
+	node.operators.byPeerID = make(map[peer.ID]*OperatorState)
+
 	// Initialize pubsub
 	ps, err := pubsub.NewGossipSub(context.Background(), cfg.Host)
 	if err != nil {
@@ -299,7 +315,6 @@ func (n *Node) connectToRegistry() error {
 	return nil
 }
 
-
 // PingPeer implements ping functionality for the node
 func (n *Node) PingPeer(ctx context.Context, p peer.ID) error {
 	// Add ping timeout
@@ -313,6 +328,75 @@ func (n *Node) PingPeer(ctx context.Context, p peer.ID) error {
 
 	log.Printf("Successfully pinged peer: %s (RTT: %v)", p, result.RTT)
 	return nil
+}
+
+// UpdateOperatorState updates an operator's state
+func (n *Node) UpdateOperatorState(address string, peerID peer.ID, state *OperatorState) {
+	n.operators.mu.Lock()
+	defer n.operators.mu.Unlock()
+
+	// Update both maps
+	n.operators.byAddress[address] = state
+	if peerID != "" {
+		n.operators.byPeerID[peerID] = state
+	}
+}
+
+// RemoveOperator removes an operator from both maps
+func (n *Node) RemoveOperator(address string, peerID peer.ID) {
+	n.operators.mu.Lock()
+	defer n.operators.mu.Unlock()
+
+	delete(n.operators.byAddress, address)
+	if peerID != "" {
+		delete(n.operators.byPeerID, peerID)
+	}
+}
+
+// GetOperatorByAddress returns operator state by address
+func (n *Node) GetOperatorByAddress(address string) *OperatorState {
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
+	return n.operators.byAddress[address]
+}
+
+// GetOperatorByPeerID returns operator state by peer ID
+func (n *Node) GetOperatorByPeerID(peerID peer.ID) *OperatorState {
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
+	return n.operators.byPeerID[peerID]
+}
+
+// GetActiveOperators returns all active operator states
+func (n *Node) GetActiveOperators() []*OperatorState {
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
+	
+	operators := make([]*OperatorState, 0)
+	for _, state := range n.operators.byAddress {
+		if state.Status == "active" {
+			operators = append(operators, state)
+		}
+	}
+	return operators
+}
+
+// UpdateOperatorPeerInfo updates an operator's peer-related information
+func (n *Node) UpdateOperatorPeerInfo(address string, peerID peer.ID, addrs []multiaddr.Multiaddr) {
+	n.operators.mu.Lock()
+	defer n.operators.mu.Unlock()
+
+	if state := n.operators.byAddress[address]; state != nil {
+		// Update peer info
+		state.PeerID = peerID
+		state.Multiaddrs = addrs
+		state.AddrInfo = &peer.AddrInfo{
+			ID: peerID,
+			Addrs: addrs,
+		}
+		// Update peer ID map
+		n.operators.byPeerID[peerID] = state
+	}
 }
 
 

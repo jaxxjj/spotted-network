@@ -57,14 +57,14 @@ func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, chainClient Ch
 
 // isActiveOperator checks if a signing key belongs to an active operator in the operator's local storage
 func (tp *TaskProcessor) isActiveOperator(signingKey string) bool {
-	// Get all operator states
-	tp.node.statesMu.RLock()
-	defer tp.node.statesMu.RUnlock()
-
-	// Check each operator's state
-	for _, state := range tp.node.operatorStates {
-		if state.Status == "active" {
-			log.Printf("[StateCheck] Found active operator %s with status %s", state.Address, state.Status)
+	// First try to find the operator by signing key
+	tp.node.operators.mu.RLock()
+	defer tp.node.operators.mu.RUnlock()
+	
+	// Iterate through operators to find one with matching signing key
+	for _, state := range tp.node.operators.byAddress {
+		if state.SigningKey == signingKey && state.Status == "active" {
+			log.Printf("[StateCheck] Found active operator with signing key %s", signingKey)
 			return true
 		}
 	}
@@ -75,10 +75,10 @@ func (tp *TaskProcessor) isActiveOperator(signingKey string) bool {
 
 // getOperatorWeight returns the weight of an operator in the operator's local storage
 func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error) {
-	tp.node.statesMu.RLock()
-	defer tp.node.statesMu.RUnlock()
+	tp.node.operators.mu.RLock()
+	defer tp.node.operators.mu.RUnlock()
 	
-	if state, exists := tp.node.operatorStates[operatorAddr]; exists {
+	if state, exists := tp.node.operators.byAddress[operatorAddr]; exists {
 		weight := new(big.Int)
 		// Parse the weight string directly
 		if _, ok := weight.SetString(state.Weight, 10); !ok {
@@ -88,5 +88,6 @@ func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error
 		log.Printf("[StateCheck] Got operator %s weight: %v", operatorAddr, weight)
 		return weight, nil
 	}
+	
 	return big.NewInt(0), fmt.Errorf("[StateCheck] operator %s not found", operatorAddr)
 }

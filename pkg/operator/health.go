@@ -6,38 +6,66 @@ import (
 	"time"
 )
 
+// healthCheck periodically checks the health of connected operators
 func (n *Node) healthCheck() {
-	// Ping registry node
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
-	result := <-n.pingService.Ping(ctx, n.registryID)
-	if result.Error != nil {
-		log.Printf("[HealthCheck] Failed to ping registry: %v\n", result.Error)
-		return
-	}
-	log.Printf("[HealthCheck] Successfully pinged registry (RTT: %v)\n", result.RTT)
+	for range ticker.C {
+		// Get current active operators
+		operators := n.GetActiveOperators()
+		
+		for _, op := range operators {
+			// Skip if no peer ID (not connected yet)
+			if op.PeerID == "" {
+				continue
+			}
 
-	// Ping all known operators
-	n.operatorsMu.RLock()
-	defer n.operatorsMu.RUnlock()
+			// Create context with timeout for health check
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
-	for operatorID, peerInfo := range n.knownOperators {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+			// Ping the operator
+			err := n.PingPeer(ctx, op.PeerID)
+			
+			if err != nil {
+				log.Printf("[Health] Failed to ping operator %s (peer ID: %s): %v", 
+					op.Address, op.PeerID, err)
+				
+				// Update operator status to inactive
+				op.Status = "inactive"
+				op.LastSeen = time.Now()
+				n.UpdateOperatorState(op.Address, op.PeerID, op)
+				
+			} else {
+				// Update last seen time on successful ping
+				op.LastSeen = time.Now()
+				op.Status = "active" 
+				n.UpdateOperatorState(op.Address, op.PeerID, op)
+			}
 
-		// Try to connect if not connected
-		if err := n.host.Connect(ctx, *peerInfo); err != nil {
-			log.Printf("[HealthCheck] Failed to connect to operator %s: %v\n", operatorID, err)
-			continue
+			cancel()
 		}
 
-		// Ping the operator
-		result := <-n.pingService.Ping(ctx, operatorID)
-		if result.Error != nil {
-			log.Printf("[HealthCheck] Failed to ping operator %s: %v\n", operatorID, result.Error)
-			continue
-		}
-		log.Printf("[HealthCheck] Successfully pinged operator %s (RTT: %v)\n", operatorID, result.RTT)
+		// Clean up stale operators
+		n.cleanupStaleOperators()
 	}
+}
+
+// cleanupStaleOperators removes operators that haven't been seen for too long
+func (n *Node) cleanupStaleOperators() {
+	staleThreshold := 5 * time.Minute
+	
+	n.operators.mu.RLock()
+	now := time.Now()
+	
+	for addr, op := range n.operators.byAddress {
+		if now.Sub(op.LastSeen) > staleThreshold {
+			log.Printf("[Health] Removing stale operator %s (peer ID: %s)", 
+				addr, op.PeerID)
+			
+			// Remove operator from maps
+			n.RemoveOperator(addr, op.PeerID)
+		}
+	}
+	n.operators.mu.RUnlock()
 } 

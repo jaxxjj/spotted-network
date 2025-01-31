@@ -57,6 +57,12 @@ type P2PHost interface {
 	Close() error
 }
 
+type OperatorInfo struct {
+	// Active operators (peer.ID -> OperatorState)
+	active map[peer.ID]*OperatorState
+	mu sync.RWMutex
+}
+
 // NodeConfig contains all the dependencies needed by Registry Node
 type NodeConfig struct {
 	Host           host.Host
@@ -68,11 +74,7 @@ type Node struct {
 	host P2PHost
 	
 	// Operator management
-	operators struct {
-		// Active operators (peer.ID -> OperatorState)
-		active map[peer.ID]*OperatorState
-		mu sync.RWMutex
-	}
+	operators OperatorInfo
 	
 	// Health check interval
 	healthCheckInterval time.Duration

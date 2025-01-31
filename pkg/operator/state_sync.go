@@ -227,43 +227,64 @@ func (node *Node) handlePeerSync(stream network.Stream) error {
 	return nil
 }
 
-func (node *Node) updateOperatorStates(operators []*pb.OperatorState) {
-	node.statesMu.Lock()
-	defer node.statesMu.Unlock()
+// updateOperatorStates updates the states of multiple operators
+func (n *Node) updateOperatorStates(operators []*pb.OperatorState) {
+	n.operators.mu.Lock()
+	defer n.operators.mu.Unlock()
 
 	log.Printf("[StateSync] Updating operator states in memory...")
-	log.Printf("[StateSync] Current operator count before update: %d", len(node.operatorStates))
+	log.Printf("[StateSync] Current operator count before update: %d", len(n.operators.byAddress))
 	
 	// Update memory state
 	for _, op := range operators {
-		prevState := node.operatorStates[op.Address]
-		node.operatorStates[op.Address] = op
+		prevState := n.operators.byAddress[op.Address]
+		
+		// Create new operator state
+		newState := &OperatorState{
+			Address:     op.Address,
+			SigningKey:  op.SigningKey,
+			Status:      op.Status,
+			LastSeen:    time.Now(),
+			Weight:      op.Weight,
+			ActiveEpoch: op.ActiveEpoch,
+		}
+		
+		// Update state in maps
+		n.operators.byAddress[op.Address] = newState
 		
 		if prevState != nil {
 			log.Printf("[StateSync] Updated operator state - Address: %s\n  Old: Status=%s, ActiveEpoch=%d, Weight=%s\n  New: Status=%s, ActiveEpoch=%d, Weight=%s", 
 				op.Address, 
 				prevState.Status, prevState.ActiveEpoch, prevState.Weight,
 				op.Status, op.ActiveEpoch, op.Weight)
+				
+			// Keep peer info if it exists
+			if prevState.PeerID != "" {
+				newState.PeerID = prevState.PeerID
+				newState.Multiaddrs = prevState.Multiaddrs
+				newState.AddrInfo = prevState.AddrInfo
+				n.operators.byPeerID[prevState.PeerID] = newState
+			}
 		} else {
-			log.Printf("[StateSync] Added new operator - Address: %s, Status: %s, ActiveEpoch: %d, Weight: %s", 
-				op.Address, op.Status, op.ActiveEpoch, op.Weight)
+			log.Printf("[StateSync] Added new operator - Address: %s, SigningKey: %s, Status: %s, ActiveEpoch: %d, Weight: %s", 
+				op.Address, op.SigningKey, op.Status, op.ActiveEpoch, op.Weight)
 		}
 	}
 	
-	log.Printf("[StateSync] Memory state updated - Current operator count: %d", len(node.operatorStates))
+	log.Printf("[StateSync] Memory state updated - Current operator count: %d", len(n.operators.byAddress))
 }
 
 // PrintOperatorStates prints all operator states stored in memory
-func (node *Node) PrintOperatorStates() {
-	node.statesMu.RLock()
-	defer node.statesMu.RUnlock()
+func (n *Node) PrintOperatorStates() {
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
 
-	log.Printf("\nOperator States (%d total):", len(node.operatorStates))
+	log.Printf("\nOperator States (%d total):", len(n.operators.byAddress))
 	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
 	log.Printf("| %-42s | %-12s | %-12s | %-10s |", "Address", "Status", "ActiveEpoch", "Weight")
 	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
 	
-	for _, op := range node.operatorStates {
+	for _, op := range n.operators.byAddress {
 		log.Printf("| %-42s | %-12s | %-12d | %-10s |", 
 			op.Address,
 			op.Status,
@@ -275,17 +296,17 @@ func (node *Node) PrintOperatorStates() {
 }
 
 // GetOperatorState returns the state of a specific operator
-func (node *Node) GetOperatorState(address string) *pb.OperatorState {
-	node.statesMu.RLock()
-	defer node.statesMu.RUnlock()
-	return node.operatorStates[address]
+func (n *Node) GetOperatorState(address string) *OperatorState {
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
+	return n.operators.byAddress[address]
 }
 
 // GetOperatorCount returns the number of operators in memory
-func (node *Node) GetOperatorCount() int {
-	node.statesMu.RLock()
-	defer node.statesMu.RUnlock()
-	return len(node.operatorStates)
+func (n *Node) GetOperatorCount() int {
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
+	return len(n.operators.byAddress)
 }
 
 func (n *Node) calculateEpochNumber(blockNumber uint64) uint32 {

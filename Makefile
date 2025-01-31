@@ -3,14 +3,14 @@
 # Start registry node
 start-registry:
 	@echo "Starting registry node..."
-	@docker compose --profile registry up registry --build
+	@docker compose --profile registry up registry 
 	@echo "Waiting for registry to be ready..."
 	@sleep 5
 
 # Start operator nodes
 start-operators:
 	@echo "Starting operator nodes..."
-	@docker compose --profile operators up operator1 operator2 operator3 
+	@docker compose --profile operators up operator1 operator2 operator3 --build
 
 # Start everything in sequence
 start-all: start-registry get-registry-id start-operators
