@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -23,7 +25,7 @@ const (
 	StateSyncTopic = "/spotted/state-sync"
 	
 	// Protocol for state verification
-	StateVerifyProtocol = "/spotted/state-verify/1.0.0"
+	StateVerifyProtocol = protocol.ID("/spotted/state-verify/1.0.0")
 )
 
 // PubSubService defines the interface for pubsub functionality
@@ -82,7 +84,7 @@ func (sp *StateSyncProcessor) handleStateVerifyStream(stream network.Stream) {
 	}
 
 	// Verify state root
-	matches := sp.node.VerifyOperatorStateHash(remotePeer, msg.StateRoot)
+	matches := bytes.Equal(sp.node.getActiveOperatorsRoot(), msg.StateRoot)
 	
 	resp := &pb.StateVerifyResponse{
 		Success: matches,
@@ -159,17 +161,6 @@ func (n *Node) GetActiveOperators() []*pb.OperatorPeerState {
 
 	return operators
 }
-
-func (n *Node) getOperatorWeight(address string) string {
-	operator, err := n.opQuerier.GetOperatorByAddress(context.Background(), address)
-	if err != nil {
-		log.Printf("[StateVerify] Failed to get operator for address %s: %v", address, err)
-		return ""
-	}
-	return utils.NumericToString(operator.Weight)
-}
-
-
 
 // BuildOperatorStates builds a list of all active operator states
 func (n *Node) BuildOperatorPeerStates() []*pb.OperatorPeerState {

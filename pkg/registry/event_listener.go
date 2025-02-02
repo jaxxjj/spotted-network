@@ -35,7 +35,7 @@ type EventListener struct {
 	operators EventListenerQuerier
 }
 
-func NewEventListener(node EventListenerNode, mainnetClient EventListenerChainClient, operators EventListenerQuerier) *EventListener {
+func NewEventListener(ctx context.Context, node EventListenerNode, mainnetClient EventListenerChainClient, operators EventListenerQuerier) *EventListener {
 	if mainnetClient == nil {
 		log.Fatal("[EventListener] mainnet client not initialized")
 	}
@@ -43,15 +43,17 @@ func NewEventListener(node EventListenerNode, mainnetClient EventListenerChainCl
 		log.Fatal("[EventListener] operators querier not initialized")
 	}
 	log.Printf("[EventListener] Creating new EventListener instance")
-	return &EventListener{
+	el := &EventListener{
 		node: node,
 		mainnetClient: mainnetClient,
 		operators: operators,
 	}
+	go el.start(ctx)
+	return el
 }
 
 // StartListening starts listening for operator events
-func (el *EventListener) StartListening(ctx context.Context) error {
+func (el *EventListener) start(ctx context.Context) error {
 	log.Printf("[EventListener] Starting event listener...")
 
 	// Create filter options

@@ -18,14 +18,21 @@ import (
 
 const (
 	AuthTimeout = 30 * time.Second
-	RegistryProtocolID = protocol.ID("/spotted/registry/1.0.0")
+	RegistryProtocol = protocol.ID("/spotted/registry/1.0.0")
 )
 
-
+type OperatorStateController interface {
+	UpdateOperatorState(id peer.ID, state *OperatorPeerInfo)
+	getActiveOperators() []*pb.OperatorPeerState
+	RemoveOperator(id peer.ID)
+	getActiveOperatorsRoot() []byte
+	setActiveOperatorsRoot(stateRoot []byte)
+	computeActiveOperatorsRoot() []byte
+}
 
 // RegistryHandler handles registry protocol operations
 type RegistryHandler struct {
-	node *Node
+	node OperatorStateController
 	opQuerier RegistryHandlerQuerier
 }
 
@@ -34,7 +41,7 @@ type RegistryHandlerQuerier interface {
 }
 
 // NewRegistryHandler creates a new registry handler
-func NewRegistryHandler(node *Node, opQuerier RegistryHandlerQuerier) *RegistryHandler {
+func NewRegistryHandler(node OperatorStateController, opQuerier RegistryHandlerQuerier) *RegistryHandler {
 	return &RegistryHandler{
 		node: node,
 		opQuerier: opQuerier,
@@ -96,8 +103,9 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 		rh.node.UpdateOperatorState(peerID, state)
 		
 		// get the active operators for the response
-		activeOperators = rh.getActiveOperators()
-		
+		activeOperators = rh.node.getActiveOperators()
+		rootHash := rh.node.getActiveOperatorsRoot()
+		rh.node.setActiveOperatorsRoot(rootHash)
 		log.Printf("[Registry] Operator %s (peer %s) registered successfully", req.Address, peerID)
 	}
 
@@ -120,14 +128,14 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 		return
 	}
 
-	// update the operator state
-	rh.node.UpdateOperatorState(peerID, state)
 }
 
 func (rh *RegistryHandler) handleDisconnect(stream network.Stream, peerID peer.ID) {
 	// Remove from active operators
 	rh.node.RemoveOperator(peerID)
-	
+	rootHash := rh.node.getActiveOperatorsRoot()
+	rh.node.setActiveOperatorsRoot(rootHash)
+
 	resp := &pb.RegistryResponse{
 		Success: true,
 		Message: "Disconnected successfully",
@@ -184,38 +192,7 @@ func (rh *RegistryHandler) verifyAuthRequest(ctx context.Context, req *pb.Regist
 	return true, "auth successful"
 }
 
-// getActiveOperators returns list of active operators
-func (rh *RegistryHandler) getActiveOperators() []*pb.OperatorPeerState {
-	// get the registry node info
-	registryInfo := peer.AddrInfo{
-		ID:    rh.node.host.ID(),
-		Addrs: rh.node.host.Addrs(),
-	}
 
-	// create the active operators list, include the registry
-	activeOperators := make([]*pb.OperatorPeerState, 0)
-	
-	// add the registry info
-	registryOp := &pb.OperatorPeerState{
-		PeerId:     registryInfo.ID.String(),
-		Multiaddrs: utils.MultiaddrsToStrings(registryInfo.Addrs),
-	}
-	activeOperators = append(activeOperators, registryOp)
-
-	// add all active operators
-	rh.node.activeOperators.mu.RLock()
-	for _, state := range rh.node.activeOperators.active {
-		op := &pb.OperatorPeerState{
-			PeerId:     state.PeerID.String(),
-			Multiaddrs: utils.MultiaddrsToStrings(state.Multiaddrs),
-			Address:    state.Address,
-		}
-		activeOperators = append(activeOperators, op)
-	}
-	rh.node.activeOperators.mu.RUnlock()
-
-	return activeOperators
-}
 
 
 

@@ -25,6 +25,7 @@ import (
 type ActiveOperatorPeers struct {
 	// Active operators (peer.ID -> OperatorState)
 	active map[peer.ID]*OperatorPeerInfo
+	stateRoot []byte
 	mu sync.RWMutex
 }
 
@@ -103,9 +104,6 @@ type Node struct {
 	// Auth handler
 	registryHandler *RegistryHandler
 
-	// State root
-	stateRoot string
-
 	// State sync processor
 	stateSyncProcessor *StateSyncProcessor
 
@@ -138,14 +136,8 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	node.activeOperators.active = make(map[peer.ID]*OperatorPeerInfo)
 	
 	// Create and initialize event listener
-	node.eventListener = NewEventListener(node, cfg.MainnetClient, cfg.OperatorsQuerier)
+	node.eventListener = NewEventListener(ctx, node, cfg.MainnetClient, cfg.OperatorsQuerier)
 
-
-
-	// Start event listener with context
-	if err := node.eventListener.StartListening(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start event listener: %w", err)
-	}
 
 	// Start registry service
 	if err := node.startRegistryService(cfg); err != nil {
@@ -237,8 +229,8 @@ func (n *Node) startRegistryService(cfg *NodeConfig) error {
 	n.registryHandler = NewRegistryHandler(n, cfg.OperatorsQuerier)
 
 	// Set up protocol handler
-	n.host.SetStreamHandler(RegistryProtocolID, n.registryHandler.HandleStream)
-	log.Printf("[Registry] Registry handler set up for protocol: %s", RegistryProtocolID)
+	n.host.SetStreamHandler(RegistryProtocol, n.registryHandler.HandleStream)
+	log.Printf("[Registry] Registry handler set up for protocol: %s", RegistryProtocol)
 
 	return nil
 }

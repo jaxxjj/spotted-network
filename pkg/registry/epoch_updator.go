@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
@@ -37,7 +36,7 @@ type EpochUpdatorQuerier interface {
 type EpochUpdatorChainClient interface {
 	BlockNumber(ctx context.Context) (uint64, error)
 	GetOperatorWeight(ctx context.Context, address ethcommon.Address) (*big.Int, error)
-	GetOperatorSigningKey(ctx context.Context, address ethcommon.Address, epoch uint32) (common.Address, error)
+	GetOperatorSigningKey(ctx context.Context, address ethcommon.Address, epoch uint32) (ethcommon.Address, error)
 }
 
 type EpochUpdatorSP interface {
@@ -148,7 +147,7 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 
 			var currentWeight *big.Int
 			var weightNum pgtype.Numeric
-			var currentSigningKey common.Address
+			var currentSigningKey ethcommon.Address
 
 			// Only get weight and signing key if operator will be active
 			if newStatus == "active" {

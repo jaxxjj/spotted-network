@@ -7,9 +7,12 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
+	pb "github.com/galxe/spotted-network/proto"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 //  syncs operator states from database and handles inactive operators
@@ -40,8 +43,6 @@ func (n *Node) syncPeerInfo(ctx context.Context) error {
 			continue
 		}
 
-		log.Printf("[State] Operator %s (peer %s) state synced: status=%s, weight=%s, signing_key=%s", 
-			info.Address, peerID, operator.Status, operator.Weight, operator.SigningKey)
 	}
 
 	return nil
@@ -97,4 +98,37 @@ func (n *Node) updateSingleOperatorState(ctx context.Context, operatorAddr strin
 
 	log.Printf("[EventListener] Updated operator %s status to %s with weight %s", operatorAddr, status, weight.String())
 	return nil
+}
+
+// getActiveOperators returns list of active operators
+func (n *Node) getActiveOperators() []*pb.OperatorPeerState {
+	// get the registry node info
+	registryInfo := peer.AddrInfo{
+		ID:    n.host.ID(),
+		Addrs: n.host.Addrs(),
+	}
+
+	// create the active operators list, include the registry
+	activeOperators := make([]*pb.OperatorPeerState, 0)
+	
+	// add the registry info
+	registryOp := &pb.OperatorPeerState{
+		PeerId:     registryInfo.ID.String(),
+		Multiaddrs: utils.MultiaddrsToStrings(registryInfo.Addrs),
+	}
+	activeOperators = append(activeOperators, registryOp)
+
+	// add all active operators
+	n.activeOperators.mu.RLock()
+	for _, state := range n.activeOperators.active {
+		op := &pb.OperatorPeerState{
+			PeerId:     state.PeerID.String(),
+			Multiaddrs: utils.MultiaddrsToStrings(state.Multiaddrs),
+			Address:    state.Address,
+		}
+		activeOperators = append(activeOperators, op)
+	}
+	n.activeOperators.mu.RUnlock()
+
+	return activeOperators
 }
