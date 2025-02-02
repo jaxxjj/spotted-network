@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	TaskResponseProtocol = "/spotted/task-response/1.0.0"
 	TaskResponseTopic    = "/spotted/task-response"
 	p2pStatusCheckInterval = 30 * time.Second
 )

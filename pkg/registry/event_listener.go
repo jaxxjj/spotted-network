@@ -7,25 +7,35 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
+	ethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/event"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const (
-	// Epoch-related constants
-	GenesisBlock = 0     
-	EpochPeriod  = 12    
-)
-type EventListener struct {
-	node *Node
-	mainnetClient MainnetClient
-	operators OperatorsQuerier
+type EventListenerNode interface {
+	updateSingleOperatorState(ctx context.Context, operatorAddr string) error
+}
+type EventListenerQuerier interface {
+	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string) (*operators.Operators, error)
+	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams, getOperatorByAddress *string) (*operators.Operators, error)
 }
 
-func NewEventListener(node *Node, mainnetClient MainnetClient, operators OperatorsQuerier) *EventListener {
+type EventListenerChainClient interface {
+	GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error)
+	GetOperatorWeight(ctx context.Context, address ethcommon.Address) (*big.Int, error)
+	WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error)
+	WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error) 
+}
+
+type EventListener struct {
+	node EventListenerNode
+	mainnetClient EventListenerChainClient
+	operators EventListenerQuerier
+}
+
+func NewEventListener(node EventListenerNode, mainnetClient EventListenerChainClient, operators EventListenerQuerier) *EventListener {
 	if mainnetClient == nil {
 		log.Fatal("[EventListener] mainnet client not initialized")
 	}
@@ -127,7 +137,11 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *et
 		return fmt.Errorf("[EventListener] failed to get active epoch: %w", err)
 	}
 	log.Printf("[EventListener] Got active epoch: %d", activeEpoch)
-
+	weight, err := el.mainnetClient.GetOperatorWeight(ctx, event.Operator)
+	if err != nil {
+		log.Printf("[EventListener] Failed to get operator weight: %v", err)
+		return fmt.Errorf("[EventListener] failed to get operator weight: %w", err)
+	}
 	// Create or update operator record
 	params := operators.UpsertOperatorParams{
 		Address:     event.Operator.Hex(),
@@ -136,7 +150,7 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *et
 		RegisteredAtTimestamp: timestamp,
 		ActiveEpoch: activeEpoch,
 		Weight: pgtype.Numeric{
-			Int:    big.NewInt(0),
+			Int:    weight,
 			Exp:    0,
 			Valid:  true,
 		},
@@ -153,7 +167,7 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *et
 	log.Printf("Successfully upserted operator %s in database", event.Operator.Hex())
 
 	// Update operator status after creation/update
-	if err := el.node.updateStatusAfterOperations(ctx, event.Operator.String()); err != nil {
+	if err := el.node.updateSingleOperatorState(ctx, event.Operator.Hex()); err != nil {
 		log.Printf("[EventListener] Failed to update operator status: %v", err)
 		return fmt.Errorf("[EventListener] failed to update operator status: %w", err)
 	}
@@ -161,57 +175,6 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *et
 	return nil
 }
 
-// updateStatusAfterOperations updates operator status based on current block number and epochs
-func (n *Node) updateStatusAfterOperations(ctx context.Context, operatorAddr string) error {
-
-	// Get current block number
-	currentBlock, err := n.mainnetClient.BlockNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("[EventListener] failed to get current block number: %w", err)
-	}
-
-	// Get operator from database to get active_epoch and exit_epoch
-	operator, err := n.operatorsDB.GetOperatorByAddress(ctx, operatorAddr)
-	if err != nil {
-		return fmt.Errorf("[EventListener] failed to get operator from database: %w", err)
-	}
-
-	activeEpoch := operator.ActiveEpoch
-
-	// Determine operator status using helper
-	status, logMsg := DetermineOperatorStatus(currentBlock, activeEpoch, operator.ExitEpoch)
-	log.Printf("[EventListener] %s", logMsg)
-
-	// Get weight if status is active
-	var weight *big.Int
-	if status == types.OperatorStatusActive {
-		weight, err = n.mainnetClient.GetOperatorWeight(ctx, common.HexToAddress(operatorAddr))
-		if err != nil {
-			return fmt.Errorf("[EventListener] failed to get operator weight: %w", err)
-		}
-		log.Printf("[EventListener] Got weight for operator %s with status %s: %s", operatorAddr, status, weight.String())
-	} else {
-		weight = big.NewInt(0)
-		log.Printf("[EventListener] Set weight to 0 for operator %s with status %s", operatorAddr, status)
-	}
-
-	// Update operator state in database
-	_, err = n.operatorsDB.UpdateOperatorState(ctx, operators.UpdateOperatorStateParams{
-		Address: operatorAddr,
-		Status:  status,
-		Weight: pgtype.Numeric{
-			Int:    weight,
-			Valid:  true,
-			Exp:    0,
-		},
-	}, &operatorAddr)
-	if err != nil {
-		return fmt.Errorf("failed to update operator state: %w", err)
-	}
-
-	log.Printf("[EventListener] Updated operator %s status to %s with weight %s", operatorAddr, status, weight.String())
-	return nil
-}
 
 // handleOperatorDeregistered handles operator deregistration events
 func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *ethereum.OperatorDeregisteredEvent) error {
@@ -237,7 +200,7 @@ func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *
 	log.Printf("[EventListener] Updated operator %s exit epoch to %d", operatorAddr, exitEpoch)
 
 	// Update operator status after setting exit epoch
-	if err := el.node.updateStatusAfterOperations(ctx, event.Operator.String()); err != nil {
+	if err := el.node.updateSingleOperatorState(ctx, event.Operator.Hex()); err != nil {
 		log.Printf("[EventListener] Failed to update operator status: %v", err)
 		return fmt.Errorf("[EventListener] failed to update operator status: %w", err)
 	}

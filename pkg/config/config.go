@@ -18,6 +18,7 @@ type Config struct {
 	HTTP     HTTPConfig             `yaml:"http"`
 	Logging  LoggingConfig          `yaml:"logging"`
 	RegistryID string `yaml:"registry_id"`
+	Metric   MetricConfig         `yaml:"metric"`
 }
 
 // ChainConfig represents configuration for a specific chain
@@ -60,6 +61,11 @@ type HTTPConfig struct {
 type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
+}
+
+// MetricConfig represents metrics server configuration
+type MetricConfig struct {
+	Port int    `yaml:"port"`
 }
 
 var (
@@ -170,6 +176,9 @@ func DefaultConfig() *Config {
 		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "json",
+		},
+		Metric: MetricConfig{
+			Port: 8080,
 		},
 	}
 }

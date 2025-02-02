@@ -116,6 +116,7 @@ services:
     ports:
       - "9000:9000"  # P2P port
       - "8000:8000"  # HTTP port
+      - "4014:4014"  # Metrics port
     environment:
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
       - EPOCH_MANAGER_ADDRESS=${EPOCH_MANAGER_ADDRESS}
@@ -150,6 +151,7 @@ services:
       - REDIS_CLUSTER_MAX_REDIRECTS=3
       - REDIS_READ_TIMEOUT=3s
       - REDIS_POOL_SIZE=50
+      - METRIC_PORT=4014
     volumes:
       - ./config:/app/config
     networks:
@@ -179,6 +181,7 @@ services:
     ports:
       - "10000:10000"  # P2P port
       - "8001:8001"    # HTTP port
+      - "4015:4015"    # Metrics port
     environment:
       - REGISTRY_PEER_ID=${REGISTRY_PEER_ID}
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
@@ -216,6 +219,7 @@ services:
       - REDIS_CLUSTER_MAX_REDIRECTS=3
       - REDIS_READ_TIMEOUT=3s
       - REDIS_POOL_SIZE=50
+      - METRIC_PORT=4015
     volumes:
       - ./keys/operator/operator1.key.json:/app/keys/operator/operator1.key.json
       - ./keys/signing/operator1.key.json:/app/keys/signing/operator1.key.json
@@ -249,6 +253,7 @@ services:
     ports:
       - "10001:10001"  # P2P port
       - "8002:8002"    # HTTP port
+      - "4016:4016"    # Metrics port
     environment:
       - REGISTRY_PEER_ID=${REGISTRY_PEER_ID}
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
@@ -286,6 +291,7 @@ services:
       - REDIS_CLUSTER_MAX_REDIRECTS=3
       - REDIS_READ_TIMEOUT=3s
       - REDIS_POOL_SIZE=50
+      - METRIC_PORT=4016
     volumes:
       - ./keys/operator/operator2.key.json:/app/keys/operator/operator2.key.json
       - ./keys/signing/operator2.key.json:/app/keys/signing/operator2.key.json
@@ -319,6 +325,7 @@ services:
     ports:
       - "10002:10002"  # P2P port
       - "8003:8003"    # HTTP port
+      - "4017:4017"    # Metrics port
     environment:
       - REGISTRY_PEER_ID=${REGISTRY_PEER_ID}
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
@@ -356,6 +363,7 @@ services:
       - REDIS_CLUSTER_MAX_REDIRECTS=3
       - REDIS_READ_TIMEOUT=3s
       - REDIS_POOL_SIZE=50
+      - METRIC_PORT=4017
     volumes:
       - ./keys/operator/operator3.key.json:/app/keys/operator/operator3.key.json
       - ./keys/signing/operator3.key.json:/app/keys/signing/operator3.key.json
@@ -379,6 +387,41 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector:0.118.0
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics
+    networks:
+      - spotted-net
+    restart: unless-stopped
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - spotted-net
+    restart: unless-stopped
+    depends_on:
+      - otel-collector
+
 networks:
   spotted-net:
     driver: bridge
@@ -387,4 +430,5 @@ volumes:
   postgres_data:
   postgres_operator1_data:
   postgres_operator2_data:
-  postgres_operator3_data: 
+  postgres_operator3_data:
+  prometheus_data: 

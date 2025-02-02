@@ -20,34 +20,173 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Auth related messages
-type AuthRequest struct {
+type RegistryMessage_Type int32
+
+const (
+	RegistryMessage_REGISTER   RegistryMessage_Type = 0
+	RegistryMessage_DISCONNECT RegistryMessage_Type = 1
+)
+
+// Enum value maps for RegistryMessage_Type.
+var (
+	RegistryMessage_Type_name = map[int32]string{
+		0: "REGISTER",
+		1: "DISCONNECT",
+	}
+	RegistryMessage_Type_value = map[string]int32{
+		"REGISTER":   0,
+		"DISCONNECT": 1,
+	}
+)
+
+func (x RegistryMessage_Type) Enum() *RegistryMessage_Type {
+	p := new(RegistryMessage_Type)
+	*p = x
+	return p
+}
+
+func (x RegistryMessage_Type) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RegistryMessage_Type) Descriptor() protoreflect.EnumDescriptor {
+	return file_registry_proto_enumTypes[0].Descriptor()
+}
+
+func (RegistryMessage_Type) Type() protoreflect.EnumType {
+	return &file_registry_proto_enumTypes[0]
+}
+
+func (x RegistryMessage_Type) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RegistryMessage_Type.Descriptor instead.
+func (RegistryMessage_Type) EnumDescriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{0, 0}
+}
+
+// Registry protocol messages
+type RegistryMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Type  RegistryMessage_Type   `protobuf:"varint,1,opt,name=type,proto3,enum=proto.RegistryMessage_Type" json:"type,omitempty"`
+	// Types that are valid to be assigned to Message:
+	//
+	//	*RegistryMessage_Register
+	//	*RegistryMessage_Disconnect
+	Message       isRegistryMessage_Message `protobuf_oneof:"message"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegistryMessage) Reset() {
+	*x = RegistryMessage{}
+	mi := &file_registry_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegistryMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegistryMessage) ProtoMessage() {}
+
+func (x *RegistryMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegistryMessage.ProtoReflect.Descriptor instead.
+func (*RegistryMessage) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *RegistryMessage) GetType() RegistryMessage_Type {
+	if x != nil {
+		return x.Type
+	}
+	return RegistryMessage_REGISTER
+}
+
+func (x *RegistryMessage) GetMessage() isRegistryMessage_Message {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+func (x *RegistryMessage) GetRegister() *RegisterMessage {
+	if x != nil {
+		if x, ok := x.Message.(*RegistryMessage_Register); ok {
+			return x.Register
+		}
+	}
+	return nil
+}
+
+func (x *RegistryMessage) GetDisconnect() *DisconnectMessage {
+	if x != nil {
+		if x, ok := x.Message.(*RegistryMessage_Disconnect); ok {
+			return x.Disconnect
+		}
+	}
+	return nil
+}
+
+type isRegistryMessage_Message interface {
+	isRegistryMessage_Message()
+}
+
+type RegistryMessage_Register struct {
+	Register *RegisterMessage `protobuf:"bytes,2,opt,name=register,proto3,oneof"`
+}
+
+type RegistryMessage_Disconnect struct {
+	Disconnect *DisconnectMessage `protobuf:"bytes,3,opt,name=disconnect,proto3,oneof"`
+}
+
+func (*RegistryMessage_Register) isRegistryMessage_Message() {}
+
+func (*RegistryMessage_Disconnect) isRegistryMessage_Message() {}
+
+// Message for operator registration
+type RegisterMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Operator's Ethereum address (with 0x prefix)
 	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 	// Current Unix timestamp
 	Timestamp uint64 `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	// Hex-encoded signature of (address + timestamp)
-	Signature     string `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
+	Signature string `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
+	// Operator's multiaddrs for p2p connection
+	Multiaddrs    []string `protobuf:"bytes,4,rep,name=multiaddrs,proto3" json:"multiaddrs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AuthRequest) Reset() {
-	*x = AuthRequest{}
-	mi := &file_registry_proto_msgTypes[0]
+func (x *RegisterMessage) Reset() {
+	*x = RegisterMessage{}
+	mi := &file_registry_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AuthRequest) String() string {
+func (x *RegisterMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AuthRequest) ProtoMessage() {}
+func (*RegisterMessage) ProtoMessage() {}
 
-func (x *AuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[0]
+func (x *RegisterMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,59 +197,61 @@ func (x *AuthRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AuthRequest.ProtoReflect.Descriptor instead.
-func (*AuthRequest) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{0}
+// Deprecated: Use RegisterMessage.ProtoReflect.Descriptor instead.
+func (*RegisterMessage) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AuthRequest) GetAddress() string {
+func (x *RegisterMessage) GetAddress() string {
 	if x != nil {
 		return x.Address
 	}
 	return ""
 }
 
-func (x *AuthRequest) GetTimestamp() uint64 {
+func (x *RegisterMessage) GetTimestamp() uint64 {
 	if x != nil {
 		return x.Timestamp
 	}
 	return 0
 }
 
-func (x *AuthRequest) GetSignature() string {
+func (x *RegisterMessage) GetSignature() string {
 	if x != nil {
 		return x.Signature
 	}
 	return ""
 }
 
-type AuthResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Whether the authentication was successful
-	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	// Response message (error message if failed)
-	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	// List of currently active operators
-	ActiveOperators []*ActiveOperator `protobuf:"bytes,3,rep,name=active_operators,json=activeOperators,proto3" json:"active_operators,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+func (x *RegisterMessage) GetMultiaddrs() []string {
+	if x != nil {
+		return x.Multiaddrs
+	}
+	return nil
 }
 
-func (x *AuthResponse) Reset() {
-	*x = AuthResponse{}
-	mi := &file_registry_proto_msgTypes[1]
+// Message for operator disconnection
+type DisconnectMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DisconnectMessage) Reset() {
+	*x = DisconnectMessage{}
+	mi := &file_registry_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AuthResponse) String() string {
+func (x *DisconnectMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AuthResponse) ProtoMessage() {}
+func (*DisconnectMessage) ProtoMessage() {}
 
-func (x *AuthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[1]
+func (x *DisconnectMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -121,83 +262,71 @@ func (x *AuthResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AuthResponse.ProtoReflect.Descriptor instead.
-func (*AuthResponse) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{1}
+// Deprecated: Use DisconnectMessage.ProtoReflect.Descriptor instead.
+func (*DisconnectMessage) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *AuthResponse) GetSuccess() bool {
+// Response message for registry operations
+type RegistryResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Whether the operation was successful
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// Response message (error message if failed)
+	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// List of currently active operators with their states
+	ActiveOperators []*OperatorPeerState `protobuf:"bytes,3,rep,name=active_operators,json=activeOperators,proto3" json:"active_operators,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RegistryResponse) Reset() {
+	*x = RegistryResponse{}
+	mi := &file_registry_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegistryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegistryResponse) ProtoMessage() {}
+
+func (x *RegistryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_registry_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegistryResponse.ProtoReflect.Descriptor instead.
+func (*RegistryResponse) Descriptor() ([]byte, []int) {
+	return file_registry_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *RegistryResponse) GetSuccess() bool {
 	if x != nil {
 		return x.Success
 	}
 	return false
 }
 
-func (x *AuthResponse) GetMessage() string {
+func (x *RegistryResponse) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
 	return ""
 }
 
-func (x *AuthResponse) GetActiveOperators() []*ActiveOperator {
+func (x *RegistryResponse) GetActiveOperators() []*OperatorPeerState {
 	if x != nil {
 		return x.ActiveOperators
-	}
-	return nil
-}
-
-// Represents an active operator in the network
-type ActiveOperator struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// The operator's libp2p peer ID
-	PeerId string `protobuf:"bytes,1,opt,name=peer_id,json=peerId,proto3" json:"peer_id,omitempty"`
-	// List of multiaddresses where the operator can be reached
-	Multiaddrs    []string `protobuf:"bytes,2,rep,name=multiaddrs,proto3" json:"multiaddrs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ActiveOperator) Reset() {
-	*x = ActiveOperator{}
-	mi := &file_registry_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ActiveOperator) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ActiveOperator) ProtoMessage() {}
-
-func (x *ActiveOperator) ProtoReflect() protoreflect.Message {
-	mi := &file_registry_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ActiveOperator.ProtoReflect.Descriptor instead.
-func (*ActiveOperator) Descriptor() ([]byte, []int) {
-	return file_registry_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *ActiveOperator) GetPeerId() string {
-	if x != nil {
-		return x.PeerId
-	}
-	return ""
-}
-
-func (x *ActiveOperator) GetMultiaddrs() []string {
-	if x != nil {
-		return x.Multiaddrs
 	}
 	return nil
 }
@@ -206,30 +335,44 @@ var File_registry_proto protoreflect.FileDescriptor
 
 var file_registry_proto_rawDesc = []byte{
 	0x0a, 0x0e, 0x72, 0x65, 0x67, 0x69, 0x73, 0x74, 0x72, 0x79, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x12, 0x08, 0x72, 0x65, 0x67, 0x69, 0x73, 0x74, 0x72, 0x79, 0x22, 0x63, 0x0a, 0x0b, 0x41, 0x75,
-	0x74, 0x68, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x18, 0x0a, 0x07, 0x61, 0x64, 0x64,
-	0x72, 0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x61, 0x64, 0x64, 0x72,
-	0x65, 0x73, 0x73, 0x12, 0x1c, 0x0a, 0x09, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70,
-	0x18, 0x02, 0x20, 0x01, 0x28, 0x04, 0x52, 0x09, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d,
-	0x70, 0x12, 0x1c, 0x0a, 0x09, 0x73, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x18, 0x03,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x73, 0x69, 0x67, 0x6e, 0x61, 0x74, 0x75, 0x72, 0x65, 0x22,
-	0x87, 0x01, 0x0a, 0x0c, 0x41, 0x75, 0x74, 0x68, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
-	0x12, 0x18, 0x0a, 0x07, 0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28,
-	0x08, 0x52, 0x07, 0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65,
-	0x73, 0x73, 0x61, 0x67, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73,
-	0x73, 0x61, 0x67, 0x65, 0x12, 0x43, 0x0a, 0x10, 0x61, 0x63, 0x74, 0x69, 0x76, 0x65, 0x5f, 0x6f,
-	0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x18,
-	0x2e, 0x72, 0x65, 0x67, 0x69, 0x73, 0x74, 0x72, 0x79, 0x2e, 0x41, 0x63, 0x74, 0x69, 0x76, 0x65,
-	0x4f, 0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x52, 0x0f, 0x61, 0x63, 0x74, 0x69, 0x76, 0x65,
-	0x4f, 0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x73, 0x22, 0x49, 0x0a, 0x0e, 0x41, 0x63, 0x74,
-	0x69, 0x76, 0x65, 0x4f, 0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x12, 0x17, 0x0a, 0x07, 0x70,
-	0x65, 0x65, 0x72, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x70, 0x65,
-	0x65, 0x72, 0x49, 0x64, 0x12, 0x1e, 0x0a, 0x0a, 0x6d, 0x75, 0x6c, 0x74, 0x69, 0x61, 0x64, 0x64,
-	0x72, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x09, 0x52, 0x0a, 0x6d, 0x75, 0x6c, 0x74, 0x69, 0x61,
-	0x64, 0x64, 0x72, 0x73, 0x42, 0x28, 0x5a, 0x26, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63,
-	0x6f, 0x6d, 0x2f, 0x67, 0x61, 0x6c, 0x78, 0x65, 0x2f, 0x73, 0x70, 0x6f, 0x74, 0x74, 0x65, 0x64,
-	0x2d, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x12, 0x05, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a, 0x0a, 0x73, 0x79, 0x6e, 0x63, 0x2e, 0x70, 0x72,
+	0x6f, 0x74, 0x6f, 0x22, 0xe5, 0x01, 0x0a, 0x0f, 0x52, 0x65, 0x67, 0x69, 0x73, 0x74, 0x72, 0x79,
+	0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x12, 0x2f, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x1b, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2e, 0x52, 0x65,
+	0x67, 0x69, 0x73, 0x74, 0x72, 0x79, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x2e, 0x54, 0x79,
+	0x70, 0x65, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x34, 0x0a, 0x08, 0x72, 0x65, 0x67, 0x69,
+	0x73, 0x74, 0x65, 0x72, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x70, 0x72, 0x6f,
+	0x74, 0x6f, 0x2e, 0x52, 0x65, 0x67, 0x69, 0x73, 0x74, 0x65, 0x72, 0x4d, 0x65, 0x73, 0x73, 0x61,
+	0x67, 0x65, 0x48, 0x00, 0x52, 0x08, 0x72, 0x65, 0x67, 0x69, 0x73, 0x74, 0x65, 0x72, 0x12, 0x3a,
+	0x0a, 0x0a, 0x64, 0x69, 0x73, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x18, 0x03, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x18, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2e, 0x44, 0x69, 0x73, 0x63, 0x6f,
+	0x6e, 0x6e, 0x65, 0x63, 0x74, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x48, 0x00, 0x52, 0x0a,
+	0x64, 0x69, 0x73, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x22, 0x24, 0x0a, 0x04, 0x54, 0x79,
+	0x70, 0x65, 0x12, 0x0c, 0x0a, 0x08, 0x52, 0x45, 0x47, 0x49, 0x53, 0x54, 0x45, 0x52, 0x10, 0x00,
+	0x12, 0x0e, 0x0a, 0x0a, 0x44, 0x49, 0x53, 0x43, 0x4f, 0x4e, 0x4e, 0x45, 0x43, 0x54, 0x10, 0x01,
+	0x42, 0x09, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x22, 0x87, 0x01, 0x0a, 0x0f,
+	0x52, 0x65, 0x67, 0x69, 0x73, 0x74, 0x65, 0x72, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x12,
+	0x18, 0x0a, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
+	0x52, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12, 0x1c, 0x0a, 0x09, 0x74, 0x69, 0x6d,
+	0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x18, 0x02, 0x20, 0x01, 0x28, 0x04, 0x52, 0x09, 0x74, 0x69,
+	0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x12, 0x1c, 0x0a, 0x09, 0x73, 0x69, 0x67, 0x6e, 0x61,
+	0x74, 0x75, 0x72, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x73, 0x69, 0x67, 0x6e,
+	0x61, 0x74, 0x75, 0x72, 0x65, 0x12, 0x1e, 0x0a, 0x0a, 0x6d, 0x75, 0x6c, 0x74, 0x69, 0x61, 0x64,
+	0x64, 0x72, 0x73, 0x18, 0x04, 0x20, 0x03, 0x28, 0x09, 0x52, 0x0a, 0x6d, 0x75, 0x6c, 0x74, 0x69,
+	0x61, 0x64, 0x64, 0x72, 0x73, 0x22, 0x13, 0x0a, 0x11, 0x44, 0x69, 0x73, 0x63, 0x6f, 0x6e, 0x6e,
+	0x65, 0x63, 0x74, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x22, 0x8b, 0x01, 0x0a, 0x10, 0x52,
+	0x65, 0x67, 0x69, 0x73, 0x74, 0x72, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
+	0x18, 0x0a, 0x07, 0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08,
+	0x52, 0x07, 0x73, 0x75, 0x63, 0x63, 0x65, 0x73, 0x73, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73,
+	0x73, 0x61, 0x67, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73,
+	0x61, 0x67, 0x65, 0x12, 0x43, 0x0a, 0x10, 0x61, 0x63, 0x74, 0x69, 0x76, 0x65, 0x5f, 0x6f, 0x70,
+	0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x18, 0x2e,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2e, 0x4f, 0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x50, 0x65,
+	0x65, 0x72, 0x53, 0x74, 0x61, 0x74, 0x65, 0x52, 0x0f, 0x61, 0x63, 0x74, 0x69, 0x76, 0x65, 0x4f,
+	0x70, 0x65, 0x72, 0x61, 0x74, 0x6f, 0x72, 0x73, 0x42, 0x28, 0x5a, 0x26, 0x67, 0x69, 0x74, 0x68,
+	0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x67, 0x61, 0x6c, 0x78, 0x65, 0x2f, 0x73, 0x70, 0x6f,
+	0x74, 0x74, 0x65, 0x64, 0x2d, 0x6e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x2f, 0x70, 0x72, 0x6f,
+	0x74, 0x6f, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -244,19 +387,26 @@ func file_registry_proto_rawDescGZIP() []byte {
 	return file_registry_proto_rawDescData
 }
 
-var file_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_registry_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_registry_proto_goTypes = []any{
-	(*AuthRequest)(nil),    // 0: registry.AuthRequest
-	(*AuthResponse)(nil),   // 1: registry.AuthResponse
-	(*ActiveOperator)(nil), // 2: registry.ActiveOperator
+	(RegistryMessage_Type)(0), // 0: proto.RegistryMessage.Type
+	(*RegistryMessage)(nil),   // 1: proto.RegistryMessage
+	(*RegisterMessage)(nil),   // 2: proto.RegisterMessage
+	(*DisconnectMessage)(nil), // 3: proto.DisconnectMessage
+	(*RegistryResponse)(nil),  // 4: proto.RegistryResponse
+	(*OperatorPeerState)(nil), // 5: proto.OperatorPeerState
 }
 var file_registry_proto_depIdxs = []int32{
-	2, // 0: registry.AuthResponse.active_operators:type_name -> registry.ActiveOperator
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // 0: proto.RegistryMessage.type:type_name -> proto.RegistryMessage.Type
+	2, // 1: proto.RegistryMessage.register:type_name -> proto.RegisterMessage
+	3, // 2: proto.RegistryMessage.disconnect:type_name -> proto.DisconnectMessage
+	5, // 3: proto.RegistryResponse.active_operators:type_name -> proto.OperatorPeerState
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_registry_proto_init() }
@@ -264,18 +414,24 @@ func file_registry_proto_init() {
 	if File_registry_proto != nil {
 		return
 	}
+	file_sync_proto_init()
+	file_registry_proto_msgTypes[0].OneofWrappers = []any{
+		(*RegistryMessage_Register)(nil),
+		(*RegistryMessage_Disconnect)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_registry_proto_rawDesc,
-			NumEnums:      0,
-			NumMessages:   3,
+			NumEnums:      1,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_registry_proto_goTypes,
 		DependencyIndexes: file_registry_proto_depIdxs,
+		EnumInfos:         file_registry_proto_enumTypes,
 		MessageInfos:      file_registry_proto_msgTypes,
 	}.Build()
 	File_registry_proto = out.File

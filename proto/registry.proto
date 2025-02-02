@@ -1,32 +1,47 @@
 syntax = "proto3";
 
-package registry;
+package proto;
 option go_package = "github.com/galxe/spotted-network/proto";
 
-// Auth related messages
-message AuthRequest {
-  // Operator's Ethereum address (with 0x prefix)
-  string address = 1;
-  // Current Unix timestamp
-  uint64 timestamp = 2;
-  // Hex-encoded signature of (address + timestamp)
-  string signature = 3;
+import "sync.proto";
+
+// Registry protocol messages
+message RegistryMessage {
+    enum Type {
+        REGISTER = 0;
+        DISCONNECT = 1;
+    }
+    
+    Type type = 1;
+    oneof message {
+        RegisterMessage register = 2;
+        DisconnectMessage disconnect = 3;
+    }
 }
 
-message AuthResponse {
-  // Whether the authentication was successful
-  bool success = 1;
-  // Response message (error message if failed)
-  string message = 2;
-  // List of currently active operators
-  repeated ActiveOperator active_operators = 3;
+// Message for operator registration
+message RegisterMessage {
+    // Operator's Ethereum address (with 0x prefix)
+    string address = 1;
+    // Current Unix timestamp
+    uint64 timestamp = 2;
+    // Hex-encoded signature of (address + timestamp)
+    string signature = 3;
+    // Operator's multiaddrs for p2p connection
+    repeated string multiaddrs = 4;
 }
 
-// Represents an active operator in the network
-message ActiveOperator {
-  // The operator's libp2p peer ID
-  string peer_id = 1;
-  
-  // List of multiaddresses where the operator can be reached
-  repeated string multiaddrs = 2;
+// Message for operator disconnection
+message DisconnectMessage {
+    // Empty for now, might add fields later if needed
+}
+
+// Response message for registry operations
+message RegistryResponse {
+    // Whether the operation was successful
+    bool success = 1;
+    // Response message (error message if failed)
+    string message = 2;
+    // List of currently active operators with their states
+    repeated OperatorPeerState active_operators = 3;
 }

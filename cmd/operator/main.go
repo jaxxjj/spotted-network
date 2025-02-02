@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 
 	"github.com/galxe/spotted-network/internal/database/cache"
 	dbwpgx "github.com/galxe/spotted-network/internal/database/wpgx"
+	"github.com/galxe/spotted-network/internal/metric"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/config"
@@ -23,7 +25,12 @@ import (
 )
 
 func main() {
-	registryAddr := flag.String("registry", "", "Registry node address")
+	startTime := time.Now()
+	defer func() {
+		metric.RecordRequestDuration("main", "startup", time.Since(startTime))
+	}()
+
+	registryAddress := flag.String("registry", "", "Registry node address")
 	operatorKeyPath := flag.String("operator-key", "", "Path to operator keystore file")
 	signingKeyPath := flag.String("signing-key", "", "Path to signing keystore file")
 	password := flag.String("password", "", "Password for keystore")
@@ -34,6 +41,7 @@ func main() {
 	// Create signer
 	signer, err := signer.NewLocalSigner(*operatorKeyPath, *signingKeyPath, *password)
 	if err != nil {
+		metric.RecordError("signer_creation_failed")
 		log.Fatal("Failed to create signer:", err)
 	}
 
@@ -41,13 +49,15 @@ func main() {
 		// Sign message with signing key
 		sig, err := signer.Sign([]byte(*message))
 		if err != nil {
+			metric.RecordError("message_signing_failed")
 			log.Fatal("Failed to sign message:", err)
 		}
 		fmt.Print(hex.EncodeToString(sig))
 		return
 	}
 
-	if *registryAddr == "" {
+	if *registryAddress == "" {
+		metric.RecordError("missing_registry_address")
 		log.Fatal("Registry address is required")
 	}
 
@@ -60,12 +70,25 @@ func main() {
 	// Load config
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
+		metric.RecordError("config_load_failed")
 		log.Fatal("Failed to load config:", err)
 	}
+
+	// Initialize metrics server
+	metricServer := metric.New(&metric.Config{
+		Port: cfg.Metric.Port,
+	})
+	go func() {
+		if err := metricServer.Start(); err != nil {
+			metric.RecordError("metric_server_start_failed")
+			log.Printf("Failed to start metric server: %v", err)
+		}
+	}()
 
 	// Initialize chain manager with application config
 	chainManager, err := ethereum.NewManager(cfg)
 	if err != nil {
+		metric.RecordError("chain_manager_init_failed")
 		log.Fatal("Failed to initialize chain manager:", err)
 	}
 	defer chainManager.Close()
@@ -77,6 +100,7 @@ func main() {
 		),
 	)
 	if err != nil {
+		metric.RecordError("p2p_host_creation_failed")
 		log.Fatal("Failed to create P2P host:", err)
 	}
 	defer host.Close()
@@ -85,6 +109,7 @@ func main() {
 	ctx := context.Background()
 	db, err := dbwpgx.NewWPGXPool(ctx, "POSTGRES")
 	if err != nil {
+		metric.RecordError("database_connection_failed")
 		log.Fatal("Failed to connect to database:", err)
 	}
 	defer db.Close()
@@ -92,6 +117,7 @@ func main() {
 	// Initialize Redis and DCache
 	redisConn, dCache, err := cache.InitCache("operator")
 	if err != nil {
+		metric.RecordError("cache_init_failed")
 		log.Fatal("Failed to initialize cache:", err)
 	}
 	defer redisConn.Close()
@@ -103,7 +129,7 @@ func main() {
 	epochStatesQuerier := epoch_states.New(db.WConn(), dCache)
 
 	// Start operator node
-	n, err := operator.NewNode(&operator.NodeConfig{
+	node, err := operator.NewNode(ctx, &operator.NodeConfig{
 		Host:            host,
 		ChainManager:    chainManager,
 		Signer:          signer,
@@ -111,16 +137,22 @@ func main() {
 		TaskResponseQuerier: taskResponseQuerier,
 		ConsensusResponseQuerier: consensusResponseQuerier,
 		EpochStateQuerier: epochStatesQuerier,
-		RegistryAddress: *registryAddr,
+		RegistryAddress: *registryAddress,
 		Config:          cfg,
 	})
 	if err != nil {
-		log.Fatal("Failed to create node:", err)
+		metric.RecordError("node_creation_failed")
+		log.Fatal("Failed to create operator node:", err)
 	}
 
-	if err := n.Start(context.Background()); err != nil {
-		log.Fatal("Failed to start node:", err)
+	// Start the node
+	if err := node.Start(ctx); err != nil {
+		metric.RecordError("node_start_failed")
+		log.Fatal("Failed to start operator node:", err)
 	}
+
+	metric.RecordRequest("operator", "startup_complete")
+	log.Printf("Operator node started successfully")
 
 	// Wait forever
 	select {}

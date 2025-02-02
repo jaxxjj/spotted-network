@@ -17,7 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	commonHelpers "github.com/galxe/spotted-network/pkg/common"
+	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	commonTypes "github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/config"
@@ -166,7 +166,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	targetAddress := ethcommon.HexToAddress(params.TargetAddress)
 	if params.Timestamp != 0 {
 		// Convert timestamp to block number for task ID generation
-		blockNumber, err = commonHelpers.TimestampToBlockNumber(r.Context(), stateClient, params.ChainID, params.Timestamp)
+		blockNumber, err = utils.TimestampToBlockNumber(r.Context(), stateClient, params.ChainID, params.Timestamp)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to convert timestamp to block number: %v", err), http.StatusInternalServerError)
 			return
@@ -179,7 +179,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		// Use provided block number
 		blockNumber = params.BlockNumber
 		// Convert block number to timestamp for storage
-		timestamp, err = commonHelpers.BlockNumberToTimestamp(r.Context(), stateClient, params.ChainID, blockNumber)
+		timestamp, err = utils.BlockNumberToTimestamp(r.Context(), stateClient, params.ChainID, blockNumber)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to convert block number to timestamp: %v", err), http.StatusInternalServerError)
 			return
@@ -187,7 +187,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get state value
-	keyBig := commonHelpers.StringToBigInt(params.Key)
+	keyBig := utils.StringToBigInt(params.Key)
 	value, err := stateClient.GetStateAtBlock(r.Context(), targetAddress, keyBig, blockNumber)
 
 	if err != nil {
@@ -251,8 +251,8 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		BlockNumber:   blockNumber,
 		Timestamp:     timestamp,
 		Epoch:        currentEpoch,
-		Key:          commonHelpers.BigIntToNumeric(keyBig),
-		Value:        commonHelpers.BigIntToNumeric(value),
+		Key:          utils.BigIntToNumeric(keyBig),
+		Value:        utils.BigIntToNumeric(value),
 		Status:       status,
 		RequiredConfirmations: requiredConfirmations,
 	})
@@ -436,7 +436,7 @@ func (h *Handler) GetConsensusResponseByRequest(w http.ResponseWriter, r *http.R
 
 	// Parse and validate key
 	keyStr := r.URL.Query().Get("key")
-	keyBig := commonHelpers.StringToBigInt(keyStr)
+	keyBig := utils.StringToBigInt(keyStr)
 
 	keyNum := pgtype.Numeric{
 		Int:   keyBig,

@@ -9,6 +9,12 @@ contract MockRegistry {
         uint256 timestamp,
         address _avs
     );
+    address public constant OPERATOR_1 = address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342);
+    address public constant OPERATOR_2 = address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B);
+    address public constant OPERATOR_3 = address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5);
+    address public constant SIGNING_KEY_1 = address(0x9F0D8BAC11C5693a290527f09434b86651c66Bf2);
+    address public constant SIGNING_KEY_2 = address(0xeBBAce05Db3D717A5BA82EAB8AdE712dFb151b13);
+    address public constant SIGNING_KEY_3 = address(0x083739b681B85cc2c9e394471486321D6446b25b);
 
     event OperatorDeregistered(address indexed _operator, uint256 indexed blockNumber, address indexed _avs);
 
@@ -28,13 +34,13 @@ contract MockRegistry {
 
     // Mock function to get operator weight
     function getOperatorWeight(address operator) external pure returns (uint256) {
-        if (operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
+        if (operator == OPERATOR_1) {
             return 333; // Return fixed weight for testing
         }
-        if (operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
+        if (operator == OPERATOR_2) {
             return 444;
         }
-        if (operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
+        if (operator == OPERATOR_3) {
             return 555;
         }
         return 0;
@@ -42,37 +48,37 @@ contract MockRegistry {
 
     function getOperatorWeightAtEpoch(address _operator, uint32 _epochNumber) external view returns (uint256) {
         if (_epochNumber == 1) {
-            if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
+            if (_operator == OPERATOR_1) {
                 return 333; // Return fixed weight for testing
             }
-            if (_operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
+            if (_operator == OPERATOR_2) {
                 return 444;
             }
-            if (_operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
+            if (_operator == OPERATOR_3) {
                 return 555;
             }
         }
 
         if (_epochNumber == 2) {
-            if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
+            if (_operator == OPERATOR_1) {
                 return 345; // Return fixed weight for testing
             }
-            if (_operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
+            if (_operator == OPERATOR_2) {
                 return 456;
             }
-            if (_operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
+            if (_operator == OPERATOR_3) {
                 return 567;
             }
         }
 
         if (_epochNumber == 3) {
-            if (_operator == address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342)) {
+            if (_operator == OPERATOR_1) {
                 return 300; // Return fixed weight for testing
             }
-            if (_operator == address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B)) {
+            if (_operator == OPERATOR_2) {
                 return 400;
             }
-            if (_operator == address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5)) {
+            if (_operator == OPERATOR_3) {
                 return 500;
             }
         }
@@ -105,5 +111,18 @@ contract MockRegistry {
 
     function minimumWeight() external pure returns (uint256) {
         return 10; // Return fixed minimum weight for testing
+    }
+
+    function getOperatorSigningKey(
+        address _operator,
+        uint32 _referenceEpoch
+    ) internal view returns (address) {
+        if(_operator == OPERATOR_1) {
+            return SIGNING_KEY_1;
+        }
+        if(_operator == OPERATOR_2) {
+            return SIGNING_KEY_2;
+        }
+        return SIGNING_KEY_3;
     }
 }

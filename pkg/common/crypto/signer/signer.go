@@ -29,8 +29,6 @@ type Signer interface {
 	GetOperatorAddress() ethcommon.Address
 	// GetSigningAddress returns the address derived from signing key
 	GetSigningAddress() ethcommon.Address
-	// SignJoinRequest signs a join request using the operator key
-	SignJoinRequest(message []byte) ([]byte, error)
 	// SignTaskResponse signs a task response
 	SignTaskResponse(params TaskSignParams) ([]byte, error)
 	// VerifyTaskResponse verifies a task response signature
@@ -74,16 +72,6 @@ func NewLocalSigner(operatorKeyPath string, signingKeyPath string, password stri
 		signingKey:  signingKey.PrivateKey,
 		address:     crypto.PubkeyToAddress(operatorKey.PrivateKey.PublicKey),
 	}, nil
-}
-
-// SignJoinRequest signs a join request using the operator key
-func (s *LocalSigner) SignJoinRequest(message []byte) ([]byte, error) {
-	hash := crypto.Keccak256(message)
-	signature, err := crypto.Sign(hash, s.operatorKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign join request: %w", err)
-	}
-	return signature, nil
 }
 
 // GetOperatorAddress returns the operator's address (from operator key)

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
-	commonHelpers "github.com/galxe/spotted-network/pkg/common"
+	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
@@ -165,11 +165,11 @@ func (tp *TaskProcessor) broadcastResponse(response *task_responses.TaskResponse
 		OperatorAddress:  response.OperatorAddress,
 		SigningKey:    tp.signer.GetSigningAddress().Hex(),
 		Signature:     response.Signature,
-		Value:         commonHelpers.NumericToString(response.Value),
+		Value:         utils.NumericToString(response.Value),
 		BlockNumber:   response.BlockNumber,
 		ChainId:       response.ChainID,
 		TargetAddress: response.TargetAddress,
-		Key:          commonHelpers.NumericToString(response.Key),
+		Key:          utils.NumericToString(response.Key),
 		Epoch:        response.Epoch,
 		Timestamp:    response.Timestamp,
 	}
@@ -202,11 +202,11 @@ func convertToTaskResponse(msg *pb.TaskResponseMessage) (*task_responses.TaskRes
 		OperatorAddress:  msg.OperatorAddress,
 		SigningKey:    msg.SigningKey,
 		Signature:     msg.Signature,
-		Value:         commonHelpers.StringToNumeric(msg.Value),
+		Value:         utils.StringToNumeric(msg.Value),
 		BlockNumber:   msg.BlockNumber,
 		ChainID:       msg.ChainId,
 		TargetAddress: msg.TargetAddress,
-		Key:          commonHelpers.StringToNumeric(msg.Key),
+		Key:          utils.StringToNumeric(msg.Key),
 		Epoch:        msg.Epoch,
 		Timestamp:    msg.Timestamp,
 		SubmittedAt:    time.Now(),
@@ -253,11 +253,11 @@ func (tp *TaskProcessor) verifyResponse(response *task_responses.TaskResponses) 
 		return fmt.Errorf("[Response] timestamp is nil")
 	}
 
-	key, err := commonHelpers.NumericToBigInt(response.Key)
+	key, err := utils.NumericToBigInt(response.Key)
 	if err != nil {
 		return fmt.Errorf("[Response] failed to convert key to big int: %w", err)
 	}
-	value, err := commonHelpers.NumericToBigInt(response.Value)
+	value, err := utils.NumericToBigInt(response.Value)
 	if err != nil {
 		return fmt.Errorf("[Response] failed to convert value to big int: %w", err)
 	}

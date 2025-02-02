@@ -3,17 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
+	"time"
 
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/registry"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	"github.com/libp2p/go-libp2p"
+	"github.com/rs/zerolog/log"
 
 	"github.com/galxe/spotted-network/internal/database/cache"
 	dbwpgx "github.com/galxe/spotted-network/internal/database/wpgx"
+	"github.com/galxe/spotted-network/internal/metric"
+	zlog "github.com/galxe/spotted-network/internal/zerolog"
 )
 
 type ChainManager interface {
@@ -21,17 +24,43 @@ type ChainManager interface {
 }
 
 func main() {
+	startTime := time.Now()
+	defer func() {
+		metric.RecordRequestDuration("main", "startup", time.Since(startTime))
+	}()
+
 	// Get config path from environment variable
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config/registry.yaml"  // default value
 	}
 
+	// Initialize logger first
+	isDebug := os.Getenv("LOG_LEVEL") == "debug"
+	zlog.InitLogger(isDebug)
+	
+	// Create context with logger
+	ctx := context.Background()
+	ctx = log.Logger.WithContext(ctx)
+	
+	log.Info().Str("component", "registry").Msg("Registry node starting...")
+
 	// Load config
 	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
-		log.Fatal("Failed to load config:", err)
+		metric.RecordError("config_load_failed")
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to load config")
 	}
+
+	// Initialize metrics server
+	metricServer := metric.New(&metric.Config{
+		Port: cfg.Metric.Port,
+	})
+	go func() {
+		if err := metricServer.Start(); err != nil {
+			log.Error().Err(err).Str("component", "registry").Msg("Failed to start metric server")
+		}
+	}()
 
 	// Create P2P host
 	host, err := libp2p.New(
@@ -40,22 +69,24 @@ func main() {
 		),
 	)
 	if err != nil {
-		log.Fatal("Failed to create P2P host:", err)
+		metric.RecordError("p2p_host_creation_failed")
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to create P2P host")
 	}
 	defer host.Close()
 
 	// Initialize database connection
-	ctx := context.Background()
 	db, err := dbwpgx.NewWPGXPool(ctx, "POSTGRES")
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		metric.RecordError("database_connection_failed")
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to connect to database")
 	}
 	defer db.Close()
 
 	// Initialize Redis and DCache
 	redisConn, dCache, err := cache.InitCache("registry")
 	if err != nil {
-		log.Fatal("Failed to initialize cache:", err)
+		metric.RecordError("cache_init_failed")
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to initialize cache")
 	}
 	defer redisConn.Close()
 
@@ -63,12 +94,12 @@ func main() {
 	operatorsQuerier := operators.New(db.WConn(), dCache)
 	chainManager, err := ethereum.NewManager(cfg)
 	if err != nil {
-		log.Fatal("Failed to initialize chain manager:", err)
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to initialize chain manager")
 	}
 	defer chainManager.Close()
 	mainnetClient, err := chainManager.GetMainnetClient()
 	if err != nil {
-		log.Fatal("Failed to initialize mainnet client:", err)
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to initialize mainnet client")
 	}
 
 	// Create Registry Node
@@ -78,15 +109,18 @@ func main() {
 		MainnetClient: mainnetClient,
 	})
 	if err != nil {
-		log.Fatal("Failed to create node:", err)
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to create node")
 	}
 	defer node.Stop()
 
 	// Start the node
 	if err := node.Start(ctx); err != nil {
-		log.Fatalf("Failed to start registry node: %v", err)
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to start registry node")
 	}
 		
+	metric.RecordRequest("registry", "startup_complete")
+	log.Info().Str("component", "registry").Msg("Registry node started successfully")
+
 	// Wait forever
 	select {}
 } 

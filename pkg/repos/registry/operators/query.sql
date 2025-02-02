@@ -52,6 +52,7 @@ ORDER BY created_at DESC;
 UPDATE operators
 SET status = $2,
     weight = $3,
+    signing_key = $4,
     updated_at = NOW()
 WHERE address = $1
 RETURNING *;

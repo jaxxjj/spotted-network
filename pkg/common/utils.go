@@ -7,11 +7,13 @@ import (
 	"io"
 	"math"
 	"math/big"
-	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-msgio"
+	"github.com/multiformats/go-multiaddr"
+	"google.golang.org/protobuf/proto"
 )
 
 // ChainClient defines the interface for getting blocks that the helper functions need
@@ -98,6 +100,12 @@ func BigIntToNumeric(x *big.Int) pgtype.Numeric {
 // StringToNumeric converts a string to a pgtype.Numeric
 func StringToNumeric(s string) pgtype.Numeric {
 	return BigIntToNumeric(StringToBigInt(s))
+}
+
+func Uint64ToBytes(i uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, i)
+	return b
 }
 
 
@@ -290,37 +298,48 @@ func WriteLengthPrefixedData(stream network.Stream, data []byte) error {
     return nil
 }
 
-// ReadLengthPrefixedData reads length-prefixed data from a stream
-func ReadLengthPrefixedData(stream network.Stream) ([]byte, error) {
-    length, err := ReadLengthPrefix(stream)
-    if err != nil {
-        return nil, err
-    }
-    
-    data := make([]byte, length)
-    if _, err := io.ReadFull(stream, data); err != nil {
-        return nil, fmt.Errorf("failed to read data: %w", err)
-    }
-    
-    return data, nil
+func MultiaddrsToStrings(multiaddrs []multiaddr.Multiaddr) []string {
+	strs := make([]string, len(multiaddrs))
+	for i, addr := range multiaddrs {
+		strs[i] = addr.String()
+	}
+	return strs
 }
 
-// WriteLengthPrefixedDataWithDeadline writes length-prefixed data with a deadline
-func WriteLengthPrefixedDataWithDeadline(stream network.Stream, data []byte, deadline time.Duration) error {
-    if err := stream.SetWriteDeadline(time.Now().Add(deadline)); err != nil {
-        return fmt.Errorf("failed to set write deadline: %w", err)
-    }
-    defer stream.SetWriteDeadline(time.Time{})
+func StringsToMultiaddrs(addrs []string) ([]multiaddr.Multiaddr, error) {
+    multiaddrs := make([]multiaddr.Multiaddr, 0, len(addrs))
     
-    return WriteLengthPrefixedData(stream, data)
+    for _, addr := range addrs {
+        maddr, err := multiaddr.NewMultiaddr(addr)
+        if err != nil {
+            return nil, fmt.Errorf("invalid multiaddr %s: %w", addr, err)
+        }
+        multiaddrs = append(multiaddrs, maddr)
+    }
+    
+    return multiaddrs, nil
 }
 
-// ReadLengthPrefixedDataWithDeadline reads length-prefixed data with a deadline
-func ReadLengthPrefixedDataWithDeadline(stream network.Stream, deadline time.Duration) ([]byte, error) {
-    if err := stream.SetReadDeadline(time.Now().Add(deadline)); err != nil {
-        return nil, fmt.Errorf("failed to set read deadline: %w", err)
-    }
-    defer stream.SetReadDeadline(time.Time{})
-    
-    return ReadLengthPrefixedData(stream)
+
+// readMessage reads a protobuf message from a stream
+func ReadStreamMessage(stream network.Stream, msg proto.Message, maxMessageSize int) error {
+	reader := msgio.NewVarintReaderSize(stream, maxMessageSize)
+	bytes, err := reader.ReadMsg()
+	if err != nil {
+		return err
+	}
+	defer reader.ReleaseMsg(bytes)
+	
+	return proto.Unmarshal(bytes, msg)
+}
+
+// writeMessage writes a protobuf message to a stream
+func WriteStreamMessage(stream network.Stream, msg proto.Message) error {
+	bytes, err := proto.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	
+	writer := msgio.NewVarintWriter(stream)
+	return writer.WriteMsg(bytes)
 }

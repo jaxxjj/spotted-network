@@ -326,15 +326,17 @@ const updateOperatorState = `-- name: UpdateOperatorState :one
 UPDATE operators
 SET status = $2,
     weight = $3,
+    signing_key = $4,
     updated_at = NOW()
 WHERE address = $1
 RETURNING address, signing_key, registered_at_block_number, registered_at_timestamp, active_epoch, exit_epoch, status, weight, created_at, updated_at
 `
 
 type UpdateOperatorStateParams struct {
-	Address string               `json:"address"`
-	Status  types.OperatorStatus `json:"status"`
-	Weight  pgtype.Numeric       `json:"weight"`
+	Address    string               `json:"address"`
+	Status     types.OperatorStatus `json:"status"`
+	Weight     pgtype.Numeric       `json:"weight"`
+	SigningKey string               `json:"signing_key"`
 }
 
 // -- invalidate: GetOperatorByAddress
@@ -346,7 +348,11 @@ func (q *Queries) UpdateOperatorState(ctx context.Context, arg UpdateOperatorSta
 func _UpdateOperatorState(ctx context.Context, q CacheWGConn, arg UpdateOperatorStateParams, getOperatorByAddress *string) (*Operators, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
-	row := q.GetConn().WQueryRow(qctx, "operators.UpdateOperatorState", updateOperatorState, arg.Address, arg.Status, arg.Weight)
+	row := q.GetConn().WQueryRow(qctx, "operators.UpdateOperatorState", updateOperatorState,
+		arg.Address,
+		arg.Status,
+		arg.Weight,
+		arg.SigningKey)
 	var i *Operators = new(Operators)
 	err := row.Scan(
 		&i.Address,

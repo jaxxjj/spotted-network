@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/event"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
+	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -19,27 +19,41 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/stumble/wpgx"
 )
 
+type ActiveOperatorPeers struct {
+	// Active operators (peer.ID -> OperatorState)
+	active map[peer.ID]*OperatorPeerInfo
+	mu sync.RWMutex
+}
+
 // OperatorState represents the complete state of an operator
-type OperatorState struct {
-	// 基本信息
+type OperatorPeerInfo struct {
+	// Address of the operator
 	Address    string
+	// Peer ID of the operator
 	PeerID     peer.ID
+	// Multiaddrs of the operator
 	Multiaddrs []multiaddr.Multiaddr
 	
-	// 运行时状态
+	// Runtime status
 	LastSeen   time.Time
-	Status     string
 	
-	// 状态同步
-	SyncStream network.Stream
+	// Active streams
+	RegistryStream network.Stream
+	StateSyncStream network.Stream
+}
+type NodeQuerier interface {
+	UpdateOperatorStatus(ctx context.Context, arg operators.UpdateOperatorStatusParams, getOperatorByAddress *string) (*operators.Operators, error)
+	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
+
+	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string) (*operators.Operators, error)
+	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string) (*operators.Operators, error)
 }
 
 type MainnetClient interface {
 	GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error)
-	WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error)
-	WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error) 
 	BlockNumber(ctx context.Context) (uint64, error)
 	GetOperatorWeight(ctx context.Context, operator common.Address) (*big.Int, error)
 	IsOperatorRegistered(ctx context.Context, operator common.Address) (bool, error) 
@@ -55,32 +69,27 @@ type P2PHost interface {
 	SetStreamHandler(pid protocol.ID, handler network.StreamHandler)
 	Peerstore() peerstore.Peerstore
 	Close() error
+	Network() network.Network
 }
 
-type OperatorInfo struct {
-	// Active operators (peer.ID -> OperatorState)
-	active map[peer.ID]*OperatorState
-	mu sync.RWMutex
-}
 
 // NodeConfig contains all the dependencies needed by Registry Node
 type NodeConfig struct {
 	Host           host.Host
-	Operators      OperatorsQuerier
-	MainnetClient  MainnetClient
+	OperatorsQuerier      *operators.Queries
+	MainnetClient  *ethereum.ChainClient
+	PubSub         *pubsub.PubSub
+	TxManager      *wpgx.Pool
 }
 
 type Node struct {
 	host P2PHost
 	
 	// Operator management
-	operators OperatorInfo
-	
-	// Health check interval
-	healthCheckInterval time.Duration
+	activeOperators ActiveOperatorPeers
 
 	// Database connection
-	operatorsDB OperatorsQuerier
+	opQuerier NodeQuerier
 
 	// Event listener
 	eventListener *EventListener
@@ -91,11 +100,17 @@ type Node struct {
 	// Chain clients manager
 	mainnetClient MainnetClient
 
-	// Ping service for health checks
-	pingService *ping.PingService
-
 	// Auth handler
-	authHandler *AuthHandler
+	registryHandler *RegistryHandler
+
+	// State root
+	stateRoot string
+
+	// State sync processor
+	stateSyncProcessor *StateSyncProcessor
+
+	// Health checker
+	healthChecker *HealthChecker
 }
 
 func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
@@ -103,7 +118,7 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	if cfg.Host == nil {
 		log.Fatal("[Registry] host not initialized")
 	}
-	if cfg.Operators == nil {
+	if cfg.OperatorsQuerier == nil {
 		log.Fatal("[Registry] operators querier not initialized")
 	}
 	if cfg.MainnetClient == nil {
@@ -115,109 +130,101 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 
 	node := &Node{
 		host:               cfg.Host,
-		healthCheckInterval: 100 * time.Second,
-		operatorsDB:        cfg.Operators,
+		opQuerier:          cfg.OperatorsQuerier,
 		mainnetClient:      cfg.MainnetClient,
-		pingService:        pingService,
 	}
 
 	// Initialize operators management
-	node.operators.active = make(map[peer.ID]*OperatorState)
+	node.activeOperators.active = make(map[peer.ID]*OperatorPeerInfo)
 	
 	// Create and initialize event listener
-	node.eventListener = NewEventListener(node, cfg.MainnetClient, cfg.Operators)
+	node.eventListener = NewEventListener(node, cfg.MainnetClient, cfg.OperatorsQuerier)
 
-	// Create and initialize epoch updator
-	node.epochUpdator = NewEpochUpdator(node)
+
+
+	// Start event listener with context
 	if err := node.eventListener.StartListening(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start event listener: %w", err)
 	}
 
-	// Create and initialize auth handler
-	node.authHandler = NewAuthHandler(node, cfg.Operators)
-
-	// Set up protocol handlers
-	node.host.SetStreamHandler(RegistryProtocolID, node.authHandler.HandleStream)
-	log.Printf("[Registry] Auth handler set up")
+	// Start registry service
+	if err := node.startRegistryService(cfg); err != nil {
+		return nil, fmt.Errorf("failed to start registry service: %w", err)
+	}
+	log.Printf("[Registry] Registry service started")
 
 	// Start state sync service
-	if err := node.startStateSync(); err != nil {
+	if err := node.startStateSync(cfg); err != nil {
 		return nil, fmt.Errorf("failed to start state sync service: %w", err)
 	}
 	log.Printf("[Registry] State sync service started")
 
-	go node.startHealthCheck(ctx)
-	// Start epoch monitoring
-	go node.epochUpdator.Start(ctx)
+	// Create and initialize epoch updator
+	epochUpdator, err := NewEpochUpdator(ctx, &EpochUpdatorConfig{
+		node: node,
+		opQuerier: cfg.OperatorsQuerier,
+		pubsub: cfg.PubSub,
+		mainnetClient: cfg.MainnetClient,
+		sp: node.stateSyncProcessor,
+		txManager: cfg.TxManager,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create epoch updator: %w", err)
+	}
+	node.epochUpdator = epochUpdator
+	// Create and start health checker
+	healthChecker, err := NewHealthChecker(ctx, node, pingService)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start health checker: %w", err)
+	}
+	node.healthChecker = healthChecker
+	log.Printf("[Registry] Health check service started")
+
 	log.Printf("[Registry] Epoch monitoring started")
 
 	log.Printf("Registry Node started. ID: %s, Addrs: %v\n", cfg.Host.ID(), cfg.Host.Addrs())
 	return node, nil
 }
 
-func (n *Node) Start(ctx context.Context) error {
-	// Validate required components
-	if n.host == nil {
-		return fmt.Errorf("[Registry] host not initialized")
-	}
-	if n.operatorsDB == nil {
-		return fmt.Errorf("[Registry] operators database not initialized") 
-	}
-	if n.epochUpdator == nil {
-		return fmt.Errorf("[Registry] epoch updator not initialized")
-	}
-	if n.eventListener == nil {
-		return fmt.Errorf("[Registry] event listener not initialized")
-	}
 
-	// Start state sync service
-	if err := n.startStateSync(); err != nil {
-		return fmt.Errorf("failed to start state sync service: %w", err)
-	}
-	log.Printf("[Registry] State sync service started")
 
-	// Start epoch monitoring
-	go n.epochUpdator.Start(ctx)
-	log.Printf("[Registry] Epoch monitoring started")
-
-	return nil
-}
 
 func (n *Node) Stop() error {
 	return n.host.Close()
 }
 
 // GetOperatorState returns the state of a connected operator
-func (n *Node) GetOperatorState(id peer.ID) *OperatorState {
-	n.operators.mu.RLock()
-	defer n.operators.mu.RUnlock()
-	return n.operators.active[id]
+func (n *Node) GetOperatorState(id peer.ID) *OperatorPeerInfo {
+	n.activeOperators.mu.RLock()
+	defer n.activeOperators.mu.RUnlock()
+	return n.activeOperators.active[id]
 }
 
 // GetConnectedOperators returns all connected operator IDs
 func (n *Node) GetConnectedOperators() []peer.ID {
-	n.operators.mu.RLock()
-	defer n.operators.mu.RUnlock()
+	n.activeOperators.mu.RLock()
+	defer n.activeOperators.mu.RUnlock()
 
-	operators := make([]peer.ID, 0, len(n.operators.active))
-	for id := range n.operators.active {
+	operators := make([]peer.ID, 0, len(n.activeOperators.active))
+	for id := range n.activeOperators.active {
 		operators = append(operators, id)
 	}
 	return operators
 }
 
 // UpdateOperatorState updates an operator's state
-func (n *Node) UpdateOperatorState(id peer.ID, state *OperatorState) {
-	n.operators.mu.Lock()
-	defer n.operators.mu.Unlock()
-	n.operators.active[id] = state
+func (n *Node) UpdateOperatorState(id peer.ID, state *OperatorPeerInfo) {
+	n.activeOperators.mu.Lock()
+	defer n.activeOperators.mu.Unlock()
+	n.activeOperators.active[id] = state
 }
 
 // RemoveOperator removes an operator from the active set
 func (n *Node) RemoveOperator(id peer.ID) {
-	n.operators.mu.Lock()
-	defer n.operators.mu.Unlock()
-	delete(n.operators.active, id)
+	n.activeOperators.mu.Lock()
+	defer n.activeOperators.mu.Unlock()
+	delete(n.activeOperators.active, id)
+
 }
 
 // GetHostID returns the node's libp2p host ID
@@ -225,17 +232,28 @@ func (n *Node) GetHostID() string {
 	return n.host.ID().String()
 }
 
-// PingPeer implements ping functionality for the node
-func (n *Node) PingPeer(ctx context.Context, p peer.ID) error {
-	// Add ping timeout
-	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
-	defer cancel()
+func (n *Node) startRegistryService(cfg *NodeConfig) error {
+	// Create and initialize registry handler
+	n.registryHandler = NewRegistryHandler(n, cfg.OperatorsQuerier)
 
-	result := <-n.pingService.Ping(ctx, p)
-	if result.Error != nil {
-		return fmt.Errorf("ping failed: %v", result.Error)
-	}
+	// Set up protocol handler
+	n.host.SetStreamHandler(RegistryProtocolID, n.registryHandler.HandleStream)
+	log.Printf("[Registry] Registry handler set up for protocol: %s", RegistryProtocolID)
 
-	log.Printf("Successfully pinged peer: %s (RTT: %v)", p, result.RTT)
 	return nil
+}
+
+func (n *Node) startStateSync(cfg *NodeConfig) error {
+    // Create state sync processor
+    processor, err := NewStateSyncProcessor(n, cfg.PubSub)
+    if err != nil {
+        return fmt.Errorf("failed to create state sync processor: %w", err)
+    }
+    
+    // Set up protocol handler
+    n.host.SetStreamHandler(StateVerifyProtocol, processor.handleStateVerifyStream)
+    log.Printf("[StateSync] Stream handler set up for protocol: %s", StateVerifyProtocol)
+    
+    n.stateSyncProcessor = processor
+    return nil
 }

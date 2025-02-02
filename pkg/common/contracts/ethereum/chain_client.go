@@ -268,3 +268,13 @@ func (c *ChainClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sin
 
 	return sub, nil
 }
+
+// GetOperatorSigningKey gets the signing key for an operator at a specific epoch
+func (c *ChainClient) GetOperatorSigningKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
+	opts := &bind.CallOpts{Context: ctx}
+	signingKey, err := c.registry.GetOperatorSigningKeyAtEpoch(opts, operator, epoch)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("[ChainClient] failed to get operator signing key at epoch %d: %w", epoch, err)
+	}
+	return signingKey, nil
+}

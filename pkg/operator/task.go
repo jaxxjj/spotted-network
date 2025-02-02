@@ -9,7 +9,7 @@ import (
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
-	commonHelpers "github.com/galxe/spotted-network/pkg/common"
+	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
@@ -70,7 +70,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 		return fmt.Errorf("failed to get state client: %v", err)
 	}
 	log.Printf("[Task] Got state client for chain %d", task.ChainID)
-	KeyBig, err := commonHelpers.NumericToBigInt(task.Key)
+	KeyBig, err := utils.NumericToBigInt(task.Key)
 	if err != nil {
 		return fmt.Errorf("failed to convert key to big.Int: %v", err)
 	}
@@ -86,13 +86,13 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 		return fmt.Errorf("failed to get state: %w", err)
 	}
 	log.Printf("[Task] Retrieved state value: %s", value.String())
-	taskValueBig, err := commonHelpers.NumericToBigInt(task.Value)
+	taskValueBig, err := utils.NumericToBigInt(task.Value)
 	if err != nil {
 		return fmt.Errorf("failed to convert task value to big.Int: %v", err)
 	}
 	// Verify the state matches
 	if value.Cmp(taskValueBig) != 0 {
-		return fmt.Errorf("state value mismatch: expected %s, got %s", commonHelpers.NumericToString(task.Value), value)
+		return fmt.Errorf("state value mismatch: expected %s, got %s", utils.NumericToString(task.Value), value)
 	}
 	log.Printf("[Task] Verified state value matches expected value")
 
@@ -117,7 +117,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 		OperatorAddress:  tp.signer.GetOperatorAddress().Hex(),
 		SigningKey:    tp.signer.GetSigningAddress().Hex(),
 		Signature:     signature,
-		Value:         commonHelpers.BigIntToNumeric(value),
+		Value:         utils.BigIntToNumeric(value),
 		BlockNumber:   task.BlockNumber,
 		ChainID:       task.ChainID,
 		TargetAddress: task.TargetAddress,

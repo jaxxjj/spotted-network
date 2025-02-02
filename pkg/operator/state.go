@@ -55,23 +55,6 @@ func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, chainClient Ch
 	return nil, fmt.Errorf("failed to get state after %d retries", maxRetries)
 }
 
-// isActiveOperator checks if a signing key belongs to an active operator in the operator's local storage
-func (tp *TaskProcessor) isActiveOperator(signingKey string) bool {
-	// First try to find the operator by signing key
-	tp.node.operators.mu.RLock()
-	defer tp.node.operators.mu.RUnlock()
-	
-	// Iterate through operators to find one with matching signing key
-	for _, state := range tp.node.operators.byAddress {
-		if state.SigningKey == signingKey && state.Status == "active" {
-			log.Printf("[StateCheck] Found active operator with signing key %s", signingKey)
-			return true
-		}
-	}
-
-	log.Printf("[StateCheck] No active operator found for signing key %s", signingKey)
-	return false
-}
 
 // getOperatorWeight returns the weight of an operator in the operator's local storage
 func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error) {
@@ -90,4 +73,25 @@ func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error
 	}
 	
 	return big.NewInt(0), fmt.Errorf("[StateCheck] operator %s not found", operatorAddr)
+}
+
+// PrintOperatorStates prints all operator states stored in memory
+func (n *Node) PrintOperatorStates() {
+	n.operators.mu.RLock()
+	defer n.operators.mu.RUnlock()
+
+	log.Printf("\nOperator States (%d total):", len(n.operators.byAddress))
+	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
+	log.Printf("| %-42s | %-12s | %-12s | %-10s |", "Address", "Status", "ActiveEpoch", "Weight")
+	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
+	
+	for _, op := range n.operators.byAddress {
+		log.Printf("| %-42s | %-12s | %-12d | %-10s |", 
+			op.Address,
+			op.Status,
+			op.ActiveEpoch,
+			op.Weight,
+		)
+	}
+	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
 }

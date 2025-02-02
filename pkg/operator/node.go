@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"sync"
 	"time"
@@ -27,7 +28,6 @@ import (
 
 // P2PHost defines the minimal interface required for p2p functionality
 type P2PHost interface {
-	// Core functionality
 	ID() peer.ID
 	Addrs() []multiaddr.Multiaddr
 	Connect(ctx context.Context, pi peer.AddrInfo) error
@@ -43,29 +43,20 @@ type APIServer interface {
 	Stop(ctx context.Context) error
 }
 
-// OperatorState represents the complete state of an operator
+// OperatorState stores business state synced from registry
 type OperatorState struct {
-	// Basic info
-	Address    string
-	SigningKey string
+	// Peer Info
 	PeerID     peer.ID
 	Multiaddrs []multiaddr.Multiaddr
-	
-	// Runtime state
-	LastSeen   time.Time
-	Status     string
-	Weight     string
-	ActiveEpoch uint32
-	
-	// Connection info
-	AddrInfo   *peer.AddrInfo
+
+	// Business State
+	Address                 string
+	SigningKey             string
+	Weight                 *big.Int
 }
 
-type OperatorInfo struct{
-	// Map from address to operator state
-	byAddress map[string]*OperatorState
-	// Map from peer ID to operator state (same objects as in byAddress)
-	byPeerID map[peer.ID]*OperatorState
+type ActivePeerStates struct {
+	active map[peer.ID]*OperatorState
 	mu sync.RWMutex
 }
 
@@ -87,26 +78,34 @@ type NodeConfig struct {
 type Node struct {
 	host           P2PHost
 	registryID     peer.ID
-	registryAddr   string
+	registryAddress   string
 	signer         OperatorSigner
 	chainManager   ChainManager
-	
-	// Operator management - single map for all operator related info
-	operators OperatorInfo
-	
 	pingService    *ping.PingService
 	apiServer      APIServer
 	taskProcessor  *TaskProcessor
-	authHandler    *AuthHandler
+	registryHandler *RegistryHandler
 	tasksQuerier   TasksQuerier
 	taskResponseQuerier TaskResponseQuerier
 	consensusResponseQuerier ConsensusResponseQuerier
 	epochStateQuerier EpochStateQuerier
 	config          *config.Config
+
+	// Network connection information
+	activeOperators ActivePeerStates
+	activeOperatorsMu sync.RWMutex
+
+	// Business state information (synced from registry)
+	operatorState *OperatorState
+	operatorStateMu sync.RWMutex
+
+	// Active peer states
+	activePeers *ActivePeerStates
 }
 
+
 // NewNode creates a new operator node with the given dependencies
-func NewNode(cfg *NodeConfig) (*Node, error) {
+func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	// Validate required dependencies
 	if cfg.Host == nil {
 		return nil, fmt.Errorf("host is required")
@@ -154,7 +153,7 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 	node := &Node{
 		host:           cfg.Host,
 		registryID:     addrInfo.ID,
-		registryAddr:   cfg.RegistryAddress,
+		registryAddress:   cfg.RegistryAddress,
 		signer:         cfg.Signer,
 		chainManager:   cfg.ChainManager,
 		tasksQuerier:   cfg.TasksQuerier,
@@ -163,14 +162,13 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 		epochStateQuerier: cfg.EpochStateQuerier,
 		config:        cfg.Config,
 		pingService:   pingService,
+		activePeers: &ActivePeerStates{
+			active: make(map[peer.ID]*OperatorState),
+		},
 	}
 
-	// Initialize operators management
-	node.operators.byAddress = make(map[string]*OperatorState)
-	node.operators.byPeerID = make(map[peer.ID]*OperatorState)
-
 	// Initialize pubsub
-	ps, err := pubsub.NewGossipSub(context.Background(), cfg.Host)
+	pubsub, err := pubsub.NewGossipSub(ctx, cfg.Host)
 	if err != nil {
 		log.Fatal("Failed to create pubsub:", err)
 	}
@@ -184,7 +182,7 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 		ConsensusResponse: cfg.ConsensusResponseQuerier,
 		EpochState:        cfg.EpochStateQuerier,
 		ChainManager:      cfg.ChainManager,
-		PubSub:            ps,
+		PubSub:            pubsub,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task processor: %w", err)
@@ -194,7 +192,7 @@ func NewNode(cfg *NodeConfig) (*Node, error) {
 	if err != nil{
 		log.Fatal()
 	}
-	node.authHandler = NewAuthHandler(node, cfg.Signer.GetOperatorAddress(), cfg.Signer, registryId)
+	node.registryHandler = NewRegistryHandler(node, cfg.Signer.GetOperatorAddress(), cfg.Signer, registryId)
 	// Create API handler and server
 	apiHandler := api.NewHandler(cfg.TasksQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
 	node.apiServer = api.NewServer(apiHandler, cfg.Config.HTTP.Port)
@@ -242,7 +240,7 @@ func (n *Node) Start(ctx context.Context) error {
 
 	// Step 2: Authenticate with registry
 	log.Printf("[Node] Authenticating with registry...")
-	if err := n.authHandler.AuthToRegistry(ctx); err != nil {
+	if err := n.registryHandler.AuthToRegistry(ctx); err != nil {
 		return fmt.Errorf("failed to authenticate with registry: %w", err)
 	}
 	log.Printf("[Node] Successfully authenticated with registry")
@@ -289,12 +287,12 @@ func (n *Node) Stop() error {
 }
 
 func (n *Node) connectToRegistry() error {
-	log.Printf("[Node] Attempting to connect to Registry Node at address: %s\n", n.registryAddr)
+	log.Printf("[Node] Attempting to connect to Registry Node at address: %s\n", n.registryAddress)
 
 	// Create multiaddr from the provided address
-	addr, err := multiaddr.NewMultiaddr(n.registryAddr)
+	addr, err := multiaddr.NewMultiaddr(n.registryAddress)
 	if err != nil {
-		return fmt.Errorf("[Node] invalid registry address: %s", n.registryAddr)
+		return fmt.Errorf("[Node] invalid registry address: %s", n.registryAddress)
 	}
 
 	// Parse peer info from multiaddr
@@ -328,6 +326,34 @@ func (n *Node) PingPeer(ctx context.Context, p peer.ID) error {
 
 	log.Printf("Successfully pinged peer: %s (RTT: %v)", p, result.RTT)
 	return nil
+}
+
+// UpdatePeerInfo updates the node's peer information
+func (n *Node) UpdatePeerInfo(info *PeerInfo) {
+	n.peerInfoMu.Lock()
+	defer n.peerInfoMu.Unlock()
+	n.peerInfo = info
+}
+
+// GetPeerInfo returns the current peer information
+func (n *Node) GetPeerInfo() *PeerInfo {
+	n.peerInfoMu.RLock()
+	defer n.peerInfoMu.RUnlock()
+	return n.peerInfo
+}
+
+// UpdateOperatorState updates the operator's business state
+func (n *Node) UpdateOperatorState(state *OperatorState) {
+	n.operatorStateMu.Lock()
+	defer n.operatorStateMu.Unlock()
+	n.operatorState = state
+}
+
+// GetOperatorState returns the current operator state
+func (n *Node) GetOperatorState() *OperatorState {
+	n.operatorStateMu.RLock()
+	defer n.operatorStateMu.RUnlock()
+	return n.operatorState
 }
 
 // UpdateOperatorState updates an operator's state

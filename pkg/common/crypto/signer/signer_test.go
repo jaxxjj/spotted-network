@@ -53,7 +53,7 @@ func TestLocalSigner(t *testing.T) {
 
 		// Test join request signing
 		joinMsg := []byte("join request")
-		sig, err := s.SignJoinRequest(joinMsg)
+		sig, err := s.Sign(joinMsg)
 		require.NoError(t, err)
 
 		// Verify join signature

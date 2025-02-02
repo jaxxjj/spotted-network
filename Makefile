@@ -1,20 +1,46 @@
-.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all start-monitoring
+
+# Start monitoring infrastructure
+start-prometheus:
+	@echo "Starting Prometheus..."
+	@docker compose up -d prometheus
+	@sleep 5
+
+start-otel:
+	@echo "Starting OpenTelemetry Collector..."
+	@docker compose up -d otel-collector
+	@sleep 5
+
+start-monitoring: start-prometheus start-otel
+	@echo "Monitoring infrastructure is ready"
 
 # Start registry node
-start-registry:
+start-registry: start-monitoring
 	@echo "Starting registry node..."
-	@docker compose --profile registry up registry 
-	@echo "Waiting for registry to be ready..."
+	@docker compose --profile registry up -d registry --build
 	@sleep 5
 
 # Start operator nodes
-start-operators:
+start-operators: start-registry
 	@echo "Starting operator nodes..."
-	@docker compose --profile operators up operator1 operator2 operator3 --build
+	@docker compose --profile operators up -d operator1 operator2 operator3
+	@sleep 5
 
 # Start everything in sequence
-start-all: start-registry get-registry-id start-operators
-	@echo "All nodes started"
+start-all: start-monitoring start-registry get-registry-id start-operators
+	@echo "All services started"
+	@echo "Prometheus UI: http://localhost:9090"
+	@echo "Registry metrics: http://localhost:4014/metrics"
+	@echo "Operator1 metrics: http://localhost:4015/metrics"
+	@echo "Operator2 metrics: http://localhost:4016/metrics"
+	@echo "Operator3 metrics: http://localhost:4017/metrics"
+
+# Check monitoring status
+check-monitoring:
+	@echo "Checking Prometheus status..."
+	@curl -s http://localhost:9090/-/healthy || echo "Prometheus is not healthy"
+	@echo "\nChecking OpenTelemetry Collector status..."
+	@curl -s http://localhost:8888/metrics > /dev/null && echo "OpenTelemetry Collector is healthy" || echo "OpenTelemetry Collector is not healthy"
 
 # Generate operator keys
 generate-keys:
@@ -39,9 +65,11 @@ check-operator-status-operator3:
 check-tasks-operator1:
 	@echo "Querying tasks from operator1 database..."
 	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM tasks;"
+
 check-tasks-operator2:
 	@echo "Querying tasks from operator2 database..."
 	@PGPASSWORD=spotted psql -h localhost -p 5434 -U spotted -d operator2 -c "SELECT * FROM tasks;"
+
 check-tasks-operator3:
 	@echo "Querying tasks from operator3 database..."
 	@PGPASSWORD=spotted psql -h localhost -p 5435 -U spotted -d operator3 -c "SELECT * FROM tasks;"
@@ -76,9 +104,11 @@ check-consensus-operator3:
 create-task-operator1:
 	@echo "Creating new task..."
 	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8001/api/v1/tasks
+
 create-task-operator2:
 	@echo "Creating new task..."
 	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8002/api/v1/tasks
+
 create-task-operator3:
 	@echo "Creating new task..."
 	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8003/api/v1/tasks
@@ -111,8 +141,11 @@ docker-clean:
 
 # Stop all running nodes
 stop:
-	@echo "Stopping all nodes..."
-	@pkill -f "./registry" || true
-	@pkill -f "./operator" || true
-	@echo "All nodes stopped"
+	@echo "Stopping all services..."
+	@docker compose down
+	@echo "All services stopped"
+
+# Restart all services
+restart: stop start-all
+	@echo "All services restarted"
 
