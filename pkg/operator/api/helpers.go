@@ -10,14 +10,12 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// writeJSON 统一处理JSON响应的写入
 func writeJSON(w http.ResponseWriter, status int, response interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(response)
 }
 
-// writeError 处理错误响应
 func writeError(w http.ResponseWriter, status int, err string) {
 	response := SendRequestResponse{
 		Status: "error",
@@ -26,7 +24,6 @@ func writeError(w http.ResponseWriter, status int, err string) {
 	writeJSON(w, status, response)
 }
 
-// writeSuccess 处理成功响应
 func writeSuccess(w http.ResponseWriter, taskID string, status string, confirmations uint16, message string) {
 	response := SendRequestResponse{
 		TaskID:               taskID,

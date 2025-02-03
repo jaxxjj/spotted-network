@@ -24,8 +24,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 )
 
-// StateClient defines the interface for state-related operations
-// that the API handler needs
+// chain client interface
 type ChainClient interface {
 	BlockNumber(ctx context.Context) (uint64, error)
 	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
@@ -38,8 +37,7 @@ type TaskProcessor interface {
 	ProcessTask(ctx context.Context, task *tasks.Tasks) error
 }
 
-// ChainManager defines the interface for managing chain clients
-// that the API handler needs
+// ChainManager helps to manage chain clients
 type ChainManager interface {
 	// GetMainnetClient returns the mainnet client
 	GetMainnetClient() (*ethereum.ChainClient, error)
@@ -68,6 +66,7 @@ type Handler struct {
 	config        *config.Config
 }
 
+// user send request params
 type SendRequestParams struct {
 	ChainID       uint32 `json:"chain_id"`
 	TargetAddress string `json:"target_address"`
@@ -77,6 +76,7 @@ type SendRequestParams struct {
 	WaitFinality  bool   `json:"wait_finality"`
 }
 
+// send request response
 type SendRequestResponse struct {
 	TaskID               string `json:"task_id"`
 	Status               string `json:"status"`
@@ -85,6 +85,7 @@ type SendRequestResponse struct {
 	Error               string `json:"error,omitempty"`
 }
 
+// consensus response wrapper
 type ConsensusResponseWrapper struct {
 	Data    *consensus_responses.ConsensusResponse `json:"data,omitempty"`
 	Message string                                `json:"message,omitempty"`
@@ -121,30 +122,7 @@ func NewHandler(
 	}
 }
 
-// 首先添加一个辅助函数来检查任务状态
-func (h *Handler) checkExistingTaskAndConsensus(ctx context.Context, taskID string) (*tasks.Tasks, *consensus_responses.ConsensusResponse, error) {
-	// 检查任务是否存在
-	existingTask, err := h.tasks.GetTaskByID(ctx, taskID)
-	if err != nil {
-		log.Printf("[API] Failed to query task: %v", err)
-		return nil, nil, fmt.Errorf("failed to query task: %v", err)
-	}
-
-	if existingTask == nil {
-		return nil, nil, nil
-	}
-
-	// 检查是否已达成共识
-	consensus, err := h.consensusResponses.GetConsensusResponseByTaskId(ctx, taskID)
-	if err != nil {
-		log.Printf("[API] Failed to query consensus: %v", err)
-		return existingTask, nil, fmt.Errorf("failed to query consensus: %v", err)
-	}
-
-	return existingTask, consensus, nil
-}
-
-// 然后在 SendRequest 中使用这个函数
+// send request handler
 func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -218,25 +196,40 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 
 	taskID := h.generateTaskID(&params, value.String())
 
-	// 检查现有任务和共识状态
-	existingTask, consensus, err := h.checkExistingTaskAndConsensus(r.Context(), taskID)
+	// check consensus reached
+	consensus, err := h.consensusResponses.GetConsensusResponseByTaskId(r.Context(), taskID)
 	if err != nil {
+		log.Printf("[API] Failed to query consensus: %v", err)
+		writeError(w, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	
+	if consensus != nil {
+		writeSuccess(w, 
+			taskID,
+			string(commonTypes.TaskStatusCompleted),
+			0, 
+			fmt.Sprintf("Task already completed with consensus reached at %s", 
+				consensus.ConsensusReachedAt.Format(time.RFC3339)),
+		)
+		return
+	}
+
+	// check task exists
+	existingTask, err := h.tasks.GetTaskByID(r.Context(), taskID)
+	if err != nil {
+		log.Printf("[API] Failed to query task: %v", err)
 		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
 	if existingTask != nil {
-		statusMessage := fmt.Sprintf("Task already exists with status: %s", existingTask.Status)
-		if consensus != nil {
-			statusMessage = fmt.Sprintf("Task already completed with consensus reached at %s", 
-				consensus.ConsensusReachedAt.Format(time.RFC3339))
-		}
-
+		// task exists
 		writeSuccess(w, 
 			existingTask.TaskID,
 			string(existingTask.Status),
 			uint16(existingTask.RequiredConfirmations),
-			statusMessage,
+			fmt.Sprintf("Task already exists with status: %s", existingTask.Status),
 		)
 		return
 	}
@@ -383,8 +376,6 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 
 	return nil
 }
-
-
 
 // GetTaskConsensusByTaskID returns the consensus result for a task
 func (h *Handler) GetTaskConsensusByTaskID(w http.ResponseWriter, r *http.Request) {

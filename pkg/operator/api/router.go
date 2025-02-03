@@ -4,9 +4,14 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+const (
+	RateLimit = 10
+	RateLimitBurst = 15
+)
+
 func (h *Handler) RegisterRoutes(r chi.Router) {
-	// create rate limiter: 2 requests per second, max burst 3 requests
-	rateLimiter := NewRateLimiter(2, 3)
+	
+	rateLimiter := NewRateLimiter(RateLimit, RateLimitBurst)
 	
 	// apply rate limit middleware
 	r.Use(rateLimiter.RateLimit)
