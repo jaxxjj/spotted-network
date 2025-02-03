@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -36,6 +38,9 @@ type EventListener struct {
 	node *Node
 	mainnetClient EventListenerChainClient
 	operators EventListenerQuerier
+	
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 func NewEventListener(ctx context.Context, cfg *EventListenerConfig) *EventListener {
@@ -48,13 +53,31 @@ func NewEventListener(ctx context.Context, cfg *EventListenerConfig) *EventListe
 	if cfg.operators == nil {
 		log.Fatal("[EventListener] operators querier not initialized")
 	}
-	log.Printf("[EventListener] Creating new EventListener instance")
+
+	// 创建带 cancel 的 context
+	ctx, cancel := context.WithCancel(ctx)
+	
 	el := &EventListener{
-		node: cfg.node,
+		node:          cfg.node,
 		mainnetClient: cfg.mainnetClient,
-		operators: cfg.operators,
+		operators:     cfg.operators,
+		cancel:        cancel,
 	}
-	go el.start(ctx)
+	
+	// 启动监听
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[EventListener] Recovered from panic: %v", r)
+			}
+		}()
+
+		if err := el.start(ctx); err != nil {
+			log.Printf("[EventListener] Event listener stopped with error: %v", err)
+		}
+	}()
+	
+	log.Printf("[EventListener] Event listener started")
 	return el
 }
 
@@ -62,72 +85,91 @@ func NewEventListener(ctx context.Context, cfg *EventListenerConfig) *EventListe
 func (el *EventListener) start(ctx context.Context) error {
 	log.Printf("[EventListener] Starting event listener...")
 
-	// Create filter options
+	// 创建 filter options
 	filterOpts := &bind.FilterOpts{
-		Start: GenesisBlock,
+		Start:   GenesisBlock,
 		Context: ctx,
 	}
-	log.Printf("[EventListener] Created filter options: start=%d", filterOpts.Start)
 
-	// Create event channels
-	registeredEventChan := make(chan *ethereum.OperatorRegisteredEvent)
-	deregisteredEventChan := make(chan *ethereum.OperatorDeregisteredEvent)
-	log.Printf("[EventListener] Created event channels")
+	// 创建事件通道
+	registeredChan := make(chan *ethereum.OperatorRegisteredEvent)
+	deregisteredChan := make(chan *ethereum.OperatorDeregisteredEvent)
 
-	// Subscribe to registration events
-	log.Printf("[EventListener] Subscribing to OperatorRegistered events...")
-	regSub, err := el.mainnetClient.WatchOperatorRegistered(filterOpts, registeredEventChan)
+	// 订阅事件
+	regSub, deregSub, err := el.subscribeToEvents(ctx, filterOpts, registeredChan, deregisteredChan)
 	if err != nil {
-		log.Printf("[EventListener] Failed to subscribe to registration events: %v", err)
-		return fmt.Errorf("[EventListener] failed to subscribe to registration events: %w", err)
+		return fmt.Errorf("failed to subscribe to events: %w", err)
 	}
-	log.Printf("[EventListener] Successfully subscribed to OperatorRegistered events")
-
-	// Subscribe to deregistration events
-	log.Printf("[EventListener] Subscribing to OperatorDeregistered events...")
-	deregSub, err := el.mainnetClient.WatchOperatorDeregistered(filterOpts, deregisteredEventChan)
-	if err != nil {
-		regSub.Unsubscribe() // Clean up registration subscription
-		log.Printf("[EventListener] Failed to subscribe to deregistration events: %v", err)
-		return fmt.Errorf("[EventListener] failed to subscribe to deregistration events: %w", err)
-	}
-	log.Printf("[EventListener] Successfully subscribed to OperatorDeregistered events")
-
-	// Start a goroutine to handle events
-	go func() {
-		defer regSub.Unsubscribe()
-		defer deregSub.Unsubscribe()
-		log.Printf("[EventListener] Started event handling goroutine")
-
-		for {
-			select {
-			case <-ctx.Done():
-				log.Printf("[EventListener] Context done, stopping event listener")
-				return
-			case err := <-regSub.Err():
-				log.Printf("[EventListener] Registration event subscription error: %v", err)
-				return
-			case err := <-deregSub.Err():
-				log.Printf("[EventListener] Deregistration event subscription error: %v", err)
-				return
-			case event := <-registeredEventChan:
-				log.Printf("[EventListener] Received OperatorRegistered event: operator=%s, signingKey=%s, blockNumber=%s",
-					event.Operator.Hex(), event.SigningKey.Hex(), event.BlockNumber.String())
-				if err := el.handleOperatorRegistered(ctx, event); err != nil {
-					log.Printf("[EventListener] Error handling registration event: %v", err)
-				}
-			case event := <-deregisteredEventChan:
-				log.Printf("[EventListener] Received OperatorDeregistered event: operator=%s, blockNumber=%s",
-					event.Operator.Hex(), event.BlockNumber.String())
-				if err := el.handleOperatorDeregistered(ctx, event); err != nil {
-					log.Printf("[EventListener] Error handling deregistration event: %v", err)
-				}
-			}
-		}
+	defer func() {
+		regSub.Unsubscribe()
+		deregSub.Unsubscribe()
+		log.Printf("[EventListener] Unsubscribed from all events")
 	}()
 
-	log.Printf("[EventListener] Started listening for operator events from block %d\n", GenesisBlock)
-	return nil
+	log.Printf("[EventListener] Successfully subscribed to all events")
+
+	// 事件处理循环
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("[EventListener] Stopping event listener: %v", ctx.Err())
+			return nil
+
+		case err := <-regSub.Err():
+			log.Printf("[EventListener] Registration subscription error: %v", err)
+			return fmt.Errorf("registration subscription error: %w", err)
+
+		case err := <-deregSub.Err():
+			log.Printf("[EventListener] Deregistration subscription error: %v", err)
+			return fmt.Errorf("deregistration subscription error: %w", err)
+
+		case event := <-registeredChan:
+			log.Printf("[EventListener] Processing registration for operator %s", event.Operator.Hex())
+			if err := el.handleOperatorRegistered(ctx, event); err != nil {
+				log.Printf("[EventListener] Failed to handle registration: %v", err)
+			}
+
+		case event := <-deregisteredChan:
+			log.Printf("[EventListener] Processing deregistration for operator %s", event.Operator.Hex())
+			if err := el.handleOperatorDeregistered(ctx, event); err != nil {
+				log.Printf("[EventListener] Failed to handle deregistration: %v", err)
+			}
+		}
+	}
+}
+
+// 简单的事件订阅函数，包含基本重试
+func (el *EventListener) subscribeToEvents(
+	ctx context.Context,
+	filterOpts *bind.FilterOpts,
+	registeredChan chan<- *ethereum.OperatorRegisteredEvent,
+	deregisteredChan chan<- *ethereum.OperatorDeregisteredEvent,
+) (event.Subscription, event.Subscription, error) {
+	var regSub, deregSub event.Subscription
+	var err error
+
+	// 简单重试 3 次
+	for i := 0; i < 3; i++ {
+		regSub, err = el.mainnetClient.WatchOperatorRegistered(filterOpts, registeredChan)
+		if err == nil {
+			deregSub, err = el.mainnetClient.WatchOperatorDeregistered(filterOpts, deregisteredChan)
+			if err == nil {
+				return regSub, deregSub, nil
+			}
+			regSub.Unsubscribe()
+		}
+
+		log.Printf("[EventListener] Subscription attempt %d failed: %v", i+1, err)
+		
+		// 简单延迟后重试
+		select {
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+
+	return nil, nil, fmt.Errorf("failed to subscribe after retries: %w", err)
 }
 
 // handleOperatorRegistered processes a new OperatorRegistered event
@@ -214,4 +256,17 @@ func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *
 	}
 
 	return nil
+}
+
+// Stop 停止事件监听
+func (el *EventListener) Stop() {
+	log.Printf("[EventListener] Stopping event listener...")
+	
+	// Cancel context
+	el.cancel()
+	
+	// Wait for goroutines
+	el.wg.Wait()
+	
+	log.Printf("[EventListener] Event listener stopped")
 }

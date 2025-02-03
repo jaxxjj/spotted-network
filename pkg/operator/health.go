@@ -66,7 +66,7 @@ func (hc *HealthChecker) checkOperators(ctx context.Context) {
 		if err := hc.pingOperator(ctx, id); err != nil {
 			log.Printf("[Health] Operator %s failed health check: %v", id, err)
 			hc.node.disconnectPeer(id)
-			hc.node.stateSyncProcessor.verifyStateWithRegistry(ctx)
+			hc.node.sp.verifyStateWithRegistry(ctx)
 		}
 	}
 }

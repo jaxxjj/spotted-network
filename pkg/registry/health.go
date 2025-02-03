@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -16,55 +17,84 @@ type PingService interface {
 }
 
 type HealthChecker struct {
-	node           *Node
-	pingService    PingService
+	node         *Node
+	pingService  PingService
+	
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
 }
 
 // NewHealthChecker creates and starts a new health checker
 func newHealthChecker(ctx context.Context, node *Node, pingService PingService) (*HealthChecker, error) {
 	if node == nil {
-		log.Fatal("node is nil")
+		log.Fatal("[Health] node is nil")
 	}
 	if pingService == nil {
-		log.Fatal("pingService is nil")
+		log.Fatal("[Health] pingService is nil")
 	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	
 	hc := &HealthChecker{
-		node:          node,
-		pingService:   pingService,
+		node:        node,
+		pingService: pingService,
+		cancel:      cancel,
 	}
 	
-	// Start health check service
-	go hc.start(ctx)
-	log.Printf("[Health] Health check service started with interval %v", HealthCheckInterval)
+	hc.wg.Add(1)
+	go func() {
+		defer hc.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Health] Recovered from panic: %v", r)
+			}
+		}()
+		
+		if err := hc.start(ctx); err != nil {
+			log.Printf("[Health] Health checker stopped with error: %v", err)
+		}
+	}()
 	
+	log.Printf("[Health] Health check service started with interval %v", HealthCheckInterval)
 	return hc, nil
 }
 
-// start is now private as it's called internally by NewHealthChecker
-func (hc *HealthChecker) start(ctx context.Context) {
+func (hc *HealthChecker) start(ctx context.Context) error {
 	ticker := time.NewTicker(HealthCheckInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		case <-ticker.C:
-			hc.checkOperators(ctx)
+			if err := hc.checkOperators(ctx); err != nil {
+				log.Printf("[Health] Error checking operators: %v", err)
+				// continue to check other nodes, don't return error
+			}
 		}
 	}
 }
 
+func (hc *HealthChecker) Stop() {
+	hc.cancel()
+	
+	hc.wg.Wait()
+	
+	log.Printf("[Health] Health checker stopped")
+}
+
 // checkOperators checks the health of all connected operators
-func (hc *HealthChecker) checkOperators(ctx context.Context) {
+func (hc *HealthChecker) checkOperators(ctx context.Context) error {
 	operators := hc.node.getActivePeerIDs()
 	for _, id := range operators {
 		if err := hc.pingOperator(ctx, id); err != nil {
 			log.Printf("[Health] Operator %s failed health check: %v", id, err)
 			hc.node.disconnectPeer(id)
-			
+			// continue to check other nodes, don't return error
 		}
 	}
+	return nil
 }
 
 // pingOperator pings a specific operator

@@ -171,7 +171,7 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 }
 
 // Stop gracefully stops the task processor
-func (tp *TaskProcessor) Stop() error {
+func (tp *TaskProcessor) Stop() {
 	log.Printf("[TaskProcessor] Stopping task processor...")
 	
 	// 1. Cancel context to stop all goroutines
@@ -201,7 +201,6 @@ func (tp *TaskProcessor) Stop() error {
 	tp.weightsMutex.Unlock()
 	
 	log.Printf("[TaskProcessor] Task processor stopped")
-	return nil
 }
 
 

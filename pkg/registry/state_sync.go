@@ -144,7 +144,6 @@ func (sp *StateSyncProcessor) broadcastStateUpdate(epoch *uint32) error {
 	return nil
 }
 
-
 // BuildOperatorStates builds a list of all active operator states
 func (n *Node) buildOperatorPeerStates() []*pb.OperatorPeerState {
 	n.activeOperators.mu.RLock()
@@ -169,4 +168,10 @@ func (n *Node) buildOperatorPeerStates() []*pb.OperatorPeerState {
 	}
 
 	return operators
+}
+
+// Stop cleans up state sync processor resources
+func (sp *StateSyncProcessor) Stop() {
+	sp.stateSyncTopic = nil
+	log.Printf("[StateSync] State sync processor stopped")
 }

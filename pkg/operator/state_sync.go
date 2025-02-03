@@ -88,7 +88,7 @@ func NewStateSyncProcessor(ctx context.Context, node *Node, pubsub PubSubService
 }
 
 // Stop gracefully stops the state sync processor
-func (sp *StateSyncProcessor) Stop() error {
+func (sp *StateSyncProcessor) Stop() {
     log.Printf("[StateSync] Stopping state sync processor...")
     
     sp.cancel()
@@ -112,7 +112,6 @@ func (sp *StateSyncProcessor) Stop() error {
     }
     
     log.Printf("[StateSync] State sync processor stopped")
-    return nil
 }
 
 // Subscribe subscribes to the state sync topic

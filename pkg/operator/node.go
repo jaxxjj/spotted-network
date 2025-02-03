@@ -80,20 +80,23 @@ type NodeConfig struct {
 // Node represents an operator node in the network
 type Node struct {
 	host           P2PHost
-	registryID     peer.ID
-	registryAddress   string
+
 	signer         OperatorSigner
 	chainManager   ChainManager
 	apiServer      APIServer
-	taskProcessor  *TaskProcessor
-	registryHandler *RegistryHandler
 	tasksQuerier   TasksQuerier
 	taskResponseQuerier TaskResponseQuerier
 	consensusResponseQuerier ConsensusResponseQuerier
 	epochStateQuerier EpochStateQuerier
+	
+	tp  *TaskProcessor
+	rh *RegistryHandler
+	sp *StateSyncProcessor
+
 	config          *config.Config
-	stateSyncProcessor *StateSyncProcessor
-	// Network connection information
+
+	registryID     peer.ID
+	registryAddress   string
 	activeOperators ActivePeerStates
 	activeOperatorsMu sync.RWMutex
 
@@ -180,8 +183,8 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task processor: %w", err)
 	}
-	node.taskProcessor = taskProcessor
-	node.stateSyncProcessor, err = NewStateSyncProcessor(ctx, node, pubsub)
+	node.tp = taskProcessor
+	node.sp, err = NewStateSyncProcessor(ctx, node, pubsub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create state sync processor: %w", err)
 	}
@@ -195,7 +198,7 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create health checker: %w", err)
 	}
-	node.registryHandler = NewRegistryHandler(node, cfg.Signer, registryId)
+	node.rh = NewRegistryHandler(node, cfg.Signer, registryId)
 	// Create API handler and server
 	apiHandler := api.NewHandler(cfg.TasksQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
 	node.apiServer = api.NewServer(apiHandler, cfg.Config.HTTP.Port)
@@ -221,7 +224,7 @@ func (n *Node) Start(ctx context.Context) error {
 	if n.registryID == "" {
 		log.Fatal("[Node] registry ID not set")
 	}
-	if n.taskProcessor == nil {
+	if n.tp == nil {
 		log.Fatal("[Node] task processor not initialized")
 	}
 	if n.chainManager == nil {
@@ -252,7 +255,7 @@ func (n *Node) Start(ctx context.Context) error {
 
 	// Step 3: Authenticate with registry
 	log.Printf("[Node] Authenticating with registry...")
-	if err := n.registryHandler.AuthToRegistry(ctx); err != nil {
+	if err := n.rh.AuthToRegistry(ctx); err != nil {
 		return fmt.Errorf("failed to authenticate with registry: %w", err)
 	}
 	log.Printf("[Node] Successfully authenticated with registry")
@@ -266,8 +269,9 @@ func (n *Node) Stop(ctx context.Context) error {
 	if err := n.apiServer.Stop(ctx); err != nil {
 		log.Printf("[Node] Error stopping API server: %v", err)
 	}
-	n.registryHandler.Disconnect(ctx)
-	n.stateSyncProcessor.Stop()
+	n.rh.Disconnect(ctx)
+	n.sp.Stop()
+	n.tp.Stop()
 	return n.host.Close()
 }
 

@@ -188,6 +188,12 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 
 
 func (n *Node) Stop() error {
+	log.Printf("[Registry] Stopping registry node...")
+
+	n.el.Stop()
+	n.eu.Stop()
+	n.hc.Stop()
+	n.sp.Stop()
 	return n.host.Close()
 }
 

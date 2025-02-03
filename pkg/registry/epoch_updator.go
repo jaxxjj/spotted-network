@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"runtime/debug"
+	"sync"
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -47,6 +49,9 @@ type EpochUpdator struct {
 	pubsub PubSubService
 
 	lastProcessedEpoch uint32
+
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdator, error) {
@@ -70,7 +75,7 @@ func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdato
 		opQuerier: cfg.opQuerier,
 		pubsub: cfg.pubsub,
 		mainnetClient: cfg.mainnetClient,
-		txManager: cfg.txManager, // Use txManager instead of dbPool
+		txManager: cfg.txManager, 
 	}
 	
 	go e.start(ctx)
@@ -84,32 +89,51 @@ func (e *EpochUpdator) start(ctx context.Context) error {
 	ticker := time.NewTicker(epochMonitorInterval)
 	defer ticker.Stop()
 
-	log.Printf("[Epoch] Starting epoch monitoring...")
+	log.Printf("[Epoch] Starting epoch monitoring with interval %v...", epochMonitorInterval)
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Epoch] Recovered from panic: %v\nStack: %s", r, debug.Stack())
+		}
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("[Epoch] Stopping epoch monitoring: %v", ctx.Err())
 			return nil
 		case <-ticker.C:
-			// Get latest block number
-			blockNumber, err := e.mainnetClient.BlockNumber(ctx)
-			if err != nil {
-				log.Printf("[Epoch] Failed to get latest block number: %v", err)
-				continue
-			}
+			// add timeout control for each update
+			updateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			
+			func() {
+				defer cancel() 
 
-			// Calculate current epoch
-			currentEpoch := utils.CalculateEpochNumber(blockNumber)
-
-			// If we're in a new epoch, update operator states
-			if currentEpoch > e.lastProcessedEpoch {
-				if err := e.handleEpochUpdate(ctx, currentEpoch); err != nil {
-					log.Printf("[Epoch] Failed to update operator states for epoch %d: %v", currentEpoch, err)
-					continue
+				// Get latest block number
+				blockNumber, err := e.mainnetClient.BlockNumber(updateCtx)
+				if err != nil {
+					log.Printf("[Epoch] Failed to get latest block number: %v", err)
+					return
 				}
-				e.lastProcessedEpoch = currentEpoch
-				log.Printf("[Epoch] Updated operator states for epoch %d", currentEpoch)
-			}
+
+				// Calculate current epoch
+				currentEpoch := utils.CalculateEpochNumber(blockNumber)
+
+				// If we're in a new epoch, update operator states
+				if currentEpoch > e.lastProcessedEpoch {
+					log.Printf("[Epoch] Starting update for epoch %d (current: %d)", 
+						currentEpoch, e.lastProcessedEpoch)
+
+					if err := e.handleEpochUpdate(updateCtx, currentEpoch); err != nil {
+						log.Printf("[Epoch] Failed to update operator states for epoch %d: %v", 
+							currentEpoch, err)
+						return
+					}
+					
+					e.lastProcessedEpoch = currentEpoch
+					log.Printf("[Epoch] Successfully updated operator states for epoch %d", currentEpoch)
+				}
+			}()
 		}
 	}
 }
@@ -196,5 +220,13 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 	}
 
 	return nil
+}	
+
+func (e *EpochUpdator) Stop() {
+	e.cancel()
+	
+	e.wg.Wait()
+	
+	log.Printf("[Epoch] Epoch monitoring stopped")
 }	
 
