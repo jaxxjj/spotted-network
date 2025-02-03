@@ -13,7 +13,6 @@ import (
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -79,9 +78,17 @@ type SendRequestParams struct {
 }
 
 type SendRequestResponse struct {
-	TaskID string `json:"task_id"`
-	Status string `json:"status"`
+	TaskID               string `json:"task_id"`
+	Status               string `json:"status"`
 	RequiredConfirmations uint16 `json:"required_confirmations,omitempty"`
+	Message              string `json:"message,omitempty"`
+	Error               string `json:"error,omitempty"`
+}
+
+type ConsensusResponseWrapper struct {
+	Data    *consensus_responses.ConsensusResponse `json:"data,omitempty"`
+	Message string                                `json:"message,omitempty"`
+	Error   string                                `json:"error,omitempty"`
 }
 
 // NewHandler creates a new handler
@@ -114,156 +121,171 @@ func NewHandler(
 	}
 }
 
+// 首先添加一个辅助函数来检查任务状态
+func (h *Handler) checkExistingTaskAndConsensus(ctx context.Context, taskID string) (*tasks.Tasks, *consensus_responses.ConsensusResponse, error) {
+	// 检查任务是否存在
+	existingTask, err := h.tasks.GetTaskByID(ctx, taskID)
+	if err != nil {
+		log.Printf("[API] Failed to query task: %v", err)
+		return nil, nil, fmt.Errorf("failed to query task: %v", err)
+	}
 
+	if existingTask == nil {
+		return nil, nil, nil
+	}
+
+	// 检查是否已达成共识
+	consensus, err := h.consensusResponses.GetConsensusResponseByTaskId(ctx, taskID)
+	if err != nil {
+		log.Printf("[API] Failed to query consensus: %v", err)
+		return existingTask, nil, fmt.Errorf("failed to query consensus: %v", err)
+	}
+
+	return existingTask, consensus, nil
+}
+
+// 然后在 SendRequest 中使用这个函数
 func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "[API] Method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 
 	var params SendRequestParams
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		http.Error(w, "[API] Invalid request body", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	// Validate request parameters
 	if err := h.validateRequest(&params); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Get current epoch from mainnet client
 	mainnetClient, err := h.chainManager.GetMainnetClient()
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get mainnet client: %v", err), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get mainnet client: %v", err))
 		return
 	}
 	if mainnetClient == nil {
 		log.Fatal("[API] Mainnet client not initialized")
 	}
+
 	currentEpoch, err := mainnetClient.GetCurrentEpoch(r.Context())
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get current epoch: %v", err), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get current epoch: %v", err))
 		return
 	}
 
-	// Get state client for chain
 	stateClient, err := h.chainManager.GetClientByChainId(params.ChainID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get state client for chain %d: %v", params.ChainID, err), http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Failed to get state client for chain %d: %v", params.ChainID, err))
 		return
 	}
 	if stateClient == nil {
 		log.Printf("[API] State client is nil for chain %d", params.ChainID)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
-	// Convert timestamp to block number if provided
 	var blockNumber uint64
 	var timestamp uint64
 	targetAddress := ethcommon.HexToAddress(params.TargetAddress)
 	if params.Timestamp != 0 {
-		// Convert timestamp to block number for task ID generation
 		blockNumber, err = utils.TimestampToBlockNumber(r.Context(), stateClient, params.ChainID, params.Timestamp)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to convert timestamp to block number: %v", err), http.StatusInternalServerError)
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to convert timestamp to block number: %v", err))
 			return
 		}
-		// Update params.BlockNumber for task ID generation
 		params.BlockNumber = blockNumber
 		timestamp = params.Timestamp
 		params.Timestamp = 0
 	} else {
-		// Use provided block number
 		blockNumber = params.BlockNumber
-		// Convert block number to timestamp for storage
 		timestamp, err = utils.BlockNumberToTimestamp(r.Context(), stateClient, params.ChainID, blockNumber)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Failed to convert block number to timestamp: %v", err), http.StatusInternalServerError)
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to convert block number to timestamp: %v", err))
 			return
 		}
 	}
 
-	// Get state value
 	keyBig := utils.StringToBigInt(params.Key)
 	value, err := stateClient.GetStateAtBlock(r.Context(), targetAddress, keyBig, blockNumber)
-
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get state at block: %v", err), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get state at block: %v", err))
 		return
 	}
 
-	// Generate task ID using block number
 	taskID := h.generateTaskID(&params, value.String())
 
-	// Check if task already exists
-	existingTask, err := h.tasks.GetTaskByID(r.Context(), taskID)
+	// 检查现有任务和共识状态
+	existingTask, consensus, err := h.checkExistingTaskAndConsensus(r.Context(), taskID)
 	if err != nil {
-		// Query error
-		log.Printf("[API] Failed to query task: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError) 
+		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
 	if existingTask != nil {
-		// Task exists, return its current status
-		response := SendRequestResponse{
-			TaskID: existingTask.TaskID,
-			Status: string(existingTask.Status),
-			RequiredConfirmations: uint16(existingTask.RequiredConfirmations),
+		statusMessage := fmt.Sprintf("Task already exists with status: %s", existingTask.Status)
+		if consensus != nil {
+			statusMessage = fmt.Sprintf("Task already completed with consensus reached at %s", 
+				consensus.ConsensusReachedAt.Format(time.RFC3339))
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+
+		writeSuccess(w, 
+			existingTask.TaskID,
+			string(existingTask.Status),
+			uint16(existingTask.RequiredConfirmations),
+			statusMessage,
+		)
 		return
 	}
 
-	// Determine required confirmations
 	requiredConfirmations := h.getRequiredConfirmations(params.ChainID)
 
-	// Get latest block number for confirmation check
 	latestBlock, err := stateClient.BlockNumber(r.Context())
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get latest block: %v", err), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get latest block: %v", err))
 		return
 	}
 
-	// Determine initial status based on block confirmations
 	status := commonTypes.TaskStatusPending
+	var statusMessage string
 	if params.BlockNumber != 0 {
-		// Check if task needs confirmations
-		if latestBlock < params.BlockNumber + uint64(requiredConfirmations) {
+		if latestBlock < params.BlockNumber+uint64(requiredConfirmations) {
 			status = commonTypes.TaskStatusConfirming
-			log.Printf("[API] Task requires %d confirmations, waiting for block %d (current: %d)", 
-				requiredConfirmations, params.BlockNumber + uint64(requiredConfirmations), latestBlock)
+			statusMessage = fmt.Sprintf("Waiting for %d block confirmations", requiredConfirmations)
+			log.Printf("[API] Task requires %d confirmations, waiting for block %d (current: %d)",
+				requiredConfirmations, params.BlockNumber+uint64(requiredConfirmations), latestBlock)
 		} else {
-			log.Printf("[API] Task already has sufficient confirmations (target: %d, current: %d)", 
-				params.BlockNumber + uint64(requiredConfirmations), latestBlock)
+			statusMessage = "Task has sufficient confirmations"
+			log.Printf("[API] Task already has sufficient confirmations (target: %d, current: %d)",
+				params.BlockNumber+uint64(requiredConfirmations), latestBlock)
 		}
+	} else {
+		statusMessage = "Task is pending processing"
 	}
 
-	// Create task
 	task, err := h.tasks.CreateTask(r.Context(), tasks.CreateTaskParams{
-		TaskID:        taskID,
-		TargetAddress: params.TargetAddress,
-		ChainID:       params.ChainID,
-		BlockNumber:   blockNumber,
-		Timestamp:     timestamp,
-		Epoch:        currentEpoch,
-		Key:          utils.BigIntToNumeric(keyBig),
-		Value:        utils.BigIntToNumeric(value),
-		Status:       status,
+		TaskID:               taskID,
+		TargetAddress:        params.TargetAddress,
+		ChainID:             params.ChainID,
+		BlockNumber:         blockNumber,
+		Timestamp:           timestamp,
+		Epoch:               currentEpoch,
+		Key:                 utils.BigIntToNumeric(keyBig),
+		Value:               utils.BigIntToNumeric(value),
+		Status:              status,
 		RequiredConfirmations: requiredConfirmations,
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to create task: %v", err), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create task: %v", err))
 		return
 	}
 
 	if task == nil {
 		log.Printf("[API] CreateTask returned nil task without error")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -271,23 +293,20 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	if task.Status == commonTypes.TaskStatusConfirming {
 		log.Printf("[API] Task %s requires %d block confirmations", task.TaskID, requiredConfirmations)
 	} else if task.Status == commonTypes.TaskStatusPending {
-		// If task is pending, process it immediately
 		log.Printf("[API] Task %s is pending, processing immediately", task.TaskID)
-		
 		if err := h.taskProcessor.ProcessTask(r.Context(), task); err != nil {
 			log.Printf("[API] Failed to process pending task %s: %v", task.TaskID, err)
 			// Don't return error here, as the task is already created
+			statusMessage = fmt.Sprintf("Task created but processing failed: %v", err)
 		}
 	}
 
-	// Return response
-	response := SendRequestResponse{
-		TaskID: task.TaskID,
-		Status: string(task.Status),
-		RequiredConfirmations: task.RequiredConfirmations,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	writeSuccess(w, 
+		task.TaskID,
+		string(task.Status),
+		task.RequiredConfirmations,
+		statusMessage,
+	)
 }
 
 func (h *Handler) validateRequest(params *SendRequestParams) error {
@@ -365,52 +384,28 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 	return nil
 }
 
-func (h *Handler) generateTaskID(params *SendRequestParams, value string) string {
-	// Generate task ID using keccak256(abi.encodePacked(targetAddress, chainId, blockNumber, epoch, key, value))
-	data := []byte{}
-	data = append(data, ethcommon.HexToAddress(params.TargetAddress).Bytes()...)
-	data = append(data, byte(params.ChainID))
-	data = append(data, byte(params.BlockNumber))
-	data = append(data, []byte(params.Key)...)
-	data = append(data, []byte(value)...)
 
-	hash := crypto.Keccak256(data)
-	return ethcommon.Bytes2Hex(hash)
-}
 
-// GetTaskConsensus returns the consensus result for a task
+// GetTaskConsensusByTaskID returns the consensus result for a task
 func (h *Handler) GetTaskConsensusByTaskID(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
 	
 	consensus, err := h.consensusResponses.GetConsensusResponseByTaskId(r.Context(), taskID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to get consensus: %v", err), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get consensus: %v", err))
 		return
 	}
 	if consensus == nil {
-		http.Error(w, "consensus not found", http.StatusNotFound)
+		writeError(w, http.StatusNotFound, "Consensus not found")
 		return
 	}
 
-	// Format response
-	response := consensus_responses.ConsensusResponse{
-		TaskID:              consensus.TaskID,
-		Epoch:              consensus.Epoch,
-		Value:              consensus.Value,
-		BlockNumber:        consensus.BlockNumber,
-		ChainID:           consensus.ChainID,
-		TargetAddress:     consensus.TargetAddress,
-		Key:               consensus.Key,
-		OperatorSignatures: consensus.OperatorSignatures,
-		TotalWeight:       consensus.TotalWeight,
-		ConsensusReachedAt: consensus.ConsensusReachedAt,
+	response := ConsensusResponseWrapper{
+		Data:    consensus,
+		Message: "Consensus found successfully",
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, fmt.Sprintf("failed to encode response: %v", err), http.StatusInternalServerError)
-		return
-	}
+	
+	writeJSON(w, http.StatusOK, response)
 }
 
 // GetConsensusResponseByRequest returns the consensus result by request parameters
@@ -418,19 +413,19 @@ func (h *Handler) GetConsensusResponseByRequest(w http.ResponseWriter, r *http.R
 	// Parse query parameters
 	targetAddress := r.URL.Query().Get("target_address")
 	if !ethcommon.IsHexAddress(targetAddress) {
-		http.Error(w, "invalid target address", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "Invalid target address")
 		return
 	}
 
 	chainID, err := strconv.ParseUint(r.URL.Query().Get("chain_id"), 10, 64)
 	if err != nil {
-		http.Error(w, "invalid chain_id", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "Invalid chain_id")
 		return
 	}
 
 	blockNumber, err := strconv.ParseUint(r.URL.Query().Get("block_number"), 10, 64)
 	if err != nil {
-		http.Error(w, "invalid block_number", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "Invalid block_number")
 		return
 	}
 
@@ -451,39 +446,20 @@ func (h *Handler) GetConsensusResponseByRequest(w http.ResponseWriter, r *http.R
 		Key:         keyNum,
 	})
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to get consensus: %v", err), http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get consensus: %v", err))
 		return
 	}
 	if consensus == nil {
-		http.Error(w, "consensus not found", http.StatusNotFound)
+		writeError(w, http.StatusNotFound, "Consensus not found")
 		return
 	}
 
-	// Format response
-	response := consensus_responses.ConsensusResponse{
-		TaskID:              consensus.TaskID,
-		Epoch:              consensus.Epoch,
-		Value:              consensus.Value,
-		BlockNumber:        consensus.BlockNumber,
-		ChainID:           consensus.ChainID,
-		TargetAddress:     consensus.TargetAddress,
-		Key:               consensus.Key,
-		OperatorSignatures: consensus.OperatorSignatures,
-		TotalWeight:       consensus.TotalWeight,
-		ConsensusReachedAt: consensus.ConsensusReachedAt,
+	response := ConsensusResponseWrapper{
+		Data:    consensus,
+		Message: "Consensus found successfully",
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, fmt.Sprintf("failed to encode response: %v", err), http.StatusInternalServerError)
-		return
-	}
+	
+	writeJSON(w, http.StatusOK, response)
 }
 
-// getRequiredConfirmations returns the required confirmations for a chain
-func (h *Handler) getRequiredConfirmations(chainID uint32) uint16 {
-	if chainConfig, ok := h.config.Chains[chainID]; ok {
-		return chainConfig.RequiredConfirmations
-	}
-	return 12 // Default to 12 confirmations for unknown chains
-} 
+

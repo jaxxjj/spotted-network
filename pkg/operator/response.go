@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -24,10 +25,17 @@ type TaskResponseQuerier interface {
 	GetTaskResponse(ctx context.Context, arg task_responses.GetTaskResponseParams) (*task_responses.TaskResponses, error)
 }
 
-// handleResponses handles incoming task responses
+// handleResponses handles incoming task responses with backpressure pattern
 func (tp *TaskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscription) {
-	// use buffered channel to limit concurrent goroutine number
-	semaphore := make(chan struct{}, 10) 
+	const (
+		maxConcurrent = 10
+		processTimeout = 30 * time.Second
+	)
+	
+	// Create semaphore for backpressure
+	semaphore := make(chan struct{}, maxConcurrent)
+	
+	log.Printf("[Response] Starting response handler with max concurrent: %d", maxConcurrent)
 	
 	for {
 		select {
@@ -35,104 +43,133 @@ func (tp *TaskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscr
 			log.Printf("[Response] Stopping response handler: %v", ctx.Err())
 			return
 		default:
+			// Get next message with context
 			msg, err := sub.Next(ctx)
 			if err != nil {
 				if ctx.Err() != nil {
-					log.Printf("[Response] Context cancelled while getting next message")
 					return
 				}
-				log.Printf("[Response] Failed to get next response message: %v", err)
+				log.Printf("[Response] Failed to get next message: %v", err)
 				continue
 			}
 
-			semaphore <- struct{}{}
+			select {
+			case semaphore <- struct{}{}:
+			case <-ctx.Done():
+				return
+			case <-time.After(processTimeout):
+				log.Printf("[Response] System overloaded, dropping message")
+				continue
+			}
 			
+			// Start processing goroutine
 			go func(msg *pubsub.Message) {
 				defer func() {
-					<-semaphore
+					<-semaphore // Release semaphore
+				}()
+				
+				// Add recover for panics
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[Response] Recovered from panic: %v\n%s", r, debug.Stack())
+					}
 				}()
 
-				// Parse protobuf message
-				var pbMsg pb.TaskResponseMessage
-				if err := proto.Unmarshal(msg.Data, &pbMsg); err != nil {
-					log.Printf("[Response] Failed to unmarshal message: %v", err)
-					return
+				// Create timeout context for processing
+				processCtx, cancel := context.WithTimeout(ctx, processTimeout)
+				defer cancel()
+
+				if err := tp.processResponse(processCtx, msg); err != nil {
+					log.Printf("[Response] Failed to process message: %v", err)
 				}
-
-				// Get peer ID and verify it's an active operator
-				peerID := msg.ReceivedFrom
-				operatorState := tp.node.GetOperatorState(peerID)
-				if operatorState == nil {
-					log.Printf("[Response] Peer %s not found in active operators", peerID)
-					return
-				}
-
-				// Verify operator address
-				if !strings.EqualFold(operatorState.Address, pbMsg.OperatorAddress) {
-					log.Printf("[Response] Operator address mismatch for peer %s", peerID)
-					return
-				}
-
-				if tp.alreadyProcessed(pbMsg.TaskId, pbMsg.OperatorAddress) {
-					return
-				}
-
-				// Check existing consensus
-				consensus, err := tp.consensusResponse.GetConsensusResponseByTaskId(context.Background(), pbMsg.TaskId)
-				if err == nil && consensus != nil {
-					return
-				}
-
-				// Convert and verify response
-				response, err := convertToTaskResponse(&pbMsg)
-				if err != nil || response == nil {
-					log.Printf("[Response] Invalid response: %v", err)
-					return
-				}
-
-				// Get and verify operator weight
-				weight, err := tp.node.getOperatorWeight(peerID)
-				if err != nil {
-					log.Printf("[Response] Invalid operator weight: %v", err)
-					return
-				}
-
-				if err := tp.verifyResponse(response); err != nil {
-					log.Printf("[Response] Invalid response signature: %v", err)
-					return
-				}
-
-				// Store response and weight
-				tp.storeResponseAndWeight(response, weight)
-
-				// Process task if needed
-				tp.responsesMutex.RLock()
-				processed := tp.responses[response.TaskID][tp.signer.GetOperatorAddress().Hex()] != nil
-				tp.responsesMutex.RUnlock()
-
-				if !processed {
-					if err := tp.ProcessTask(context.Background(), &tasks.Tasks{
-						TaskID:        response.TaskID,
-						Value:         response.Value,
-						BlockNumber:   response.BlockNumber,
-						ChainID:       response.ChainID,
-						TargetAddress: response.TargetAddress,
-						Key:          response.Key,
-						Epoch:        response.Epoch,
-						Timestamp:    response.Timestamp,
-					}); err != nil {
-						log.Printf("[Response] Failed to process task: %v", err)
-					}
-				}
-
-				// Check consensus
-				if err := tp.checkConsensus(response.TaskID); err != nil {
-					log.Printf("[Response] Failed to check consensus: %v", err)
-				}
-				
 			}(msg)
 		}
 	}
+}
+
+// processResponse handles a single response message
+func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Message) error {
+	// Parse protobuf message
+	var pbMsg pb.TaskResponseMessage
+	if err := proto.Unmarshal(msg.Data, &pbMsg); err != nil {
+		return fmt.Errorf("failed to unmarshal message: %w", err)
+	}
+
+	// Get and verify operator
+	peerID := msg.ReceivedFrom
+	operatorState := tp.node.GetOperatorState(peerID)
+	if operatorState == nil {
+		return fmt.Errorf("peer %s not found in active operators", peerID)
+	}
+
+	// Verify operator address
+	if !strings.EqualFold(operatorState.Address, pbMsg.OperatorAddress) {
+		return fmt.Errorf("operator address mismatch for peer %s", peerID)
+	}
+
+	// Check if already processed
+	if tp.alreadyProcessed(pbMsg.TaskId, pbMsg.OperatorAddress) {
+		return nil // Not an error, just skip
+	}
+
+	// Check existing consensus
+	consensus, err := tp.consensusResponse.GetConsensusResponseByTaskId(ctx, pbMsg.TaskId)
+	if err == nil && consensus != nil {
+		return nil // Not an error, just skip
+	}
+
+	// Convert and verify response
+	response, err := convertToTaskResponse(&pbMsg)
+	if err != nil || response == nil {
+		return fmt.Errorf("invalid response: %w", err)
+	}
+
+	// Get and verify operator weight
+	weight, err := tp.node.getOperatorWeight(peerID)
+	if err != nil {
+		return fmt.Errorf("invalid operator weight: %w", err)
+	}
+
+	// Verify response signature
+	if err := tp.verifyResponse(response); err != nil {
+		return fmt.Errorf("invalid response signature: %w", err)
+	}
+
+	// Store response and weight
+	tp.storeResponseAndWeight(response, weight)
+
+	// Check if we need to process this task
+	if err := tp.maybeProcessTask(ctx, response); err != nil {
+		return fmt.Errorf("failed to process task: %w", err)
+	}
+
+	// Check consensus
+	if err := tp.checkConsensus(response.TaskID); err != nil {
+		return fmt.Errorf("failed to check consensus: %w", err)
+	}
+
+	return nil
+}
+
+// maybeProcessTask processes the task if not already processed
+func (tp *TaskProcessor) maybeProcessTask(ctx context.Context, response *task_responses.TaskResponses) error {
+	tp.responsesMutex.RLock()
+	processed := tp.responses[response.TaskID][tp.signer.GetOperatorAddress().Hex()] != nil
+	tp.responsesMutex.RUnlock()
+
+	if !processed {
+		return tp.ProcessTask(ctx, &tasks.Tasks{
+			TaskID:        response.TaskID,
+			Value:         response.Value,
+			BlockNumber:   response.BlockNumber,
+			ChainID:       response.ChainID,
+			TargetAddress: response.TargetAddress,
+			Key:          response.Key,
+			Epoch:        response.Epoch,
+			Timestamp:    response.Timestamp,
+		})
+	}
+	return nil
 }
 
 // helper function to store response and weight
@@ -274,26 +311,13 @@ func (tp *TaskProcessor) verifyResponse(response *task_responses.TaskResponses) 
 }
 
 func (tp *TaskProcessor) alreadyProcessed(taskId string, operatorAddress string) bool {
-	// 1. check if processed in memory
+	// check if processed in memory
 	tp.responsesMutex.RLock()
 	_, processed := tp.responses[taskId][operatorAddress]
 	tp.responsesMutex.RUnlock()
 	
 	if processed {
 		log.Printf("[Response] Task %s from operator %s already processed in memory", taskId, operatorAddress)
-		return true
-	}
-	
-	// 2. check if consensus exists in database
-	consensus, err := tp.consensusResponse.GetConsensusResponseByTaskId(context.Background(), taskId)
-	if err != nil {
-		log.Printf("[Response] Error checking consensus for task %s: %v", taskId, err)
-		return false
-	}
-	
-	// if database has consensus record, task has reached consensus
-	if consensus != nil {
-		log.Printf("[Response] Task %s already has consensus in database", taskId)
 		return true
 	}
 	
