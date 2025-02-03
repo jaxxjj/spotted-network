@@ -32,4 +32,5 @@ go.work
 # Foundry
 mock/out/
 mock/cache/
+mock/broadcast/
 .env
