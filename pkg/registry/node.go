@@ -141,7 +141,11 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	node.activeOperators.active = make(map[peer.ID]*OperatorPeerInfo)
 	
 	// Create and initialize event listener
-	node.el = NewEventListener(ctx, node, cfg.MainnetClient, cfg.OperatorsQuerier)
+	node.el = NewEventListener(ctx, &EventListenerConfig{
+		node: node,
+		mainnetClient: cfg.MainnetClient,
+		operators: cfg.OperatorsQuerier,
+	})
 
 
 	// Start registry service
@@ -195,7 +199,10 @@ func (n *Node) GetHostID() string {
 
 func (n *Node) startRegistryService(cfg *NodeConfig) error {
 	// Create and initialize registry handler
-	n.rh = NewRegistryHandler(n, cfg.OperatorsQuerier)
+	n.rh = NewRegistryHandler(&RegistryHandlerConfig{
+		node: n,
+		opQuerier: cfg.OperatorsQuerier,
+	})
 
 	// Set up protocol handler
 	n.host.SetStreamHandler(RegistryProtocol, n.rh.HandleRegistryStream)
@@ -206,7 +213,10 @@ func (n *Node) startRegistryService(cfg *NodeConfig) error {
 
 func (n *Node) startStateSync(cfg *NodeConfig) error {
     // Create state sync processor
-    processor, err := NewStateSyncProcessor(n, cfg.PubSub)
+    processor, err := NewStateSyncProcessor(&PubsubConfig{
+		node: n,
+		pubsub: cfg.PubSub,
+	})
     if err != nil {
         return fmt.Errorf("failed to create state sync processor: %w", err)
     }

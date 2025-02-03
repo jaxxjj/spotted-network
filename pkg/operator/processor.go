@@ -76,11 +76,14 @@ type TaskProcessor struct {
 	consensusResponse  ConsensusResponseQuerier
 	epochState         EpochStateQuerier
 	chainManager       ChainManager
-	responseTopic     ResponseTopic
+	responseTopic      ResponseTopic
+	subscription       *pubsub.Subscription
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
 	responsesMutex     sync.RWMutex
-	responses          map[string]map[string]*task_responses.TaskResponses // taskID -> operatorAddr -> response
+	responses          map[string]map[string]*task_responses.TaskResponses
 	weightsMutex       sync.RWMutex
-	taskWeights        map[string]map[string]*big.Int // taskID -> operatorAddr -> weight
+	taskWeights        map[string]map[string]*big.Int
 } 
 
 // NewTaskProcessor creates a new task processor
@@ -120,6 +123,8 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 	}
 	log.Printf("[TaskProcessor] Joined response topic: %s", TaskResponseTopic)
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	tp := &TaskProcessor{
 		node:              cfg.Node,
 		signer:            cfg.Signer,
@@ -129,6 +134,7 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 		epochState:        cfg.EpochState,
 		chainManager:      cfg.ChainManager,
 		responseTopic:     responseTopic,
+		cancel:           cancel,
 		responses:         make(map[string]map[string]*task_responses.TaskResponses),
 		taskWeights:       make(map[string]map[string]*big.Int),
 	}
@@ -136,30 +142,66 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 	// Subscribe to response topic
 	sub, err := responseTopic.Subscribe()
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("[TaskProcessor] failed to subscribe to response topic: %w", err)
 	}
+	tp.subscription = sub
 	log.Printf("[TaskProcessor] Subscribed to response topic")
 
 	// Start goroutines
-	ctx := context.Background()
-	go tp.handleResponses(sub)
-	go tp.checkTimeouts(ctx)
-	go tp.checkConfirmations(ctx)
-	go tp.periodicCleanup(ctx)  // Start periodic cleanup
+	tp.wg.Add(4)
+	go func() {
+		defer tp.wg.Done()
+		tp.handleResponses(ctx, sub)
+	}()
+	go func() {
+		defer tp.wg.Done()
+		tp.checkTimeouts(ctx)
+	}()
+	go func() {
+		defer tp.wg.Done()
+		tp.checkConfirmations(ctx)
+	}()
+	go func() {
+		defer tp.wg.Done()
+		tp.periodicCleanup(ctx)
+	}()
 
 	return tp, nil
 }
 
 // Stop gracefully stops the task processor
-func (tp *TaskProcessor) Stop() {
-	log.Printf("[TaskProcessor] Stopping task processor")
+func (tp *TaskProcessor) Stop() error {
+	log.Printf("[TaskProcessor] Stopping task processor...")
 	
-	// Clean up responses map
+	// 1. Cancel context to stop all goroutines
+	tp.cancel()
+	
+	// 2. Wait for all goroutines to finish
+	tp.wg.Wait()
+	
+	// 3. Cancel subscription
+	if tp.subscription != nil {
+		tp.subscription.Cancel()
+		tp.subscription = nil
+	}
+	
+	// 4. Clean up topic
+	if tp.responseTopic != nil {
+		tp.responseTopic = nil
+	}
+	
+	// 5. Clean up maps
 	tp.responsesMutex.Lock()
 	tp.responses = make(map[string]map[string]*task_responses.TaskResponses)
 	tp.responsesMutex.Unlock()
 	
+	tp.weightsMutex.Lock()
+	tp.taskWeights = make(map[string]map[string]*big.Int)
+	tp.weightsMutex.Unlock()
+	
 	log.Printf("[TaskProcessor] Task processor stopped")
+	return nil
 }
 
 

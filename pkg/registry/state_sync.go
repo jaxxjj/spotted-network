@@ -39,6 +39,11 @@ type PubsubTopic interface {
 	Publish(ctx context.Context, data []byte, opts ...pubsub.PubOpt) error
 }
 
+type PubsubConfig struct {
+	node *Node
+	pubsub PubSubService
+}
+
 // StateSyncProcessor handles state verification via stream and broadcasts updates via pubsub
 type StateSyncProcessor struct {
 	node           *Node
@@ -47,23 +52,23 @@ type StateSyncProcessor struct {
 }
 
 // NewStateSyncProcessor creates a new state sync processor
-func NewStateSyncProcessor(node *Node, pubsub PubSubService) (*StateSyncProcessor, error) {
-	if node == nil {
+func NewStateSyncProcessor(cfg *PubsubConfig) (*StateSyncProcessor, error) {
+	if cfg.node == nil {
 		log.Fatal("node is nil")
 	}
-	if pubsub == nil {
+	if cfg.pubsub == nil {
 		log.Fatal("pubsub is nil")
 	}
 	// Join state sync topic for broadcasting updates
-	stateSyncTopic, err := pubsub.Join(StateSyncTopic)
+	stateSyncTopic, err := cfg.pubsub.Join(StateSyncTopic)
 	if err != nil {
 		return nil, fmt.Errorf("failed to join state sync topic: %w", err)
 	}
 	log.Printf("[StateSync] Joined state sync topic: %s", StateSyncTopic)
 
 	return &StateSyncProcessor{
-		node:           node,
-		pubsub:         pubsub,
+		node:           cfg.node,
+		pubsub:         cfg.pubsub,
 		stateSyncTopic: stateSyncTopic,
 	}, nil
 }

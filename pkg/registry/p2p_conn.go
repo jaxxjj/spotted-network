@@ -9,8 +9,7 @@ import (
 
 func (n *Node) disconnectPeer(targetPeer peer.ID) error {
 	log.Printf("[Node] Disconnecting peer %s", targetPeer.String())
-
-
+	
 	// 1. disconnect all connection
 	if err := n.closeConnection(targetPeer); err != nil {
 		log.Printf("[Node] Error disconnecting from peer %s: %v", targetPeer, err)

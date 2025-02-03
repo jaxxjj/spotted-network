@@ -18,7 +18,7 @@ import (
 const (
 	AuthTimeout              = 30 * time.Second
 	RegistryProtocol       = protocol.ID("/spotted/registry/1.0.0")
-	maxMessageSize = 1 << 20 // 1MB
+	maxMessageSize = 1024 * 1024 // 1MB
 )
 
 

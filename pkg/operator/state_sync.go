@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"sync"
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -42,18 +43,26 @@ type StateSyncProcessor struct {
 	node             *Node
 	pubsub           PubSubService
 	stateSyncTopic   ResponseTopic
+	sub   			 *pubsub.Subscription
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
 }
 
 // NewStateSyncProcessor creates a new state sync processor
 func NewStateSyncProcessor(ctx context.Context, node *Node, pubsub PubSubService) (*StateSyncProcessor, error) {
+	// Create a new context with cancel
+	ctx, cancel := context.WithCancel(ctx)
+	
 	sp := &StateSyncProcessor{
 		node:             node,
 		pubsub:           pubsub,
+		cancel:           cancel,
 	}
 
 	// Subscribe to state sync topic
-	stateSub, err := sp.SubscribeToStateSyncTopic()
+	sub, err := sp.SubscribeToStateSyncTopic()
 	if err != nil {
+		cancel() // Clean up if subscription fails
 		return nil, fmt.Errorf("failed to subscribe to state sync topic: %w", err)
 	}
 
@@ -61,12 +70,48 @@ func NewStateSyncProcessor(ctx context.Context, node *Node, pubsub PubSubService
 	node.host.SetStreamHandler(StateVerifyProtocol, sp.handleStateVerifyStream)
 	
 	// Start handling updates
-	go sp.handleStateSyncTopic(ctx, stateSub)
+	sp.wg.Add(2) 
+	go func() {
+		defer sp.wg.Done()
+		sp.handleStateSyncTopic(ctx, sub)
+	}()
 
 	// Start state hash verification
-	go sp.startStateHashVerification(ctx)
+	go func() {
+		defer sp.wg.Done()
+		sp.startStateHashVerification(ctx)
+	}()
 
 	return sp, nil
+}
+
+// Stop gracefully stops the state sync processor
+func (sp *StateSyncProcessor) Stop() error {
+    log.Printf("[StateSync] Stopping state sync processor...")
+    
+    // Cancel context to stop all goroutines
+    sp.cancel()
+    
+    // Wait for all goroutines to finish
+    sp.wg.Wait()
+    
+    // Remove stream handler
+    sp.node.host.RemoveStreamHandler(StateVerifyProtocol)
+    
+    // close topic related resources
+    if sp.stateSyncTopic != nil {
+        // 1. cancel subscription
+        if sp.sub != nil {
+            sp.sub.Cancel()
+            sp.sub = nil
+        }
+        
+        // 2. clean up topic
+        sp.stateSyncTopic = nil
+    }
+    
+    log.Printf("[StateSync] State sync processor stopped")
+    return nil
 }
 
 // Subscribe subscribes to the state sync topic

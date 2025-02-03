@@ -14,9 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type OperatorStateUpdator interface {
-	updateSingleOperatorState(ctx context.Context, operatorAddr string) error
-}
 type EventListenerQuerier interface {
 	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string) (*operators.Operators, error)
 	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams, getOperatorByAddress *string) (*operators.Operators, error)
@@ -29,27 +26,33 @@ type EventListenerChainClient interface {
 	WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error) 
 }
 
-type EventListener struct {
-	node OperatorStateUpdator
+type EventListenerConfig struct {
+	node *Node
 	mainnetClient EventListenerChainClient
 	operators EventListenerQuerier
 }
 
-func NewEventListener(ctx context.Context, node OperatorStateUpdator, mainnetClient EventListenerChainClient, operators EventListenerQuerier) *EventListener {
-	if node == nil {
+type EventListener struct {
+	node *Node
+	mainnetClient EventListenerChainClient
+	operators EventListenerQuerier
+}
+
+func NewEventListener(ctx context.Context, cfg *EventListenerConfig) *EventListener {
+	if cfg.node == nil {
 		log.Fatal("[EventListener] node not initialized")
 	}
-	if mainnetClient == nil {
+	if cfg.mainnetClient == nil {
 		log.Fatal("[EventListener] mainnet client not initialized")
 	}
-	if operators == nil {
+	if cfg.operators == nil {
 		log.Fatal("[EventListener] operators querier not initialized")
 	}
 	log.Printf("[EventListener] Creating new EventListener instance")
 	el := &EventListener{
-		node: node,
-		mainnetClient: mainnetClient,
-		operators: operators,
+		node: cfg.node,
+		mainnetClient: cfg.mainnetClient,
+		operators: cfg.operators,
 	}
 	go el.start(ctx)
 	return el

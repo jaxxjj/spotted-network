@@ -25,134 +25,134 @@ type TaskResponseQuerier interface {
 }
 
 // handleResponses handles incoming task responses
-func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
+func (tp *TaskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscription) {
+	// use buffered channel to limit concurrent goroutine number
+	semaphore := make(chan struct{}, 10) 
+	
 	for {
-		msg, err := sub.Next(context.Background())
-		if err != nil {
-			log.Printf("[Response] Failed to get next response message: %v", err)
-			continue
-		}
-		log.Printf("[Response] Received new message from peer: %s", msg.ReceivedFrom.String())
-
-		// Parse protobuf message
-		var pbMsg pb.TaskResponseMessage
-		if err := proto.Unmarshal(msg.Data, &pbMsg); err != nil {
-			log.Printf("[Response] Failed to unmarshal message: %v", err)
-			continue
-		}
-		log.Printf("[Response] Received task response for task %s from operator %s", pbMsg.TaskId, pbMsg.OperatorAddress)
-
-		// Get peer ID from message
-		peerID := msg.ReceivedFrom
-		log.Printf("[Response] Message received from peer: %s", peerID.String())
-
-		// Verify peer ID is in active operators
-		operatorState := tp.node.GetOperatorState(peerID)
-		if operatorState == nil {
-			log.Printf("[Response] Peer %s not found in active operators, skipping message", peerID)
-			continue
-		}
-
-		// Verify operator address matches
-		if !strings.EqualFold(operatorState.Address, pbMsg.OperatorAddress) {
-			log.Printf("[Response] Operator address mismatch for peer %s: expected %s, got %s", 
-				peerID, operatorState.Address, pbMsg.OperatorAddress)
-			continue
-		}
-
-		if tp.alreadyProcessed(pbMsg.TaskId, pbMsg.OperatorAddress) {
-			log.Printf("[Response] Response already processed for task %s from operator %s, skipping", pbMsg.TaskId, pbMsg.OperatorAddress)
-			continue
-		}
-
-		// Check if consensus already exists for this task
-		consensus, err := tp.consensusResponse.GetConsensusResponseByTaskId(context.Background(), pbMsg.TaskId)
-		if err == nil {
-			if consensus != nil {
-				// Consensus already exists, skip this response
-				log.Printf("[Response] Consensus already exists for task %s, skipping response from %s", 
-					pbMsg.TaskId, pbMsg.OperatorAddress)
+		select {
+		case <-ctx.Done():
+			log.Printf("[Response] Stopping response handler: %v", ctx.Err())
+			return
+		default:
+			msg, err := sub.Next(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					log.Printf("[Response] Context cancelled while getting next message")
+					return
+				}
+				log.Printf("[Response] Failed to get next response message: %v", err)
 				continue
 			}
-		} else {
-			log.Printf("[Response] Error checking consensus for task %s: %v", pbMsg.TaskId, err)
-			continue
-		}
 
-		// Convert to TaskResponse
-		response, err := convertToTaskResponse(&pbMsg)
-		if err != nil {
-			log.Printf("[Response] Failed to convert message: %v", err)
-			continue
-		}
-		if response == nil {
-			log.Printf("[Response] Converted response is nil for task %s", pbMsg.TaskId)
-			continue
-		}
-		log.Printf("[Response] Successfully converted task response for task %s", response.TaskID)
+			semaphore <- struct{}{}
+			
+			go func(msg *pubsub.Message) {
+				defer func() {
+					<-semaphore
+				}()
 
-		// Get operator weight
-		weight, err := tp.node.getOperatorWeight(peerID)
-		if err != nil {
-			log.Printf("[Response] Invalid operator %s: %v", response.OperatorAddress, err)
-			continue
-		}
-		log.Printf("[Response] Got operator weight for %s: %s", response.OperatorAddress, weight.String())
+				// Parse protobuf message
+				var pbMsg pb.TaskResponseMessage
+				if err := proto.Unmarshal(msg.Data, &pbMsg); err != nil {
+					log.Printf("[Response] Failed to unmarshal message: %v", err)
+					return
+				}
 
-		// Verify response
-		if err := tp.verifyResponse(response); err != nil {
-			log.Printf("[Response] Invalid response from %s: %v", response.OperatorAddress, err)
-			continue
-		}
-		log.Printf("[Response] Verified response signature from operator %s", response.OperatorAddress)
+				// Get peer ID and verify it's an active operator
+				peerID := msg.ReceivedFrom
+				operatorState := tp.node.GetOperatorState(peerID)
+				if operatorState == nil {
+					log.Printf("[Response] Peer %s not found in active operators", peerID)
+					return
+				}
 
-		// Store response in local map
-		tp.responsesMutex.Lock()
-		if _, exists := tp.responses[response.TaskID]; !exists {
-			tp.responses[response.TaskID] = make(map[string]*task_responses.TaskResponses)
-		}
-		tp.responses[response.TaskID][response.OperatorAddress] = response
-		tp.responsesMutex.Unlock()
-		log.Printf("[Response] Stored response in memory for task %s from operator %s", response.TaskID, response.OperatorAddress)
+				// Verify operator address
+				if !strings.EqualFold(operatorState.Address, pbMsg.OperatorAddress) {
+					log.Printf("[Response] Operator address mismatch for peer %s", peerID)
+					return
+				}
 
-		// Store weight in local map
-		tp.weightsMutex.Lock()
-		if _, exists := tp.taskWeights[response.TaskID]; !exists {
-			tp.taskWeights[response.TaskID] = make(map[string]*big.Int)
-		}
-		tp.taskWeights[response.TaskID][response.OperatorAddress] = weight
-		tp.weightsMutex.Unlock()
-		log.Printf("[Response] Stored weight in memory for task %s from operator %s", response.TaskID, response.OperatorAddress)
+				if tp.alreadyProcessed(pbMsg.TaskId, pbMsg.OperatorAddress) {
+					return
+				}
 
-		// Check if we need to process this task
-		tp.responsesMutex.RLock()
-		_, processed := tp.responses[response.TaskID][tp.signer.GetOperatorAddress().Hex()]
-		tp.responsesMutex.RUnlock()
+				// Check existing consensus
+				consensus, err := tp.consensusResponse.GetConsensusResponseByTaskId(context.Background(), pbMsg.TaskId)
+				if err == nil && consensus != nil {
+					return
+				}
 
-		if !processed {
-			// Process task and broadcast our response
-			if err := tp.ProcessTask(context.Background(), &tasks.Tasks{
-				TaskID:        response.TaskID,
-				Value:         response.Value,
-				BlockNumber:   response.BlockNumber,
-				ChainID:       response.ChainID,
-				TargetAddress: response.TargetAddress,
-				Key:          response.Key,
-				Epoch:        response.Epoch,
-				Timestamp:    response.Timestamp,
-			}); err != nil {
-				log.Printf("[Response] Failed to process task: %v", err)
-			}
+				// Convert and verify response
+				response, err := convertToTaskResponse(&pbMsg)
+				if err != nil || response == nil {
+					log.Printf("[Response] Invalid response: %v", err)
+					return
+				}
+
+				// Get and verify operator weight
+				weight, err := tp.node.getOperatorWeight(peerID)
+				if err != nil {
+					log.Printf("[Response] Invalid operator weight: %v", err)
+					return
+				}
+
+				if err := tp.verifyResponse(response); err != nil {
+					log.Printf("[Response] Invalid response signature: %v", err)
+					return
+				}
+
+				// Store response and weight
+				tp.storeResponseAndWeight(response, weight)
+
+				// Process task if needed
+				tp.responsesMutex.RLock()
+				processed := tp.responses[response.TaskID][tp.signer.GetOperatorAddress().Hex()] != nil
+				tp.responsesMutex.RUnlock()
+
+				if !processed {
+					if err := tp.ProcessTask(context.Background(), &tasks.Tasks{
+						TaskID:        response.TaskID,
+						Value:         response.Value,
+						BlockNumber:   response.BlockNumber,
+						ChainID:       response.ChainID,
+						TargetAddress: response.TargetAddress,
+						Key:          response.Key,
+						Epoch:        response.Epoch,
+						Timestamp:    response.Timestamp,
+					}); err != nil {
+						log.Printf("[Response] Failed to process task: %v", err)
+					}
+				}
+
+				// Check consensus
+				if err := tp.checkConsensus(response.TaskID); err != nil {
+					log.Printf("[Response] Failed to check consensus: %v", err)
+				}
+				
+			}(msg)
 		}
-		// Check consensus
-		if err := tp.checkConsensus(response.TaskID); err != nil {
-			log.Printf("[Response] Failed to check consensus: %v", err)
-			continue
-		}
-		log.Printf("[Response] Completed consensus check for task %s", response.TaskID)
 	}
 }
 
+// helper function to store response and weight
+func (tp *TaskProcessor) storeResponseAndWeight(response *task_responses.TaskResponses, weight *big.Int) {
+	// Store response
+	tp.responsesMutex.Lock()
+	if _, exists := tp.responses[response.TaskID]; !exists {
+		tp.responses[response.TaskID] = make(map[string]*task_responses.TaskResponses)
+	}
+	tp.responses[response.TaskID][response.OperatorAddress] = response
+	tp.responsesMutex.Unlock()
+
+	// Store weight
+	tp.weightsMutex.Lock()
+	if _, exists := tp.taskWeights[response.TaskID]; !exists {
+		tp.taskWeights[response.TaskID] = make(map[string]*big.Int)
+	}
+	tp.taskWeights[response.TaskID][response.OperatorAddress] = weight
+	tp.weightsMutex.Unlock()
+}
 
 // broadcastResponse broadcasts a task response to other operators
 func (tp *TaskProcessor) broadcastResponse(response *task_responses.TaskResponses) error {
@@ -274,8 +274,28 @@ func (tp *TaskProcessor) verifyResponse(response *task_responses.TaskResponses) 
 }
 
 func (tp *TaskProcessor) alreadyProcessed(taskId string, operatorAddress string) bool {
+	// 1. check if processed in memory
 	tp.responsesMutex.RLock()
 	_, processed := tp.responses[taskId][operatorAddress]
 	tp.responsesMutex.RUnlock()
-	return processed
+	
+	if processed {
+		log.Printf("[Response] Task %s from operator %s already processed in memory", taskId, operatorAddress)
+		return true
+	}
+	
+	// 2. check if consensus exists in database
+	consensus, err := tp.consensusResponse.GetConsensusResponseByTaskId(context.Background(), taskId)
+	if err != nil {
+		log.Printf("[Response] Error checking consensus for task %s: %v", taskId, err)
+		return false
+	}
+	
+	// if database has consensus record, task has reached consensus
+	if consensus != nil {
+		log.Printf("[Response] Task %s already has consensus in database", taskId)
+		return true
+	}
+	
+	return false
 }

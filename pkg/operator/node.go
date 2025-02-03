@@ -33,6 +33,7 @@ type P2PHost interface {
 	Connect(ctx context.Context, pi peer.AddrInfo) error
 	NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error)
 	SetStreamHandler(pid protocol.ID, handler network.StreamHandler)
+	RemoveStreamHandler(pid protocol.ID)
 	Network() network.Network
 	Peerstore() peerstore.Peerstore
 	Close() error
@@ -260,12 +261,13 @@ func (n *Node) Start(ctx context.Context) error {
 	return nil
 }
 
-func (n *Node) Stop() error {
+func (n *Node) Stop(ctx context.Context) error {
 	// Stop API server
-	if err := n.apiServer.Stop(context.Background()); err != nil {
+	if err := n.apiServer.Stop(ctx); err != nil {
 		log.Printf("[Node] Error stopping API server: %v", err)
 	}
-	
+	n.registryHandler.Disconnect(ctx)
+	n.stateSyncProcessor.Stop()
 	return n.host.Close()
 }
 

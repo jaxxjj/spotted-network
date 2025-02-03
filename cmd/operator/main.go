@@ -140,6 +140,7 @@ func main() {
 		RegistryAddress: *registryAddress,
 		Config:          cfg,
 	})
+	defer node.Stop(ctx)
 	if err != nil {
 		metric.RecordError("node_creation_failed")
 		log.Fatal("Failed to create operator node:", err)

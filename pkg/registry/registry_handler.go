@@ -20,6 +20,10 @@ const (
 	RegistryProtocol = protocol.ID("/spotted/registry/1.0.0")
 )
 
+type RegistryHandlerConfig struct {
+	node *Node
+	opQuerier OperatorsQuerier
+}
 
 // RegistryHandler handles registry protocol operations
 type RegistryHandler struct {
@@ -28,16 +32,16 @@ type RegistryHandler struct {
 }
 
 // NewRegistryHandler creates a new registry handler
-func NewRegistryHandler(node *Node, opQuerier OperatorsQuerier) *RegistryHandler {
-	if node == nil {
+func NewRegistryHandler(cfg *RegistryHandlerConfig) *RegistryHandler {
+	if cfg.node == nil {
 		log.Fatal("node is nil")
 	}
-	if opQuerier == nil {
+	if cfg.opQuerier == nil {
 		log.Fatal("opQuerier is nil")
 	}
 	return &RegistryHandler{
-		node: node,
-		opQuerier: opQuerier,
+		node: cfg.node,
+		opQuerier: cfg.opQuerier,
 	}
 }
 
