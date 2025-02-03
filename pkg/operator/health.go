@@ -4,68 +4,93 @@ import (
 	"context"
 	"log"
 	"time"
-)
 
-// healthCheck periodically checks the health of connected operators
-func (n *Node) healthCheck() {
-	ticker := time.NewTicker(30 * time.Second)
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
+)
+const (
+	HealthCheckInterval = 20 * time.Second
+)
+type PingService interface {
+	Ping(ctx context.Context, p peer.ID) <-chan ping.Result
+}
+
+type HealthChecker struct {
+	node           *Node
+	pingService    PingService
+}
+
+// NewHealthChecker creates and starts a new health checker
+func newHealthChecker(ctx context.Context, node *Node, pingService PingService) (*HealthChecker, error) {
+	if node == nil {
+		log.Fatal("node is nil")
+	}
+	if pingService == nil {
+		log.Fatal("pingService is nil")
+	}
+	hc := &HealthChecker{
+		node:          node,
+		pingService:   pingService,
+	}
+	
+	// Start health check service
+	go hc.start(ctx)
+	log.Printf("[Health] Health check service started with interval %v", HealthCheckInterval)
+	
+	return hc, nil
+}
+
+// start is now private as it's called internally by NewHealthChecker
+func (hc *HealthChecker) start(ctx context.Context) {
+	ticker := time.NewTicker(HealthCheckInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		// Get current active operators
-		operators := n.GetActiveOperators()
-		
-		for _, op := range operators {
-			// Skip if no peer ID (not connected yet)
-			if op.PeerID == "" {
-				continue
-			}
-
-			// Create context with timeout for health check
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
-			// Ping the operator
-			err := n.PingPeer(ctx, op.PeerID)
-			
-			if err != nil {
-				log.Printf("[Health] Failed to ping operator %s (peer ID: %s): %v", 
-					op.Address, op.PeerID, err)
-				
-				// Update operator status to inactive
-				op.Status = "inactive"
-				op.LastSeen = time.Now()
-				n.UpdateOperatorState(op.Address, op.PeerID, op)
-				
-			} else {
-				// Update last seen time on successful ping
-				op.LastSeen = time.Now()
-				op.Status = "active" 
-				n.UpdateOperatorState(op.Address, op.PeerID, op)
-			}
-
-			cancel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			hc.checkOperators(ctx)
+			hc.printConnectedPeers()
 		}
-
-		// Clean up stale operators
-		n.cleanupStaleOperators()
 	}
 }
 
-// cleanupStaleOperators removes operators that haven't been seen for too long
-func (n *Node) cleanupStaleOperators() {
-	staleThreshold := 5 * time.Minute
-	
-	n.operators.mu.RLock()
-	now := time.Now()
-	
-	for addr, op := range n.operators.byAddress {
-		if now.Sub(op.LastSeen) > staleThreshold {
-			log.Printf("[Health] Removing stale operator %s (peer ID: %s)", 
-				addr, op.PeerID)
-			
-			// Remove operator from maps
-			n.RemoveOperator(addr, op.PeerID)
+// checkOperators checks the health of all connected operators
+func (hc *HealthChecker) checkOperators(ctx context.Context) {
+	operators := hc.node.getActivePeerIDs()
+	for _, id := range operators {
+		if id == hc.node.host.ID() {
+			continue
+		}
+		if err := hc.pingOperator(ctx, id); err != nil {
+			log.Printf("[Health] Operator %s failed health check: %v", id, err)
+			hc.node.disconnectPeer(id)
+			hc.node.stateSyncProcessor.verifyStateWithRegistry(ctx)
 		}
 	}
-	n.operators.mu.RUnlock()
-} 
+}
+
+// pingOperator pings a specific operator
+func (hc *HealthChecker) pingOperator(ctx context.Context, p peer.ID) error {
+	// Add ping timeout
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	result := <-hc.pingService.Ping(ctx, p)
+	if result.Error != nil {
+		return result.Error
+	}
+
+	log.Printf("[Health] Successfully pinged operator %s (RTT: %v)", p, result.RTT)
+	return nil
+}
+
+func (hc *HealthChecker) printConnectedPeers() {
+	peers := hc.node.host.Network().Peers()
+	log.Printf("[Node] Connected to %d peers:", len(peers))
+	for _, peer := range peers {
+		addrs := hc.node.host.Network().Peerstore().Addrs(peer)
+		log.Printf("[Node] - Peer %s at %v", peer.String(), addrs)
+	}
+}

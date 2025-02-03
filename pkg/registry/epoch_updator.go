@@ -39,10 +39,6 @@ type EpochUpdatorChainClient interface {
 	GetOperatorSigningKey(ctx context.Context, address ethcommon.Address, epoch uint32) (ethcommon.Address, error)
 }
 
-type EpochUpdatorSP interface {
-	BroadcastStateUpdate() error
-}
-
 // TransactionManager abstracts database transaction operations
 type TxManager interface {
 	Transact(ctx context.Context, txOptions pgx.TxOptions, f func(context.Context, *wpgx.WTx) (any, error)) (any, error)
@@ -52,7 +48,7 @@ type EpochUpdatorConfig struct {
 	node EpochUpdatorNode
 	opQuerier EpochUpdatorQuerier
 	pubsub PubSubService
-	sp EpochUpdatorSP
+	sp *StateSyncProcessor
 	mainnetClient EpochUpdatorChainClient
 	txManager TxManager // Replace dbPool with txManager
 }
@@ -62,7 +58,7 @@ type EpochUpdator struct {
 	opQuerier EpochUpdatorQuerier
 	lastProcessedEpoch uint32
 	pubsub PubSubService
-	sp EpochUpdatorSP
+	sp *StateSyncProcessor
 	mainnetClient EpochUpdatorChainClient
 	txManager TxManager // Replace dbPool with txManager
 }
@@ -206,7 +202,7 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 			return nil, fmt.Errorf("failed to sync peer info: %w", err)
 		}
 
-		if err := e.sp.BroadcastStateUpdate(); err != nil {
+		if err := e.sp.broadcastStateUpdate(&currentEpoch); err != nil {
 			return nil, fmt.Errorf("failed to broadcast state update: %w", err)
 		}
 

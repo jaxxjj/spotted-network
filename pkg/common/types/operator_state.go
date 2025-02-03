@@ -37,21 +37,33 @@ func (s *OperatorState) Hash() []byte {
 	var buf bytes.Buffer
 
 	// Write fields in a fixed order
-	buf.WriteString(s.PeerID.String())
+	if s.PeerID != "" {
+		buf.WriteString(s.PeerID.String())
+	}
 	
 	// Sort multiaddrs for consistency
-	addrs := make([]string, len(s.Multiaddrs))
-	for i, addr := range s.Multiaddrs {
-		addrs[i] = addr.String()
-	}
-	sort.Strings(addrs)
-	for _, addr := range addrs {
-		buf.WriteString(addr)
+	if s.Multiaddrs != nil {
+		addrs := make([]string, len(s.Multiaddrs))
+		for i, addr := range s.Multiaddrs {
+			if addr != nil {
+				addrs[i] = addr.String()
+			}
+		}
+		sort.Strings(addrs)
+		for _, addr := range addrs {
+			buf.WriteString(addr)
+		}
 	}
 
-	buf.WriteString(s.Address)
-	buf.WriteString(s.SigningKey)
-	buf.WriteString(s.Weight.String())
+	if s.Address != "" {
+		buf.WriteString(s.Address)
+	}
+	if s.SigningKey != "" {
+		buf.WriteString(s.SigningKey)
+	}
+	if s.Weight != nil {
+		buf.WriteString(s.Weight.String())
+	}
 
 	// Compute SHA256
 	hash := sha256.Sum256(buf.Bytes())

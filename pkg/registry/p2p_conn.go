@@ -18,7 +18,7 @@ func (n *Node) disconnectPeer(targetPeer peer.ID) error {
 	
 	// 2. clean up resources
 	n.cleanupPeerResources(targetPeer)
-	
+	n.stateSyncProcessor.broadcastStateUpdate(nil)
 	log.Printf("[Node] Successfully disconnected peer %s", targetPeer.String())
 	return nil
 }

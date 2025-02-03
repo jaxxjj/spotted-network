@@ -2,29 +2,22 @@
 
 # Start monitoring infrastructure
 start-prometheus:
-	@echo "Starting Prometheus..."
 	@docker compose up -d prometheus
-	@sleep 5
 
 start-otel:
-	@echo "Starting OpenTelemetry Collector..."
 	@docker compose up -d otel-collector
-	@sleep 5
 
 start-monitoring: start-prometheus start-otel
-	@echo "Monitoring infrastructure is ready"
+
 
 # Start registry node
-start-registry: start-monitoring
-	@echo "Starting registry node..."
-	@docker compose --profile registry up -d registry --build
-	@sleep 5
+start-registry: 
+	@docker compose up -d registry --build
+
 
 # Start operator nodes
-start-operators: start-registry
-	@echo "Starting operator nodes..."
-	@docker compose --profile operators up -d operator1 operator2 operator3
-	@sleep 5
+start-operators: 
+	@docker compose --profile operators up -d operator1 operator2 operator3 --build
 
 # Start everything in sequence
 start-all: start-monitoring start-registry get-registry-id start-operators

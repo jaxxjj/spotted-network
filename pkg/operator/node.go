@@ -83,7 +83,6 @@ type Node struct {
 	registryAddress   string
 	signer         OperatorSigner
 	chainManager   ChainManager
-	pingService    *ping.PingService
 	apiServer      APIServer
 	taskProcessor  *TaskProcessor
 	registryHandler *RegistryHandler
@@ -92,17 +91,11 @@ type Node struct {
 	consensusResponseQuerier ConsensusResponseQuerier
 	epochStateQuerier EpochStateQuerier
 	config          *config.Config
-
+	stateSyncProcessor *StateSyncProcessor
 	// Network connection information
 	activeOperators ActivePeerStates
 	activeOperatorsMu sync.RWMutex
 
-	// Business state information (synced from registry)
-	operatorState *OperatorState
-	operatorStateMu sync.RWMutex
-
-	// Active peer states
-	activePeers *ActivePeerStates
 }
 
 
@@ -149,8 +142,6 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 		return nil, fmt.Errorf("failed to parse registry peer info: %w", err)
 	}
 
-	// Create ping service
-	pingService := ping.NewPingService(cfg.Host)
 
 	node := &Node{
 		host:           cfg.Host,
@@ -163,8 +154,7 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 		consensusResponseQuerier: cfg.ConsensusResponseQuerier,
 		epochStateQuerier: cfg.EpochStateQuerier,
 		config:        cfg.Config,
-		pingService:   pingService,
-		activePeers: &ActivePeerStates{
+		activeOperators: ActivePeerStates{
 			active: make(map[peer.ID]*OperatorState),
 		},
 	}
@@ -190,11 +180,21 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 		return nil, fmt.Errorf("failed to create task processor: %w", err)
 	}
 	node.taskProcessor = taskProcessor
+	node.stateSyncProcessor, err = NewStateSyncProcessor(ctx, node, pubsub)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create state sync processor: %w", err)
+	}
 	registryId, err := peer.Decode(cfg.Config.RegistryID)
 	if err != nil{
 		log.Fatal()
 	}
-	node.registryHandler = NewRegistryHandler(node, cfg.Signer.GetOperatorAddress(), cfg.Signer, registryId)
+
+	pingService := ping.NewPingService(cfg.Host)
+	_, err = newHealthChecker(ctx, node, pingService)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create health checker: %w", err)
+	}
+	node.registryHandler = NewRegistryHandler(node, cfg.Signer, registryId)
 	// Create API handler and server
 	apiHandler := api.NewHandler(cfg.TasksQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
 	node.apiServer = api.NewServer(apiHandler, cfg.Config.HTTP.Port)
@@ -235,7 +235,7 @@ func (n *Node) Start(ctx context.Context) error {
 
 	// Step 1: Connect to registry
 	log.Printf("[Node] Connecting to registry...")
-	if err := n.connectToRegistry(); err != nil {
+	if err := n.connectToRegistry(ctx); err != nil {
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
 	log.Printf("[Node] Successfully connected to registry")
@@ -247,34 +247,6 @@ func (n *Node) Start(ctx context.Context) error {
 	}
 	log.Printf("[Node] Successfully authenticated with registry")
 
-	// Step 3: Subscribe to state updates
-	log.Printf("[Node] Subscribing to state updates...")
-	if err := n.subscribeToStateUpdates(); err != nil {
-		return fmt.Errorf("failed to subscribe to state updates: %w", err)
-	}
-	log.Printf("[Node] Successfully subscribed to state updates")
-
-	// Step 4: Wait for and get initial state
-	log.Printf("[Node] Getting initial state...")
-	if err := n.getFullState(); err != nil {
-		return fmt.Errorf("failed to get initial state: %w", err)
-	}
-	log.Printf("[Node] Successfully received initial state")
-
-	// Step 5: Start background services
-	go n.healthCheck()
-	log.Printf("[Node] Health check started")
-
-	go n.monitorEpochUpdates(ctx)
-	log.Printf("[Node] Epoch monitoring started")
-
-	// Print connected peers
-	peers := n.host.Network().Peers()
-	log.Printf("[Node] Connected to %d peers:", len(peers))
-	for _, peer := range peers {
-		addrs := n.host.Network().Peerstore().Addrs(peer)
-		log.Printf("[Node] - Peer %s at %v", peer.String(), addrs)
-	}
 
 	return nil
 }
@@ -288,18 +260,11 @@ func (n *Node) Stop() error {
 	return n.host.Close()
 }
 
-func (n *Node) getRegistryInfo() *peer.AddrInfo {
-	return &peer.AddrInfo{
-		ID:    n.registryID,
-		Addrs: []multiaddr.Multiaddr{n.registryAddress},
-	}
-}
-
 func (n *Node) createStreamToRegistry(ctx context.Context, pid protocol.ID) (network.Stream, error) {
 	return n.host.NewStream(ctx, n.registryID, pid)
 }
 
-func (n *Node) connectToRegistry() error {
+func (n *Node) connectToRegistry(ctx context.Context) error {
 	log.Printf("[Node] Attempting to connect to Registry Node at address: %s\n", n.registryAddress)
 
 	// Create multiaddr from the provided address
@@ -315,7 +280,7 @@ func (n *Node) connectToRegistry() error {
 	}
 
 	// Connect to registry
-	if err := n.host.Connect(context.Background(), *peerInfo); err != nil {
+	if err := n.host.Connect(ctx, *peerInfo); err != nil {
 		return fmt.Errorf("[Node] failed to connect to registry: %v", err)
 	}
 
@@ -326,19 +291,15 @@ func (n *Node) connectToRegistry() error {
 	return nil
 }
 
-
-// UpdateOperatorState updates the operator's business state
-func (n *Node) UpdateOperatorState(state *OperatorState) {
-	n.operatorStateMu.Lock()
-	defer n.operatorStateMu.Unlock()
-	n.operatorState = state
+func (n *Node) getHostID() peer.ID {
+	return n.host.ID()
 }
 
 // GetOperatorState returns the current operator state
-func (n *Node) GetOperatorState() *OperatorState {
-	n.operatorStateMu.RLock()
-	defer n.operatorStateMu.RUnlock()
-	return n.operatorState
+func (n *Node) GetOperatorState(peerID peer.ID) *OperatorState {
+	n.activeOperatorsMu.RLock()
+	defer n.activeOperatorsMu.RUnlock()
+	return n.activeOperators.active[peerID]
 }
 
 // RemoveOperator removes an operator from the active set

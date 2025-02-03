@@ -13,9 +13,7 @@ import (
 	pb "github.com/galxe/spotted-network/proto"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/multiformats/go-multiaddr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -24,21 +22,9 @@ const (
 	EpochPeriod  = 12
 	stateHashCheckInterval = 30 * time.Second // Interval to check state hash
 	
-	// Protocol IDs
-	StateSyncProtocol = protocol.ID("/spotted/state-sync/1.0.0")
 	StateSyncTopic = "/spotted/state-sync"
 	StateVerifyProtocol = protocol.ID("/spotted/state-verify/1.0.0")
 )
-
-type OperatorStateController interface {
-	UpsertActivePeerState(state *OperatorState) error
-	GetActiveOperatorsRoot() []byte
-	GetOperatorState(id peer.ID) *OperatorState
-	RemoveOperator(id peer.ID)
-	createStreamToRegistry(ctx context.Context, pid protocol.ID) (network.Stream, error)
-	getCurrentStateRoot() []byte
-	UpsertActivePeerStates(states []*OperatorState) error
-}
 
 type ChainClient interface {
 	BlockNumber(ctx context.Context) (uint64, error)
@@ -53,86 +39,145 @@ type ChainClient interface {
 
 // StateSyncProcessor handles state sync via pubsub
 type StateSyncProcessor struct {
-	node             OperatorStateController
+	node             *Node
 	pubsub           PubSubService
 	stateSyncTopic   ResponseTopic
 }
 
 // NewStateSyncProcessor creates a new state sync processor
-func NewStateSyncProcessor(node OperatorStateController, pubsub PubSubService) (*StateSyncProcessor, error) {
-	// Join state sync topic
-	stateSyncTopic, err := pubsub.Join(StateSyncTopic)
-	if err != nil {
-		return nil, fmt.Errorf("failed to join state sync topic: %w", err)
-	}
-	log.Printf("[StateSync] Joined state sync topic: %s", StateSyncTopic)
-
+func NewStateSyncProcessor(ctx context.Context, node *Node, pubsub PubSubService) (*StateSyncProcessor, error) {
 	sp := &StateSyncProcessor{
 		node:             node,
 		pubsub:           pubsub,
-		stateSyncTopic:   stateSyncTopic,
 	}
 
 	// Subscribe to state sync topic
-	stateSub, err := stateSyncTopic.Subscribe()
+	stateSub, err := sp.SubscribeToStateSyncTopic()
+	if err != nil {
+		return nil, fmt.Errorf("failed to subscribe to state sync topic: %w", err)
+	}
+
+	// Set up handler for state verify responses from registry
+	node.host.SetStreamHandler(StateVerifyProtocol, sp.handleStateVerifyStream)
+	
+	// Start handling updates
+	go sp.handleStateSyncTopic(ctx, stateSub)
+
+	// Start state hash verification
+	go sp.startStateHashVerification(ctx)
+
+	return sp, nil
+}
+
+// Subscribe subscribes to the state sync topic
+func (sp *StateSyncProcessor) SubscribeToStateSyncTopic() (*pubsub.Subscription, error) {
+	// Join state sync topic if not already joined
+	if sp.stateSyncTopic == nil {
+		topic, err := sp.pubsub.Join(StateSyncTopic)
+		if err != nil {
+			return nil, fmt.Errorf("failed to join state sync topic: %w", err)
+		}
+		sp.stateSyncTopic = topic
+		log.Printf("[StateSync] Joined state sync topic: %s", StateSyncTopic)
+	}
+
+	// Subscribe to the topic
+	sub, err := sp.stateSyncTopic.Subscribe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe to state sync topic: %w", err)
 	}
 	log.Printf("[StateSync] Subscribed to state sync topic")
 
-	// Start handling updates
-	go sp.handleStateSyncTopic(stateSub)
-
-	// Start state hash verification
-	go sp.startStateHashVerification()
-
-	return sp, nil
+	return sub, nil
 }
 
 // handleStateSyncTopic handles incoming state updates from pubsub
-func (sp *StateSyncProcessor) handleStateSyncTopic(sub *pubsub.Subscription) {
+func (sp *StateSyncProcessor) handleStateSyncTopic(ctx context.Context, sub *pubsub.Subscription) {
+	log.Printf("[StateSync] Started handling state sync topic")
+	
 	for {
-		msg, err := sub.Next(context.Background())
-		if err != nil {
-			log.Printf("[StateSync] Failed to get next message: %v", err)
-			continue
-		}
-
-		// Parse state update
-		var update pb.FullStateSync
-		if err := proto.Unmarshal(msg.Data, &update); err != nil {
-			log.Printf("[StateSync] Failed to unmarshal state update: %v", err)
-			continue
-		}
-
-		// Process operator states
-		states := make([]*OperatorState, 0, len(update.Operators))
-		for _, opState := range update.Operators {
-			state, err := sp.convertToOperatorState(opState)
+		select {
+		case <-ctx.Done():
+			log.Printf("[StateSync] Stopping state sync topic handler: %v", ctx.Err())
+			return
+		default:
+			msg, err := sub.Next(ctx)
 			if err != nil {
+				if ctx.Err() != nil {
+					log.Printf("[StateSync] Context cancelled while getting next message: %v", ctx.Err())
+					return
+				}
+				log.Printf("[StateSync] Failed to get next message: %v", err)
 				continue
 			}
-			states = append(states, state)
-		}
-
-		// Batch update all states
-		if len(states) > 0 {
-			if err := sp.node.UpsertActivePeerStates(states); err != nil {
-				log.Printf("[StateSync] Failed to batch update operator states: %v", err)
-			}
+			
+			log.Printf("[StateSync] Received message from peer: %s", msg.ReceivedFrom.String())
+			
+			// 在goroutine中处理消息
+			go func(msg *pubsub.Message) {
+				if err := sp.handleStateUpdateMessage(ctx, msg); err != nil {
+					log.Printf("[StateSync] Failed to handle state update message: %v", err)
+				}
+			}(msg)
 		}
 	}
 }
 
+// handleStateUpdateMessage handles a single state update message
+func (sp *StateSyncProcessor) handleStateUpdateMessage(ctx context.Context, msg *pubsub.Message) error {
+	// Parse state update
+	var update pb.FullStateSync
+	if err := proto.Unmarshal(msg.Data, &update); err != nil {
+		return fmt.Errorf("failed to unmarshal state update: %w", err)
+	}
+	
+	log.Printf("[StateSync] Processing state update with %d operators", len(update.Operators))
+	
+	// Process operator states
+	states := make([]*OperatorState, 0, len(update.Operators))
+	for _, opState := range update.Operators {
+		state, err := sp.node.convertToOperatorState(opState)
+		if err != nil {
+			log.Printf("[StateSync] Failed to convert operator state: %v", err)
+			continue
+		}
+		states = append(states, state)
+	}
+
+	// Update states
+	sp.node.updateOperatorStates(ctx, states)
+
+	// Check if epoch update is included
+	if update.Epoch != nil {
+		epochNumber := uint32(*update.Epoch)
+		log.Printf("[StateSync] Processing epoch update: %d", epochNumber)
+		
+		// Create context with timeout for epoch update
+		updateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		if err := sp.node.updateEpochState(updateCtx, epochNumber); err != nil {
+			return fmt.Errorf("failed to update epoch state: %w", err)
+		}
+		log.Printf("[StateSync] Successfully updated epoch state to %d", epochNumber)
+	}
+
+	return nil
+}
+
 // startStateHashVerification periodically verifies state hash with registry
-func (sp *StateSyncProcessor) startStateHashVerification() {
+func (sp *StateSyncProcessor) startStateHashVerification(ctx context.Context) {
+	log.Printf("[StateSync] Starting state hash verification")
 	ticker := time.NewTicker(stateHashCheckInterval)
 	defer ticker.Stop()
 
-	for {
+	for range ticker.C {
 		select {
-		case <-ticker.C:
-			if err := sp.verifyStateWithRegistry(); err != nil {
+		case <-ctx.Done():
+			log.Printf("[StateSync] Stopping state hash verification")
+			return
+		default:
+			if err := sp.verifyStateWithRegistry(ctx); err != nil {
 				log.Printf("[StateSync] Failed to verify state: %v", err)
 			}
 		}
@@ -140,7 +185,9 @@ func (sp *StateSyncProcessor) startStateHashVerification() {
 }
 
 // verifyStateWithRegistry verifies local state hash with registry
-func (sp *StateSyncProcessor) verifyStateWithRegistry() error {
+func (sp *StateSyncProcessor) verifyStateWithRegistry(ctx context.Context) error {
+	log.Printf("[StateSync] Verifying state with registry...")
+	
 	// Create stream to registry
 	stream, err := sp.node.createStreamToRegistry(context.Background(), StateVerifyProtocol)
 	if err != nil {
@@ -156,6 +203,8 @@ func (sp *StateSyncProcessor) verifyStateWithRegistry() error {
 		return fmt.Errorf("failed to write verify request: %w", err)
 	}
 
+	log.Printf("[StateSync] Sent state verify request to registry, waiting for response...")
+
 	// Read response
 	var resp pb.StateVerifyResponse
 	if err := utils.ReadStreamMessage(stream, &resp, maxMessageSize); err != nil {
@@ -168,56 +217,54 @@ func (sp *StateSyncProcessor) verifyStateWithRegistry() error {
 		states := make([]*OperatorState, 0, len(resp.Operators))
 		
 		for _, opState := range resp.Operators {
-			state, err := sp.convertToOperatorState(opState)
+			state, err := sp.node.convertToOperatorState(opState)
 			if err != nil {
+				log.Printf("[StateSync] Failed to convert operator state: %v", err)
 				continue
 			}
 			states = append(states, state)
 		}
 
-		// Batch update all states
-		if len(states) > 0 {
-			if err := sp.node.UpsertActivePeerStates(states); err != nil {
-				log.Printf("[StateSync] Failed to batch update operator states: %v", err)
-			}
-		}
+		sp.node.updateOperatorStates(ctx, states)
+	} else {
+		log.Printf("[StateSync] State verified successfully with registry")
 	}
 
 	return nil
 }
 
-// convertToOperatorState converts a protobuf operator state to internal operator state
-func (sp *StateSyncProcessor) convertToOperatorState(opState *pb.OperatorPeerState) (*OperatorState, error) {
-	// Convert multiaddrs
-	addrs := make([]multiaddr.Multiaddr, 0, len(opState.Multiaddrs))
-	for _, addrStr := range opState.Multiaddrs {
-		addr, err := multiaddr.NewMultiaddr(addrStr)
-		if err != nil {
-			log.Printf("[StateSync] Failed to parse multiaddr %s: %v", addrStr, err)
-			continue
+func (sp *StateSyncProcessor) handleStateVerifyStream(stream network.Stream) {
+	defer stream.Close()
+	
+	log.Printf("[StateVerify] Received state verify response from registry")
+	
+	// Read response
+	var resp pb.StateVerifyResponse
+	if err := utils.ReadStreamMessage(stream, &resp, maxMessageSize); err != nil {
+		log.Printf("[StateVerify] Failed to read verify response: %v", err)
+		stream.Reset()
+		return
+	}
+
+	// If state mismatch, update local state
+	if !resp.Success {
+		log.Printf("[StateVerify] State mismatch detected, updating local state...")
+		states := make([]*OperatorState, 0, len(resp.Operators))
+		
+		for _, opState := range resp.Operators {
+			state, err := sp.node.convertToOperatorState(opState)
+			if err != nil {
+				log.Printf("[StateVerify] Failed to convert operator state: %v", err)
+				continue
+			}
+			states = append(states, state)
 		}
-		addrs = append(addrs, addr)
-	}
 
-	// Parse peer ID
-	peerID, err := peer.Decode(opState.PeerId)
-	if err != nil {
-		log.Printf("[StateSync] Failed to decode peer ID %s: %v", opState.PeerId, err)
-		return nil, err
+		sp.node.updateOperatorStates(context.Background(), states)
+	} else {
+		log.Printf("[StateVerify] State verified successfully with registry")
 	}
-
-	// Create operator state
-	state := &OperatorState{
-		PeerID:     peerID,
-		Multiaddrs: addrs,
-		Address:    opState.Address,
-		SigningKey: opState.SigningKey,
-		Weight:     utils.StringToBigInt(opState.Weight),
-	}
-
-	return state, nil
 }
-
 
 
 

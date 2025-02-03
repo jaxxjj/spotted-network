@@ -9,6 +9,10 @@ import (
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
+	utils "github.com/galxe/spotted-network/pkg/common"
+	pb "github.com/galxe/spotted-network/proto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 )
 
 // getStateWithRetries attempts to get state with retries
@@ -62,8 +66,8 @@ func (n *Node) UpsertActivePeerStates(states []*OperatorState) error {
 		return fmt.Errorf("cannot update empty states")
 	}
 
-	n.activePeers.mu.Lock()
-	defer n.activePeers.mu.Unlock()
+	n.activeOperatorsMu.Lock()
+	defer n.activeOperatorsMu.Unlock()
 
 	log.Printf("[StateSync] Starting batch update of %d operator states", len(states))
 	
@@ -74,7 +78,7 @@ func (n *Node) UpsertActivePeerStates(states []*OperatorState) error {
 			continue
 		}
 		
-		n.activePeers.active[state.PeerID] = state
+		n.activeOperators.active[state.PeerID] = state
 		log.Printf("[StateSync] Updated state for peer %s", state.PeerID)
 	}
 
@@ -82,10 +86,84 @@ func (n *Node) UpsertActivePeerStates(states []*OperatorState) error {
 	return nil
 }
 
+func (n *Node) getOperatorWeight(peerID peer.ID) (*big.Int, error) {
+	n.activeOperatorsMu.RLock()
+	defer n.activeOperatorsMu.RUnlock()
 
+	operator, ok := n.activeOperators.active[peerID]
+	if !ok {
+		return nil, fmt.Errorf("operator %s not found", peerID)
+	}
+
+	return operator.Weight, nil
+}
+
+// GetConnectedOperators returns all connected operator IDs
+func (n *Node) getActivePeerIDs() []peer.ID {
+	n.activeOperators.mu.RLock()
+	defer n.activeOperators.mu.RUnlock()
+
+	operators := make([]peer.ID, 0, len(n.activeOperators.active))
+	for id := range n.activeOperators.active {
+		operators = append(operators, id)
+	}
+	return operators
+}
+
+// convertToOperatorState converts a protobuf operator state to internal operator state
+func (n *Node) convertToOperatorState(opState *pb.OperatorPeerState) (*OperatorState, error) {
+	// Convert multiaddrs
+	addrs := make([]multiaddr.Multiaddr, 0, len(opState.Multiaddrs))
+	for _, addrStr := range opState.Multiaddrs {
+		addr, err := multiaddr.NewMultiaddr(addrStr)
+		if err != nil {
+			log.Printf("[StateSync] Failed to parse multiaddr %s: %v", addrStr, err)
+			continue
+		}
+		addrs = append(addrs, addr)
+	}
+
+	// Parse peer ID
+	peerID, err := peer.Decode(opState.PeerId)
+	if err != nil {
+		log.Printf("[StateSync] Failed to decode peer ID %s: %v", opState.PeerId, err)
+		return nil, err
+	}
+
+	// Create operator state
+	state := &OperatorState{
+		PeerID:     peerID,
+		Multiaddrs: addrs,
+		Address:    opState.Address,
+		SigningKey: opState.SigningKey,
+		Weight:     utils.StringToBigInt(opState.Weight),
+	}
+
+	return state, nil
+}
+
+// updateOperatorStates updates operator states and related state root
+func (n *Node) updateOperatorStates(ctx context.Context, states []*OperatorState) {
+	if len(states) > 0 {
+		if err := n.UpsertActivePeerStates(states); err != nil {
+			log.Printf("[StateSync] Failed to batch update operator states: %v", err)
+			return
+		}
+		n.setCurrentStateRoot(n.GetActiveOperatorsRoot())
+		n.PrintOperatorStates()
+		n.UpdateActiveConnections(ctx, n.activeOperators.active)
+		log.Printf("[StateSync] Successfully updated local state with %d operators", len(n.activeOperators.active))
+	}
+}
 
 // PrintOperatorStates prints all operator states stored in memory
 func (n *Node) PrintOperatorStates() {
+	n.activeOperatorsMu.RLock()
+	defer n.activeOperatorsMu.RUnlock()
 
+	for peerID, state := range n.activeOperators.active {
+		log.Printf("Operator ID: %s, Address: %s, Weight: %s", peerID, state.Address, state.Weight.String())
+	}
+	log.Printf("Current State Root: %s", n.activeOperators.stateRoot)
 }
 

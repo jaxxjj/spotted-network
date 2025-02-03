@@ -214,7 +214,7 @@ func (n *Node) startRegistryService(cfg *NodeConfig) error {
 	n.registryHandler = NewRegistryHandler(n, cfg.OperatorsQuerier)
 
 	// Set up protocol handler
-	n.host.SetStreamHandler(RegistryProtocol, n.registryHandler.HandleRegitsryStream)
+	n.host.SetStreamHandler(RegistryProtocol, n.registryHandler.HandleRegistryStream)
 	log.Printf("[Registry] Registry handler set up for protocol: %s", RegistryProtocol)
 
 	return nil

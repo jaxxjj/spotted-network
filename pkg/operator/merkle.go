@@ -1,14 +1,24 @@
 package operator
 
-import "github.com/galxe/spotted-network/pkg/common/types"
+import (
+	"log"
+
+	"github.com/galxe/spotted-network/pkg/common/types"
+)
 
 // GetActiveOperatorsRoot returns the merkle root hash of all active operators
 func (n *Node) GetActiveOperatorsRoot() []byte {
-	n.activePeers.mu.RLock()
-	operators := make([]*types.OperatorState, 0, len(n.activePeers.active))
+	n.activeOperatorsMu.RLock()
+	operators := make([]*types.OperatorState, 0, len(n.activeOperators.active))
 	
 	// Convert active operators to OperatorState
-	for peerID, op := range n.activePeers.active {
+	for peerID, op := range n.activeOperators.active {
+		// Skip if required fields are nil
+		if op == nil || op.Weight == nil {
+			log.Printf("[Merkle] Skipping operator %s due to nil fields", peerID)
+			continue
+		}
+		
 		operators = append(operators, &types.OperatorState{
 			PeerID:     peerID,
 			Multiaddrs: op.Multiaddrs,
@@ -17,14 +27,26 @@ func (n *Node) GetActiveOperatorsRoot() []byte {
 			Weight:     op.Weight,
 		})
 	}
-	n.activePeers.mu.RUnlock()
+	n.activeOperatorsMu.RUnlock()
+
+	// If no valid operators, return empty root
+	if len(operators) == 0 {
+		log.Printf("[Merkle] No valid operators to compute root")
+		return nil
+	}
 
 	// Compute merkle root using common merkle tree
 	return types.ComputeStateRoot(operators)
 }
 
 func (n *Node) getCurrentStateRoot() []byte {
-	n.activePeers.mu.RLock()
-	defer n.activePeers.mu.RUnlock()
-	return n.activePeers.stateRoot
+	n.activeOperatorsMu.RLock()
+	defer n.activeOperatorsMu.RUnlock()
+	return n.activeOperators.stateRoot
+}
+
+func (n *Node) setCurrentStateRoot(root []byte) {
+	n.activeOperatorsMu.Lock()
+	defer n.activeOperatorsMu.Unlock()
+	n.activeOperators.stateRoot = root
 }

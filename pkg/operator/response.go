@@ -42,6 +42,29 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		}
 		log.Printf("[Response] Received task response for task %s from operator %s", pbMsg.TaskId, pbMsg.OperatorAddress)
 
+		// Get peer ID from message
+		peerID := msg.ReceivedFrom
+		log.Printf("[Response] Message received from peer: %s", peerID.String())
+
+		// Verify peer ID is in active operators
+		operatorState := tp.node.GetOperatorState(peerID)
+		if operatorState == nil {
+			log.Printf("[Response] Peer %s not found in active operators, skipping message", peerID)
+			continue
+		}
+
+		// Verify operator address matches
+		if !strings.EqualFold(operatorState.Address, pbMsg.OperatorAddress) {
+			log.Printf("[Response] Operator address mismatch for peer %s: expected %s, got %s", 
+				peerID, operatorState.Address, pbMsg.OperatorAddress)
+			continue
+		}
+
+		if tp.alreadyProcessed(pbMsg.TaskId, pbMsg.OperatorAddress) {
+			log.Printf("[Response] Response already processed for task %s from operator %s, skipping", pbMsg.TaskId, pbMsg.OperatorAddress)
+			continue
+		}
+
 		// Check if consensus already exists for this task
 		consensus, err := tp.consensusResponse.GetConsensusResponseByTaskId(context.Background(), pbMsg.TaskId)
 		if err == nil {
@@ -53,12 +76,6 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 			}
 		} else {
 			log.Printf("[Response] Error checking consensus for task %s: %v", pbMsg.TaskId, err)
-			continue
-		}
-
-		// Skip messages from self (operator address)
-		if strings.EqualFold(pbMsg.OperatorAddress, tp.signer.GetOperatorAddress().Hex()) {
-			log.Printf("[Response] Skipping message from self operator: %s", pbMsg.OperatorAddress)
 			continue
 		}
 
@@ -74,14 +91,8 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		}
 		log.Printf("[Response] Successfully converted task response for task %s", response.TaskID)
 
-		// Verify operator is active by checking signing key
-		if !tp.isActiveOperator(response.SigningKey) {
-			log.Printf("[Response] Skipping response from inactive operator signing key: %s", response.SigningKey)
-			continue
-		}
-
 		// Get operator weight
-		weight, err := tp.getOperatorWeight(response.OperatorAddress)
+		weight, err := tp.node.getOperatorWeight(peerID)
 		if err != nil {
 			log.Printf("[Response] Invalid operator %s: %v", response.OperatorAddress, err)
 			continue
@@ -113,17 +124,6 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 		tp.weightsMutex.Unlock()
 		log.Printf("[Response] Stored weight in memory for task %s from operator %s", response.TaskID, response.OperatorAddress)
 
-		// Store in database TODO: need to store?
-		if err := tp.storeResponse(context.Background(), response); err != nil {
-			if !strings.Contains(err.Error(), "duplicate key value") {
-				log.Printf("[Response] Failed to store response: %v", err)
-			} else {
-				log.Printf("[Response] Response already exists in database for task %s from operator %s", response.TaskID, response.OperatorAddress)
-			}
-			continue
-		}
-		log.Printf("[Response] Successfully stored response in database for task %s from operator %s", response.TaskID, response.OperatorAddress)
-
 		// Check if we need to process this task
 		tp.responsesMutex.RLock()
 		_, processed := tp.responses[response.TaskID][tp.signer.GetOperatorAddress().Hex()]
@@ -144,7 +144,6 @@ func (tp *TaskProcessor) handleResponses(sub *pubsub.Subscription) {
 				log.Printf("[Response] Failed to process task: %v", err)
 			}
 		}
-
 		// Check consensus
 		if err := tp.checkConsensus(response.TaskID); err != nil {
 			log.Printf("[Response] Failed to check consensus: %v", err)
@@ -274,3 +273,9 @@ func (tp *TaskProcessor) verifyResponse(response *task_responses.TaskResponses) 
 	return tp.signer.VerifyTaskResponse(params, response.Signature, response.SigningKey)
 }
 
+func (tp *TaskProcessor) alreadyProcessed(taskId string, operatorAddress string) bool {
+	tp.responsesMutex.RLock()
+	_, processed := tp.responses[taskId][operatorAddress]
+	tp.responsesMutex.RUnlock()
+	return processed
+}

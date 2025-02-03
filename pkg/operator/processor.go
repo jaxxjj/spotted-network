@@ -139,11 +139,7 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 		return nil, fmt.Errorf("[TaskProcessor] failed to subscribe to response topic: %w", err)
 	}
 	log.Printf("[TaskProcessor] Subscribed to response topic")
-
-	// Wait for topic subscription to propagate
-	log.Printf("[TaskProcessor] Waiting for topic subscription to propagate...")
-	time.Sleep(5 * time.Second)
-
+	
 	// Check initial topic subscription status
 	peers := responseTopic.ListPeers()
 	log.Printf("[TaskProcessor] Initial topic subscription: %d peers", len(peers))

@@ -30,17 +30,6 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	}
 	log.Printf("[Task] Starting to process task %s", task.TaskID)
 
-	// Check if have already processed this task
-	tp.responsesMutex.RLock()
-	if responses, exists := tp.responses[task.TaskID]; exists {
-		if _, processed := responses[tp.signer.GetOperatorAddress().Hex()]; processed {
-			tp.responsesMutex.RUnlock()
-			log.Printf("[Task] Task %s already processed by this operator", task.TaskID)
-			return nil
-		}
-	}
-	tp.responsesMutex.RUnlock()
-
 	blockNumber := task.BlockNumber
 	if blockNumber == 0 {
 		return fmt.Errorf("task block number is nil")
@@ -96,7 +85,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	log.Printf("[Task] Signed task response")
 
 	// Create response
-	response = &task_responses.TaskResponses{
+	response := &task_responses.TaskResponses{
 		TaskID:        task.TaskID,
 		OperatorAddress:  tp.signer.GetOperatorAddress().Hex(),
 		SigningKey:    tp.signer.GetSigningAddress().Hex(),
@@ -130,7 +119,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	tp.responsesMutex.Unlock()
 
 	// Get and store our own weight
-	weight, err := tp.getOperatorWeight(tp.signer.GetOperatorAddress().Hex())
+	weight, err := tp.node.getOperatorWeight(tp.node.getHostID())
 	if err != nil {
 		return fmt.Errorf("failed to get own weight: %w", err)
 	}

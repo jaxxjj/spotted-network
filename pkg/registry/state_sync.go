@@ -91,7 +91,7 @@ func (sp *StateSyncProcessor) handleStateVerifyStream(stream network.Stream) {
 	
 	// If root doesn't match, include full state
 	if !matches {
-		resp.Operators = sp.node.BuildOperatorPeerStates()
+		resp.Operators = sp.node.buildOperatorPeerStates()
 		log.Printf("[StateVerify] State root mismatch for %s, sending full state", remotePeer)
 	} else {
 		log.Printf("[StateVerify] State root verified for %s", remotePeer)
@@ -106,15 +106,22 @@ func (sp *StateSyncProcessor) handleStateVerifyStream(stream network.Stream) {
 }
 
 // BroadcastStateUpdate broadcasts state update to all operators via pubsub
-func (sp *StateSyncProcessor) BroadcastStateUpdate() error {
+func (sp *StateSyncProcessor) broadcastStateUpdate(epoch *uint32) error {
 	// Get current active operators
-	operators := sp.node.GetActiveOperators()
-	
-	// Create state update message
-	update := &pb.FullStateSync{
-		Operators: operators,
+	operators := sp.node.buildOperatorPeerStates()
+	var update *pb.FullStateSync
+	if epoch != nil {
+		epochU64 := uint64(*epoch)
+		update = &pb.FullStateSync{
+			Operators: operators,
+			Epoch:     &epochU64,
+		}
+	} else {
+		update = &pb.FullStateSync{
+			Operators: operators,
+		}
 	}
-	
+
 	// Marshal update
 	data, err := proto.Marshal(update)
 	if err != nil {
@@ -130,38 +137,9 @@ func (sp *StateSyncProcessor) BroadcastStateUpdate() error {
 	return nil
 }
 
-// GetActiveOperators returns list of active operators
-func (n *Node) GetActiveOperators() []*pb.OperatorPeerState {
-	n.activeOperators.mu.RLock()
-	defer n.activeOperators.mu.RUnlock()
-
-	operators := make([]*pb.OperatorPeerState, 0, len(n.activeOperators.active))
-	for peerID, state := range n.activeOperators.active {
-		// Get operator info from DB
-		operator, err := n.opQuerier.GetOperatorByAddress(context.Background(), state.Address)
-		if err != nil {
-			log.Printf("[StateVerify] Failed to get operator for address %s: %v", state.Address, err)
-			continue
-		}
-
-		op := &pb.OperatorPeerState{
-			PeerId:     peerID.String(),
-			Multiaddrs: make([]string, len(state.Multiaddrs)),
-			Address:    state.Address,
-			SigningKey: operator.SigningKey,
-			Weight:     utils.NumericToString(operator.Weight),
-		}
-		for i, addr := range state.Multiaddrs {
-			op.Multiaddrs[i] = addr.String()
-		}
-		operators = append(operators, op)
-	}
-
-	return operators
-}
 
 // BuildOperatorStates builds a list of all active operator states
-func (n *Node) BuildOperatorPeerStates() []*pb.OperatorPeerState {
+func (n *Node) buildOperatorPeerStates() []*pb.OperatorPeerState {
 	n.activeOperators.mu.RLock()
 	defer n.activeOperators.mu.RUnlock()
 

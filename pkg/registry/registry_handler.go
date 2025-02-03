@@ -21,20 +21,10 @@ const (
 	RegistryProtocol = protocol.ID("/spotted/registry/1.0.0")
 )
 
-type OperatorStateController interface {
-	UpdateOperatorState(id peer.ID, state *OperatorPeerInfo)
-	getActiveOperators() []*pb.OperatorPeerState
-	RemoveOperator(id peer.ID)
-	getActiveOperatorsRoot() []byte
-	setActiveOperatorsRoot(stateRoot []byte)
-	computeActiveOperatorsRoot() []byte
-	disconnectPeer(peerID peer.ID) error
-	blacklistPeer(peerID peer.ID, reason string)
-}
 
 // RegistryHandler handles registry protocol operations
 type RegistryHandler struct {
-	node OperatorStateController
+	node *Node
 	opQuerier RegistryHandlerQuerier
 }
 
@@ -43,7 +33,7 @@ type RegistryHandlerQuerier interface {
 }
 
 // NewRegistryHandler creates a new registry handler
-func NewRegistryHandler(node OperatorStateController, opQuerier RegistryHandlerQuerier) *RegistryHandler {
+func NewRegistryHandler(node *Node, opQuerier RegistryHandlerQuerier) *RegistryHandler {
 	if node == nil {
 		log.Fatal("node is nil")
 	}
@@ -56,8 +46,8 @@ func NewRegistryHandler(node OperatorStateController, opQuerier RegistryHandlerQ
 	}
 }
 
-// HandleStream handles incoming registry streams
-func (rh *RegistryHandler) HandleRegitsryStream(stream network.Stream) {
+// HandleRegistryStream handles incoming registry streams
+func (rh *RegistryHandler) HandleRegistryStream(stream network.Stream) {
 	defer stream.Close()
 
 	peerID := stream.Conn().RemotePeer()
@@ -74,8 +64,14 @@ func (rh *RegistryHandler) HandleRegitsryStream(stream network.Stream) {
 	switch msg.Type {
 	case pb.RegistryMessage_REGISTER:
 		rh.handleRegister(stream, peerID, msg.GetRegister())
+		rh.node.stateSyncProcessor.broadcastStateUpdate(nil)
+		rootHash := rh.node.computeActiveOperatorsRoot()
+		rh.node.setActiveOperatorsRoot(rootHash)
 	case pb.RegistryMessage_DISCONNECT:
-		rh.handleDisconnect(stream, peerID)
+		rh.handleDisconnect(peerID)
+		rh.node.stateSyncProcessor.broadcastStateUpdate(nil)
+		rootHash := rh.node.computeActiveOperatorsRoot()
+		rh.node.setActiveOperatorsRoot(rootHash)
 	default:
 		log.Printf("[Registry] Unknown message type from %s: %v", peerID, msg.Type)
 		stream.Reset()
@@ -111,9 +107,9 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 		rh.node.UpdateOperatorState(peerID, state)
 		
 		// get the active operators for the response
-		activeOperators = rh.node.getActiveOperators()
-		rootHash := rh.node.getActiveOperatorsRoot()
-		rh.node.setActiveOperatorsRoot(rootHash)
+		activeOperators = rh.node.buildOperatorPeerStates()
+		
+		
 		log.Printf("[Registry] Operator %s (peer %s) registered successfully", req.Address, peerID)
 	}
 
@@ -139,22 +135,11 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 
 }
 
-func (rh *RegistryHandler) handleDisconnect(stream network.Stream, peerID peer.ID) {
+func (rh *RegistryHandler) handleDisconnect(peerID peer.ID) {
 	// Remove from active operators
 	rh.node.RemoveOperator(peerID)
 	rootHash := rh.node.getActiveOperatorsRoot()
 	rh.node.setActiveOperatorsRoot(rootHash)
-
-	resp := &pb.RegistryResponse{
-		Success: true,
-		Message: "Disconnected successfully",
-	}
-
-	if err := utils.WriteStreamMessage(stream, resp); err != nil {
-		log.Printf("[Registry] Failed to write disconnect response: %v", err)
-		stream.Reset()
-		return
-	}
 
 	log.Printf("[Registry] Operator (peer %s) disconnected", peerID)
 }
@@ -165,7 +150,6 @@ func (rh *RegistryHandler) verifyAuthRequest(ctx context.Context, req *pb.Regist
 	if time.Since(time.Unix(int64(req.Timestamp), 0)) > AuthTimeout {
 		return false, "auth request expired"
 	}
-
 	// verify the operator status
 	operator, err := rh.opQuerier.GetOperatorByAddress(ctx, req.Address)
 	if err != nil {
