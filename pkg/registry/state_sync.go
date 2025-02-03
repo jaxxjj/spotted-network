@@ -11,6 +11,7 @@ import (
 	pb "github.com/galxe/spotted-network/proto"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"google.golang.org/protobuf/proto"
@@ -30,6 +31,7 @@ const (
 // PubSubService defines the interface for pubsub functionality
 type PubSubService interface {
 	Join(topic string, opts ...pubsub.TopicOpt) (*pubsub.Topic, error)
+	BlacklistPeer(peer.ID)
 }
 
 // ResponseTopic defines the interface for topic functionality

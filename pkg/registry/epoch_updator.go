@@ -23,21 +23,6 @@ const (
 	epochMonitorInterval = 5 * time.Second
 )
 
-type EpochUpdatorNode interface {
-	syncPeerInfo(ctx context.Context) error 
-}
-type EpochUpdatorQuerier interface {
-	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
-	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
-	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string) (*operators.Operators, error) 
-	WithTx(tx *wpgx.WTx) *operators.Queries
-}
-
-type EpochUpdatorChainClient interface {
-	BlockNumber(ctx context.Context) (uint64, error)
-	GetOperatorWeight(ctx context.Context, address ethcommon.Address) (*big.Int, error)
-	GetOperatorSigningKey(ctx context.Context, address ethcommon.Address, epoch uint32) (ethcommon.Address, error)
-}
 
 // TransactionManager abstracts database transaction operations
 type TxManager interface {
@@ -45,22 +30,23 @@ type TxManager interface {
 }
 
 type EpochUpdatorConfig struct {
-	node EpochUpdatorNode
-	opQuerier EpochUpdatorQuerier
+	node *Node
+
+	opQuerier OperatorsQuerier
+	mainnetClient MainnetClient
+	txManager TxManager 
 	pubsub PubSubService
-	sp *StateSyncProcessor
-	mainnetClient EpochUpdatorChainClient
-	txManager TxManager // Replace dbPool with txManager
 }
 
 type EpochUpdator struct {
-	node EpochUpdatorNode
-	opQuerier EpochUpdatorQuerier
-	lastProcessedEpoch uint32
+	node *Node
+
+	opQuerier OperatorsQuerier
+	mainnetClient MainnetClient
+	txManager TxManager 
 	pubsub PubSubService
-	sp *StateSyncProcessor
-	mainnetClient EpochUpdatorChainClient
-	txManager TxManager // Replace dbPool with txManager
+
+	lastProcessedEpoch uint32
 }
 
 func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdator, error) {
@@ -73,9 +59,6 @@ func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdato
 	if cfg.pubsub == nil {
 		log.Fatal("pubsub is nil")
 	}
-	if cfg.sp == nil {
-		log.Fatal("sp is nil")
-	}
 	if cfg.mainnetClient == nil {
 		log.Fatal("mainnetClient is nil")
 	}
@@ -87,7 +70,6 @@ func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdato
 		opQuerier: cfg.opQuerier,
 		pubsub: cfg.pubsub,
 		mainnetClient: cfg.mainnetClient,
-		sp: cfg.sp,
 		txManager: cfg.txManager, // Use txManager instead of dbPool
 	}
 	
@@ -117,7 +99,7 @@ func (e *EpochUpdator) start(ctx context.Context) error {
 			}
 
 			// Calculate current epoch
-			currentEpoch := calculateEpochNumber(blockNumber)
+			currentEpoch := utils.CalculateEpochNumber(blockNumber)
 
 			// If we're in a new epoch, update operator states
 			if currentEpoch > e.lastProcessedEpoch {
@@ -202,7 +184,7 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 			return nil, fmt.Errorf("failed to sync peer info: %w", err)
 		}
 
-		if err := e.sp.broadcastStateUpdate(&currentEpoch); err != nil {
+		if err := e.node.sp.broadcastStateUpdate(&currentEpoch); err != nil {
 			return nil, fmt.Errorf("failed to broadcast state update: %w", err)
 		}
 

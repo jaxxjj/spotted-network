@@ -9,7 +9,6 @@ import (
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	utils "github.com/galxe/spotted-network/pkg/common"
-	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pb "github.com/galxe/spotted-network/proto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -25,15 +24,11 @@ const (
 // RegistryHandler handles registry protocol operations
 type RegistryHandler struct {
 	node *Node
-	opQuerier RegistryHandlerQuerier
-}
-
-type RegistryHandlerQuerier interface {
-	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
+	opQuerier OperatorsQuerier
 }
 
 // NewRegistryHandler creates a new registry handler
-func NewRegistryHandler(node *Node, opQuerier RegistryHandlerQuerier) *RegistryHandler {
+func NewRegistryHandler(node *Node, opQuerier OperatorsQuerier) *RegistryHandler {
 	if node == nil {
 		log.Fatal("node is nil")
 	}
@@ -64,12 +59,12 @@ func (rh *RegistryHandler) HandleRegistryStream(stream network.Stream) {
 	switch msg.Type {
 	case pb.RegistryMessage_REGISTER:
 		rh.handleRegister(stream, peerID, msg.GetRegister())
-		rh.node.stateSyncProcessor.broadcastStateUpdate(nil)
+		rh.node.sp.broadcastStateUpdate(nil)
 		rootHash := rh.node.computeActiveOperatorsRoot()
 		rh.node.setActiveOperatorsRoot(rootHash)
 	case pb.RegistryMessage_DISCONNECT:
 		rh.handleDisconnect(peerID)
-		rh.node.stateSyncProcessor.broadcastStateUpdate(nil)
+		rh.node.sp.broadcastStateUpdate(nil)
 		rootHash := rh.node.computeActiveOperatorsRoot()
 		rh.node.setActiveOperatorsRoot(rootHash)
 	default:
@@ -129,7 +124,7 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 	if !success {
 		log.Printf("[Registry] Registration failed for peer %s: %s", peerID.String(), msg)
 		rh.node.disconnectPeer(peerID)
-		rh.node.blacklistPeer(peerID, msg)
+		rh.node.blacklistPeer(peerID)
 		return
 	}
 

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -45,24 +45,25 @@ type OperatorPeerInfo struct {
 	RegistryStream network.Stream
 	StateSyncStream network.Stream
 }
-type NodeQuerier interface {
+type OperatorsQuerier interface {
 	UpdateOperatorStatus(ctx context.Context, arg operators.UpdateOperatorStatusParams, getOperatorByAddress *string) (*operators.Operators, error)
-	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
-
 	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string) (*operators.Operators, error)
 	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string) (*operators.Operators, error)
+	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
+	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
+	WithTx(tx *wpgx.WTx) *operators.Queries
 }
 
 type MainnetClient interface {
 	GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error)
 	BlockNumber(ctx context.Context) (uint64, error)
-	GetOperatorWeight(ctx context.Context, operator common.Address) (*big.Int, error)
-	IsOperatorRegistered(ctx context.Context, operator common.Address) (bool, error) 
+	GetOperatorWeight(ctx context.Context, operator ethcommon.Address) (*big.Int, error)
+	IsOperatorRegistered(ctx context.Context, operator ethcommon.Address) (bool, error) 
+	GetOperatorSigningKey(ctx context.Context, address ethcommon.Address, epoch uint32) (ethcommon.Address, error)
 }
 
 // P2PHost defines the minimal interface required for p2p functionality
 type P2PHost interface {
-	// Core functionality
 	ID() peer.ID
 	Addrs() []multiaddr.Multiaddr
 	Connect(ctx context.Context, pi peer.AddrInfo) error
@@ -85,37 +86,28 @@ type NodeConfig struct {
 }
 
 type Node struct {
+	// libp2p host for p2p communication
 	host P2PHost
-	
-	// Operator management
-	activeOperators ActiveOperatorPeers
-
-	// Database connection
-	opQuerier NodeQuerier
-
-	// Event listener
-	eventListener *EventListener
-	
-	// Epoch updator
-	epochUpdator *EpochUpdator
-
+	// Operator querier for querying the operators from the database
+	opQuerier OperatorsQuerier
 	// Chain clients manager
 	mainnetClient MainnetClient
 
-	// Auth handler
-	registryHandler *RegistryHandler
+	// Event listener for listening to events from the mainnet (operators registration/deregistration)
+	el *EventListener
+	// Epoch updator for updating the epoch 
+	eu *EpochUpdator
+	// Registry handler for handling nodes join requests
+	rh *RegistryHandler
+	// State sync processor for syncing the state of the operators
+	sp *StateSyncProcessor
+	// Health checker for checking the health of the operator nodes
+	hc *HealthChecker
 
-	// State sync processor
-	stateSyncProcessor *StateSyncProcessor
-
-	// Health checker
-	healthChecker *HealthChecker
-
-	// PubSub service
-	pubsub *pubsub.PubSub
-
-	// Blacklist for managing blocked peers
-	blacklist pubsub.Blacklist
+	// stores the active operators in memory
+	activeOperators ActiveOperatorPeers
+	// Pubsub for publishing and subscribing to topics
+	pubsub PubSubService
 }
 
 
@@ -138,25 +130,18 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	// Create ping service
 	pingService := ping.NewPingService(cfg.Host)
 
-	// Initialize blacklist if not provided
-	blacklist := cfg.Blacklist
-	if blacklist == nil {
-		blacklist = pubsub.NewMapBlacklist()
-	}
-
 	node := &Node{
 		host:               cfg.Host,
 		opQuerier:          cfg.OperatorsQuerier,
 		mainnetClient:      cfg.MainnetClient,
 		pubsub:            cfg.PubSub,
-		blacklist:         blacklist,
 	}
 
 	// Initialize operators management
 	node.activeOperators.active = make(map[peer.ID]*OperatorPeerInfo)
 	
 	// Create and initialize event listener
-	node.eventListener = NewEventListener(ctx, node, cfg.MainnetClient, cfg.OperatorsQuerier)
+	node.el = NewEventListener(ctx, node, cfg.MainnetClient, cfg.OperatorsQuerier)
 
 
 	// Start registry service
@@ -177,19 +162,18 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 		opQuerier: cfg.OperatorsQuerier,
 		pubsub: cfg.PubSub,
 		mainnetClient: cfg.MainnetClient,
-		sp: node.stateSyncProcessor,
 		txManager: cfg.TxManager,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create epoch updator: %w", err)
 	}
-	node.epochUpdator = epochUpdator
+	node.eu = epochUpdator
 	// Create and start health checker
 	healthChecker, err := newHealthChecker(ctx, node, pingService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start health checker: %w", err)
 	}
-	node.healthChecker = healthChecker
+	node.hc = healthChecker
 	log.Printf("[Registry] Health check service started")
 
 	log.Printf("[Registry] Epoch monitoring started")
@@ -211,10 +195,10 @@ func (n *Node) GetHostID() string {
 
 func (n *Node) startRegistryService(cfg *NodeConfig) error {
 	// Create and initialize registry handler
-	n.registryHandler = NewRegistryHandler(n, cfg.OperatorsQuerier)
+	n.rh = NewRegistryHandler(n, cfg.OperatorsQuerier)
 
 	// Set up protocol handler
-	n.host.SetStreamHandler(RegistryProtocol, n.registryHandler.HandleRegistryStream)
+	n.host.SetStreamHandler(RegistryProtocol, n.rh.HandleRegistryStream)
 	log.Printf("[Registry] Registry handler set up for protocol: %s", RegistryProtocol)
 
 	return nil
@@ -231,6 +215,6 @@ func (n *Node) startStateSync(cfg *NodeConfig) error {
     n.host.SetStreamHandler(StateVerifyProtocol, processor.handleStateVerifyStream)
     log.Printf("[StateSync] Stream handler set up for protocol: %s", StateVerifyProtocol)
     
-    n.stateSyncProcessor = processor
+    n.sp = processor
     return nil
 }

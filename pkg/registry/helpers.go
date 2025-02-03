@@ -6,11 +6,6 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/types"
 )
 
-// calculateEpochNumber calculates the epoch number from a block number
-func calculateEpochNumber(blockNumber uint64) uint32 {
-	return uint32((blockNumber - GenesisBlock) / EpochPeriod)
-}
-
 // DetermineOperatorStatus determines operator status based on current block number and epochs
 func DetermineOperatorStatus(currentBlock uint64, activeEpoch uint32, exitEpoch uint32) (types.OperatorStatus, string) {
 	// Calculate epoch block numbers

@@ -16,6 +16,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	GenesisBlock = 0
+	EpochPeriod = 12
+)
+
 // ChainClient defines the interface for getting blocks that the helper functions need
 type ChainClient interface {
 	BlockNumber(ctx context.Context) (uint64, error)
@@ -261,6 +266,10 @@ func ValidateBlockNumberAndTimestamp(ctx context.Context, client ChainClient, ch
 	}
 
 	return resultBlockNumber, resultTimestamp, nil
+}
+
+func CalculateEpochNumber(blockNumber uint64) uint32 {
+	return uint32((blockNumber - GenesisBlock) / EpochPeriod)
 }
 
 // writeLengthPrefix writes a 4-byte length prefix to the stream
