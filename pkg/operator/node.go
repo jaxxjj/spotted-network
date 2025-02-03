@@ -233,14 +233,23 @@ func (n *Node) Start(ctx context.Context) error {
 	log.Printf("[Node] Starting operator node with ID: %s", n.host.ID())
 	log.Printf("[Node] Listening addresses: %v", n.host.Addrs())
 
-	// Step 1: Connect to registry
+	// Step 1: Update epoch state
+	currentEpoch, err := n.currentEpoch()
+	if err != nil {
+		return fmt.Errorf("failed to get current epoch: %w", err)
+	}
+	if err := n.updateEpochState(ctx, currentEpoch); err != nil {
+		return fmt.Errorf("failed to update epoch state: %w", err)
+	}
+
+	// Step 2: Connect to registry
 	log.Printf("[Node] Connecting to registry...")
 	if err := n.connectToRegistry(ctx); err != nil {
 		return fmt.Errorf("failed to connect to registry: %w", err)
 	}
 	log.Printf("[Node] Successfully connected to registry")
 
-	// Step 2: Authenticate with registry
+	// Step 3: Authenticate with registry
 	log.Printf("[Node] Authenticating with registry...")
 	if err := n.registryHandler.AuthToRegistry(ctx); err != nil {
 		return fmt.Errorf("failed to authenticate with registry: %w", err)
@@ -309,6 +318,18 @@ func (n *Node) RemoveOperator(id peer.ID) {
 	delete(n.activeOperators.active, id)
 }
 
+func (n *Node) currentEpoch() (uint32, error) {
+	mainnetClient, err := n.chainManager.GetMainnetClient()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get mainnet client: %w", err)
+	}
+	blockNumber, err := mainnetClient.BlockNumber(context.Background())
+	if err != nil {
+		return 0, fmt.Errorf("failed to get block number: %w", err)
+	}
+	currentEpoch := (blockNumber - GenesisBlock) / EpochPeriod
+	return uint32(currentEpoch), nil
+}
 
 
 

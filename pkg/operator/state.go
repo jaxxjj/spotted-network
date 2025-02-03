@@ -79,7 +79,7 @@ func (n *Node) UpsertActivePeerStates(states []*OperatorState) error {
 		}
 		
 		n.activeOperators.active[state.PeerID] = state
-		log.Printf("[StateSync] Updated state for peer %s", state.PeerID)
+		log.Printf("[StateSync] Updated state for peer %s, weight: %s, address: %s, multiaddrs: %v, signing key: %s", state.PeerID, state.Weight.String(), state.Address, state.Multiaddrs, state.SigningKey)
 	}
 
 	log.Printf("[StateSync] Completed batch update of operator states")
@@ -149,7 +149,8 @@ func (n *Node) updateOperatorStates(ctx context.Context, states []*OperatorState
 			log.Printf("[StateSync] Failed to batch update operator states: %v", err)
 			return
 		}
-		n.setCurrentStateRoot(n.GetActiveOperatorsRoot())
+		rootHash := n.computeActiveOperatorsRoot()
+		n.setCurrentStateRoot(rootHash)
 		n.PrintOperatorStates()
 		n.UpdateActiveConnections(ctx, n.activeOperators.active)
 		log.Printf("[StateSync] Successfully updated local state with %d operators", len(n.activeOperators.active))

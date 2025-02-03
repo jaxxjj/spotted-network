@@ -3,6 +3,7 @@ package common
 import (
 	"bytes"
 	"crypto/sha256"
+	"log"
 )
 
 // Hashable is an interface for types that can be hashed in a merkle tree
@@ -22,7 +23,7 @@ type MerkleTree struct {
 // NewMerkleTree creates a new merkle tree from a list of hashable items
 func NewMerkleTree(items []Hashable) *MerkleTree {
 	if len(items) == 0 {
-		return &MerkleTree{nodes: [][]byte{nil, nil}}
+		return &MerkleTree{nodes: [][]byte{nil}}
 	}
 
 	// Get leaf hashes
@@ -31,42 +32,50 @@ func NewMerkleTree(items []Hashable) *MerkleTree {
 		leaves[i] = item.Hash()
 	}
 
-	// Calculate tree size
-	size := 1 // for empty first element
-	for l := len(leaves); l > 0; l = (l + 1) / 2 {
-		size += l
-	}
-
-	// Initialize tree
+	// Initialize tree with leaves
 	tree := &MerkleTree{
-		nodes: make([][]byte, size),
+		nodes: make([][]byte, len(leaves)),
 	}
+	copy(tree.nodes, leaves)
 
-	// Copy leaves
-	offset := size - len(leaves)
-	copy(tree.nodes[offset:], leaves)
+	offset := 0
+	levelSize := len(leaves)
 
-	// Build internal nodes
-	for i := offset - 1; i > 0; i-- {
-		left := tree.nodes[i*2]
-		right := tree.nodes[i*2+1]
-		if right == nil {
-			right = left
+	// Build tree level by level
+	for levelSize > 1 {
+		nextLevelSize := (levelSize + 1) / 2 // Handles odd number of nodes
+
+		for i := 0; i < levelSize; i += 2 {
+			// Get left child
+			left := tree.nodes[offset+i]
+			
+			// Get right child if it exists, otherwise use left child
+			var right []byte
+			if i+1 < levelSize {
+				right = tree.nodes[offset+i+1]
+			} else {
+				right = left
+			}
+
+			// Combine and hash
+			combined := append(left, right...)
+			hash := sha256.Sum256(combined)
+			tree.nodes = append(tree.nodes, hash[:])
 		}
-		combined := append(left, right...)
-		hash := sha256.Sum256(combined)
-		tree.nodes[i] = hash[:]
-	}
 
+		offset += levelSize
+		levelSize = nextLevelSize
+	}
+	log.Printf("[MerkleTree] Final tree size: %d, Root hash: %x", len(tree.nodes), tree.nodes[len(tree.nodes)-1])
 	return tree
 }
 
 // RootBytes returns the merkle root hash as bytes
 func (t *MerkleTree) RootBytes() []byte {
-	if len(t.nodes) < 2 {
+	if len(t.nodes) == 0 {
 		return nil
 	}
-	return t.nodes[1]
+	return t.nodes[len(t.nodes)-1]
 }
 
 // Verify verifies if the given hash matches the merkle root

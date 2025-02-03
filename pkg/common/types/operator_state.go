@@ -37,31 +37,26 @@ func (s *OperatorState) Hash() []byte {
 	var buf bytes.Buffer
 
 	// Write fields in a fixed order
-	if s.PeerID != "" {
-		buf.WriteString(s.PeerID.String())
-	}
+	buf.WriteString(s.PeerID.String())
 	
 	// Sort multiaddrs for consistency
 	if s.Multiaddrs != nil {
-		addrs := make([]string, len(s.Multiaddrs))
-		for i, addr := range s.Multiaddrs {
+		validAddrs := make([]string, 0, len(s.Multiaddrs))
+		for _, addr := range s.Multiaddrs {
 			if addr != nil {
-				addrs[i] = addr.String()
+				validAddrs = append(validAddrs, addr.String())
 			}
 		}
-		sort.Strings(addrs)
-		for _, addr := range addrs {
+		sort.Strings(validAddrs)
+		for _, addr := range validAddrs {
 			buf.WriteString(addr)
 		}
 	}
 
-	if s.Address != "" {
-		buf.WriteString(s.Address)
-	}
-	if s.SigningKey != "" {
-		buf.WriteString(s.SigningKey)
-	}
-	if s.Weight != nil {
+	buf.WriteString(s.Address)
+	buf.WriteString(s.SigningKey)
+	
+	if s.Weight != nil && s.Weight.Sign() >= 0 {
 		buf.WriteString(s.Weight.String())
 	}
 
@@ -72,18 +67,38 @@ func (s *OperatorState) Hash() []byte {
 
 // ComputeStateRoot computes the merkle root hash of a list of operators
 func ComputeStateRoot(operators []*OperatorState) []byte {
+	if len(operators) == 0 {
+		return nil
+	}
+
 	// Sort operators by PeerID
 	ops := OperatorStates(operators)
 	sort.Sort(ops)
 
-	// Convert to []Hashable
-	hashables := make([]common.Hashable, len(ops))
-	for i, op := range ops {
-		hashables[i] = op
+	// Convert to []Hashable and filter invalid operators
+	hashables := make([]common.Hashable, 0, len(ops))
+	for _, op := range ops {
+		// Skip invalid operators
+		if op == nil || op.Weight == nil || op.Weight.Sign() < 0 {
+			continue
+		}
+		if err := op.PeerID.Validate(); err != nil {
+			continue
+		}
+		
+		hashables = append(hashables, op)
 	}
 
-	// Create merkle tree
+	if len(hashables) == 0 {
+		return nil
+	}
+
+	// Create merkle tree and return root
 	tree := common.NewMerkleTree(hashables)
+	if tree == nil {
+		return nil
+	}
+
 	return tree.RootBytes()
 }
 

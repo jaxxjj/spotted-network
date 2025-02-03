@@ -5,10 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
 	"time"
-
-	"github.com/rs/zerolog/log"
 
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
@@ -29,10 +28,7 @@ type ConsensusResponseQuerier interface {
 
 // checkConsensus checks if consensus has been reached for a task
 func (tp *TaskProcessor) checkConsensus(taskID string) error {
-	log.Debug().
-		Str("component", "consensus").
-		Str("task_id", taskID).
-		Msg("Starting consensus check")
+	log.Printf("[Consensus] Starting consensus check for task %s", taskID)
 	
 	// Get responses and weights from memory maps
 	tp.responsesMutex.RLock()
@@ -43,18 +39,11 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	weights := tp.taskWeights[taskID]
 	tp.weightsMutex.RUnlock()
 
-	log.Debug().
-		Str("component", "consensus").
-		Str("task_id", taskID).
-		Int("responses_count", len(responses)).
-		Int("weights_count", len(weights)).
-		Msg("Found responses and weights")
+	log.Printf("[Consensus] Found %d responses and %d weights for task %s", 
+		len(responses), len(weights), taskID)
 
 	if len(responses) == 0 {
-		log.Debug().
-			Str("component", "consensus").
-			Str("task_id", taskID).
-			Msg("No responses found")
+		log.Printf("[Consensus] No responses found for task %s", taskID)
 		return nil
 	}
 
@@ -66,10 +55,7 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 	for addr, resp := range responses {
 		weight := weights[addr]
 		if weight == nil {
-			log.Debug().
-				Str("component", "consensus").
-				Str("operator", addr).
-				Msg("No weight found for operator")
+			log.Printf("[Consensus] No weight found for operator %s", addr)
 			continue
 		}
 
@@ -80,44 +66,27 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 		}
 		// Collect signature for aggregation
 		signatures[addr] = resp.Signature
-		log.Debug().
-			Str("component", "consensus").
-			Str("operator", addr).
-			Str("weight", weight.String()).
-			Str("total_weight", totalWeight.String()).
-			Msg("Added operator weight")
+		log.Printf("[Consensus] Added operator %s weight %s, total weight now %s", 
+			addr, weight.String(), totalWeight.String())
 	}
 
 	// Check if threshold is reached
 	threshold, err := tp.getConsensusThreshold(context.Background())
 	if err != nil {
-		log.Error().
-			Str("component", "consensus").
-			Err(err).
-			Msg("Failed to get consensus threshold")
+		log.Printf("[Consensus] Failed to get consensus threshold: %v", err)
 		return err
 	}
 
-	log.Debug().
-		Str("component", "consensus").
-		Str("total_weight", totalWeight.String()).
-		Str("threshold", threshold.String()).
-		Msg("Checking threshold")
+	log.Printf("[Consensus] Checking threshold - total weight: %s, threshold: %s", 
+		totalWeight.String(), threshold.String())
 
 	if totalWeight.Cmp(threshold) < 0 {
-		log.Debug().
-			Str("component", "consensus").
-			Str("task_id", taskID).
-			Str("total_weight", totalWeight.String()).
-			Str("threshold", threshold.String()).
-			Msg("Threshold not reached")
+		log.Printf("[Consensus] Threshold not reached for task %s - total weight: %s, threshold: %s",
+			taskID, totalWeight.String(), threshold.String())
 		return nil
 	}
 
-	log.Info().
-		Str("component", "consensus").
-		Str("task_id", taskID).
-		Msg("Threshold reached! Creating consensus response")
+	log.Printf("[Consensus] Threshold reached for task %s! Creating consensus response", taskID)
 
 	// Get a sample response for task details
 	var sampleResp *task_responses.TaskResponses
@@ -145,11 +114,8 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 		return fmt.Errorf("failed to aggregate signatures")
 	}
 
-	log.Debug().
-		Str("component", "consensus").
-		Str("task_id", taskID).
-		Int("signatures_count", len(signatures)).
-		Msg("Aggregated signatures")
+	log.Printf("[Consensus] Aggregated %d signatures for task %s", 
+		len(signatures), taskID)
 
 	now := time.Now()
 	// Create consensus response
@@ -169,18 +135,11 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 
 	// Store consensus in database
 	if err = tp.storeConsensus(context.Background(), consensus); err != nil {
-		log.Error().
-			Str("component", "consensus").
-			Str("task_id", taskID).
-			Err(err).
-			Msg("Failed to store consensus")
+		log.Printf("[Consensus] Failed to store consensus for task %s: %v", taskID, err)
 		return fmt.Errorf("failed to store consensus: %w", err)
 	}
 
-	log.Info().
-		Str("component", "consensus").
-		Str("task_id", taskID).
-		Msg("Successfully stored consensus response")
+	log.Printf("[Consensus] Successfully stored consensus response for task %s", taskID)
 
 	// If we have the task locally, mark it as completed
 	_, err = tp.tasks.GetTaskByID(context.Background(), taskID)
@@ -189,25 +148,15 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 			TaskID: taskID,
 			Status: "completed",
 		}); err != nil {
-			log.Error().
-				Str("component", "consensus").
-				Str("task_id", taskID).
-				Err(err).
-				Msg("Failed to update task status")
+			log.Printf("[Consensus] Failed to update task %s status: %v", taskID, err)
 		} else {
-			log.Info().
-				Str("component", "consensus").
-				Str("task_id", taskID).
-				Msg("Updated task status to completed")
+			log.Printf("[Consensus] Updated task %s status to completed", taskID)
 		}
 	}
 
 	// Clean up local maps
 	tp.cleanupTask(taskID)
-	log.Debug().
-		Str("component", "consensus").
-		Str("task_id", taskID).
-		Msg("Cleaned up local maps")
+	log.Printf("[Consensus] Cleaned up local maps for task %s", taskID)
 
 	return nil
 }

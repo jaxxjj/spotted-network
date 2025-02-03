@@ -110,7 +110,7 @@ func (sp *StateSyncProcessor) handleStateSyncTopic(ctx context.Context, sub *pub
 				log.Printf("[StateSync] Failed to get next message: %v", err)
 				continue
 			}
-			
+
 			log.Printf("[StateSync] Received message from peer: %s", msg.ReceivedFrom.String())
 			
 			// 在goroutine中处理消息
@@ -118,6 +118,7 @@ func (sp *StateSyncProcessor) handleStateSyncTopic(ctx context.Context, sub *pub
 				if err := sp.handleStateUpdateMessage(ctx, msg); err != nil {
 					log.Printf("[StateSync] Failed to handle state update message: %v", err)
 				}
+			
 			}(msg)
 		}
 	}
@@ -144,9 +145,6 @@ func (sp *StateSyncProcessor) handleStateUpdateMessage(ctx context.Context, msg 
 		states = append(states, state)
 	}
 
-	// Update states
-	sp.node.updateOperatorStates(ctx, states)
-
 	// Check if epoch update is included
 	if update.Epoch != nil {
 		epochNumber := uint32(*update.Epoch)
@@ -161,6 +159,10 @@ func (sp *StateSyncProcessor) handleStateUpdateMessage(ctx context.Context, msg 
 		}
 		log.Printf("[StateSync] Successfully updated epoch state to %d", epochNumber)
 	}
+
+
+	// Update states
+	sp.node.updateOperatorStates(ctx, states)
 
 	return nil
 }

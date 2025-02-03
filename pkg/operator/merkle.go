@@ -7,12 +7,16 @@ import (
 )
 
 // GetActiveOperatorsRoot returns the merkle root hash of all active operators
-func (n *Node) GetActiveOperatorsRoot() []byte {
+func (n *Node) computeActiveOperatorsRoot() []byte {
 	n.activeOperatorsMu.RLock()
+	log.Printf("[Merkle] Starting to compute root for %d operators", len(n.activeOperators.active))
 	operators := make([]*types.OperatorState, 0, len(n.activeOperators.active))
 	
 	// Convert active operators to OperatorState
 	for peerID, op := range n.activeOperators.active {
+		// Log operator details
+		log.Printf("[Merkle] Processing operator - PeerID: %s", peerID)
+		
 		// Skip if required fields are nil
 		if op == nil || op.Weight == nil {
 			log.Printf("[Merkle] Skipping operator %s due to nil fields", peerID)
@@ -36,7 +40,16 @@ func (n *Node) GetActiveOperatorsRoot() []byte {
 	}
 
 	// Compute merkle root using common merkle tree
-	return types.ComputeStateRoot(operators)
+	root := types.ComputeStateRoot(operators)
+	
+	// Log result
+	if root == nil {
+		log.Printf("[Merkle] WARNING: ComputeStateRoot returned nil")
+	} else {
+		log.Printf("[Merkle] Successfully computed root hash: %x", root)
+	}
+	
+	return root
 }
 
 func (n *Node) getCurrentStateRoot() []byte {
