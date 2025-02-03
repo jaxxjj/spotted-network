@@ -13,7 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-//  syncs operator states from database and handles inactive operators
+// syncs operator states from database and handles inactive operators
 func (n *Node) syncPeerInfo(ctx context.Context) error {
 	n.activeOperators.mu.RLock()
 	defer n.activeOperators.mu.RUnlock()

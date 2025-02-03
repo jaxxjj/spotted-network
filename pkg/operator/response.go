@@ -25,7 +25,7 @@ type TaskResponseQuerier interface {
 	GetTaskResponse(ctx context.Context, arg task_responses.GetTaskResponseParams) (*task_responses.TaskResponses, error)
 }
 
-// handleResponses handles incoming task responses with backpressure pattern
+// handleResponses handles incoming task responses (backpressure pattern)
 func (tp *TaskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscription) {
 	const (
 		maxConcurrent = 10

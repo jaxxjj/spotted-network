@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"runtime/debug"
+
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	utils "github.com/galxe/spotted-network/pkg/common"
@@ -73,7 +75,7 @@ func NewStateSyncProcessor(ctx context.Context, node *Node, pubsub PubSubService
 	sp.wg.Add(2) 
 	go func() {
 		defer sp.wg.Done()
-		sp.handleStateSyncTopic(ctx, sub)
+		sp.handleStateSync(ctx, sub)
 	}()
 
 	// Start state hash verification
@@ -89,7 +91,6 @@ func NewStateSyncProcessor(ctx context.Context, node *Node, pubsub PubSubService
 func (sp *StateSyncProcessor) Stop() error {
     log.Printf("[StateSync] Stopping state sync processor...")
     
-    // Cancel context to stop all goroutines
     sp.cancel()
     
     // Wait for all goroutines to finish
@@ -136,41 +137,80 @@ func (sp *StateSyncProcessor) SubscribeToStateSyncTopic() (*pubsub.Subscription,
 	return sub, nil
 }
 
-// handleStateSyncTopic handles incoming state updates from pubsub
-func (sp *StateSyncProcessor) handleStateSyncTopic(ctx context.Context, sub *pubsub.Subscription) {
-	log.Printf("[StateSync] Started handling state sync topic")
+// handleStateSync handles incoming state updates from pubsub (worker pool pattern)
+func (sp *StateSyncProcessor) handleStateSync(ctx context.Context, sub *pubsub.Subscription) {
+	const (
+		workerCount = 2    
+		queueSize   = 60  
+	)
+
+	taskQueue := make(chan *pubsub.Message, queueSize)
+	var wg sync.WaitGroup
 	
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			
+			log.Printf("[StateSync] Worker %d started", workerID)
+			defer log.Printf("[StateSync] Worker %d stopped", workerID)
+			
+			for msg := range taskQueue {
+				processCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				
+				func() {
+					defer cancel()
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("[StateSync] Worker %d recovered from panic: %v\n%s", 
+								workerID, r, debug.Stack())
+						}
+					}()
+
+					if err := sp.processStateSync(processCtx, msg); err != nil {
+						log.Printf("[StateSync] Worker %d failed to process message: %v", 
+							workerID, err)
+					}
+				}()
+			}
+		}(i)
+	}
+
+	log.Printf("[StateSync] Started %d workers", workerCount)
+
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[StateSync] Stopping state sync topic handler: %v", ctx.Err())
+			log.Printf("[StateSync] Context cancelled, stopping...")
+			close(taskQueue)
+			wg.Wait()
+			log.Printf("[StateSync] All workers stopped")
 			return
+			
 		default:
 			msg, err := sub.Next(ctx)
 			if err != nil {
 				if ctx.Err() != nil {
-					log.Printf("[StateSync] Context cancelled while getting next message: %v", ctx.Err())
-					return
+					continue
 				}
-				log.Printf("[StateSync] Failed to get next message: %v", err)
+				log.Printf("[StateSync] Error getting next message: %v", err)
 				continue
 			}
 
-			log.Printf("[StateSync] Received message from peer: %s", msg.ReceivedFrom.String())
-			
-			// 在goroutine中处理消息
-			go func(msg *pubsub.Message) {
-				if err := sp.handleStateUpdateMessage(ctx, msg); err != nil {
-					log.Printf("[StateSync] Failed to handle state update message: %v", err)
-				}
-			
-			}(msg)
+			select {
+			case taskQueue <- msg:
+				// message added to queue
+			case <-ctx.Done():
+				close(taskQueue)
+				wg.Wait()
+				return
+			}
 		}
 	}
 }
 
-// handleStateUpdateMessage handles a single state update message
-func (sp *StateSyncProcessor) handleStateUpdateMessage(ctx context.Context, msg *pubsub.Message) error {
+// processStateSync handles a single state update message
+func (sp *StateSyncProcessor) processStateSync(ctx context.Context, msg *pubsub.Message) error {
 	// Parse state update
 	var update pb.FullStateSync
 	if err := proto.Unmarshal(msg.Data, &update); err != nil {
@@ -204,7 +244,6 @@ func (sp *StateSyncProcessor) handleStateUpdateMessage(ctx context.Context, msg 
 		}
 		log.Printf("[StateSync] Successfully updated epoch state to %d", epochNumber)
 	}
-
 
 	// Update states
 	sp.node.updateOperatorStates(ctx, states)
@@ -285,7 +324,6 @@ func (sp *StateSyncProcessor) handleStateVerifyStream(stream network.Stream) {
 	
 	log.Printf("[StateVerify] Received state verify response from registry")
 	
-	// Read response
 	var resp pb.StateVerifyResponse
 	if err := utils.ReadStreamMessage(stream, &resp, maxMessageSize); err != nil {
 		log.Printf("[StateVerify] Failed to read verify response: %v", err)
