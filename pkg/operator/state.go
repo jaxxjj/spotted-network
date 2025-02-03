@@ -56,42 +56,36 @@ func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, chainClient Ch
 }
 
 
-// getOperatorWeight returns the weight of an operator in the operator's local storage
-func (tp *TaskProcessor) getOperatorWeight(operatorAddr string) (*big.Int, error) {
-	tp.node.operators.mu.RLock()
-	defer tp.node.operators.mu.RUnlock()
-	
-	if state, exists := tp.node.operators.byAddress[operatorAddr]; exists {
-		weight := new(big.Int)
-		// Parse the weight string directly
-		if _, ok := weight.SetString(state.Weight, 10); !ok {
-			return big.NewInt(0), fmt.Errorf("[StateCheck] failed to parse weight for operator %s", operatorAddr)
-		}
-		// Log the actual weight value directly
-		log.Printf("[StateCheck] Got operator %s weight: %v", operatorAddr, weight)
-		return weight, nil
+// UpsertActivePeerStates updates or adds multiple operator states to the active map
+func (n *Node) UpsertActivePeerStates(states []*OperatorState) error {
+	if len(states) == 0 {
+		return fmt.Errorf("cannot update empty states")
 	}
+
+	n.activePeers.mu.Lock()
+	defer n.activePeers.mu.Unlock()
+
+	log.Printf("[StateSync] Starting batch update of %d operator states", len(states))
 	
-	return big.NewInt(0), fmt.Errorf("[StateCheck] operator %s not found", operatorAddr)
+	// Update or add each state
+	for _, state := range states {
+		if state == nil {
+			log.Printf("[StateSync] Skipping nil state in batch update")
+			continue
+		}
+		
+		n.activePeers.active[state.PeerID] = state
+		log.Printf("[StateSync] Updated state for peer %s", state.PeerID)
+	}
+
+	log.Printf("[StateSync] Completed batch update of operator states")
+	return nil
 }
+
+
 
 // PrintOperatorStates prints all operator states stored in memory
 func (n *Node) PrintOperatorStates() {
-	n.operators.mu.RLock()
-	defer n.operators.mu.RUnlock()
 
-	log.Printf("\nOperator States (%d total):", len(n.operators.byAddress))
-	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
-	log.Printf("| %-42s | %-12s | %-12s | %-10s |", "Address", "Status", "ActiveEpoch", "Weight")
-	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
-	
-	for _, op := range n.operators.byAddress {
-		log.Printf("| %-42s | %-12s | %-12d | %-10s |", 
-			op.Address,
-			op.Status,
-			op.ActiveEpoch,
-			op.Weight,
-		)
-	}
-	log.Printf("+-%-42s-+-%-12s-+-%-12s-+-%-10s-+", strings.Repeat("-", 42), strings.Repeat("-", 12), strings.Repeat("-", 12), strings.Repeat("-", 10))
 }
+

@@ -21,7 +21,13 @@ type HealthChecker struct {
 }
 
 // NewHealthChecker creates and starts a new health checker
-func NewHealthChecker(ctx context.Context, node *Node, pingService PingService) (*HealthChecker, error) {
+func newHealthChecker(ctx context.Context, node *Node, pingService PingService) (*HealthChecker, error) {
+	if node == nil {
+		log.Fatal("node is nil")
+	}
+	if pingService == nil {
+		log.Fatal("pingService is nil")
+	}
 	hc := &HealthChecker{
 		node:          node,
 		pingService:   pingService,
@@ -51,11 +57,11 @@ func (hc *HealthChecker) start(ctx context.Context) {
 
 // checkOperators checks the health of all connected operators
 func (hc *HealthChecker) checkOperators(ctx context.Context) {
-	operators := hc.node.GetConnectedOperators()
+	operators := hc.node.getActivePeerIDs()
 	for _, id := range operators {
 		if err := hc.pingOperator(ctx, id); err != nil {
 			log.Printf("[Health] Operator %s failed health check: %v", id, err)
-			hc.node.RemoveOperator(id)
+			hc.node.disconnectPeer(id)
 		}
 	}
 }

@@ -22,3 +22,9 @@ func (n *Node) GetActiveOperatorsRoot() []byte {
 	// Compute merkle root using common merkle tree
 	return types.ComputeStateRoot(operators)
 }
+
+func (n *Node) getCurrentStateRoot() []byte {
+	n.activePeers.mu.RLock()
+	defer n.activePeers.mu.RUnlock()
+	return n.activePeers.stateRoot
+}

@@ -11,7 +11,6 @@ import (
 	pb "github.com/galxe/spotted-network/proto"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"google.golang.org/protobuf/proto"
@@ -34,26 +33,25 @@ type PubSubService interface {
 }
 
 // ResponseTopic defines the interface for topic functionality
-type ResponseTopic interface {
-	// Subscribe returns a new subscription for the topic
-	Subscribe(opts ...pubsub.SubOpt) (*pubsub.Subscription, error)
-	// Publish publishes data to the topic
+type PubsubTopic interface {
 	Publish(ctx context.Context, data []byte, opts ...pubsub.PubOpt) error
-	// ListPeers returns the peer IDs of peers in the topic
-	ListPeers() []peer.ID
-	// String returns the string representation of the topic
-	String() string
 }
 
 // StateSyncProcessor handles state verification via stream and broadcasts updates via pubsub
 type StateSyncProcessor struct {
 	node           *Node
 	pubsub         PubSubService
-	stateSyncTopic ResponseTopic
+	stateSyncTopic PubsubTopic
 }
 
 // NewStateSyncProcessor creates a new state sync processor
 func NewStateSyncProcessor(node *Node, pubsub PubSubService) (*StateSyncProcessor, error) {
+	if node == nil {
+		log.Fatal("node is nil")
+	}
+	if pubsub == nil {
+		log.Fatal("pubsub is nil")
+	}
 	// Join state sync topic for broadcasting updates
 	stateSyncTopic, err := pubsub.Join(StateSyncTopic)
 	if err != nil {

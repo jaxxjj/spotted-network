@@ -158,16 +158,6 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 	go tp.checkConfirmations(ctx)
 	go tp.periodicCleanup(ctx)  // Start periodic cleanup
 
-	// Start periodic P2P status check
-	go func() {
-		ticker := time.NewTicker(p2pStatusCheckInterval)
-		defer ticker.Stop()
-		for {
-			tp.checkP2PStatus()
-			<-ticker.C
-		}
-	}()
-
 	return tp, nil
 }
 

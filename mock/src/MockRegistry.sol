@@ -113,10 +113,10 @@ contract MockRegistry {
         return 10; // Return fixed minimum weight for testing
     }
 
-    function getOperatorSigningKey(
+    function getOperatorSigningKeyAtEpoch(
         address _operator,
         uint32 _referenceEpoch
-    ) internal view returns (address) {
+    ) public view returns (address) {
         if(_operator == OPERATOR_1) {
             return SIGNING_KEY_1;
         }

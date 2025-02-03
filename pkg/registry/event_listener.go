@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type EventListenerNode interface {
+type OperatorStateUpdator interface {
 	updateSingleOperatorState(ctx context.Context, operatorAddr string) error
 }
 type EventListenerQuerier interface {
@@ -30,12 +30,15 @@ type EventListenerChainClient interface {
 }
 
 type EventListener struct {
-	node EventListenerNode
+	node OperatorStateUpdator
 	mainnetClient EventListenerChainClient
 	operators EventListenerQuerier
 }
 
-func NewEventListener(ctx context.Context, node EventListenerNode, mainnetClient EventListenerChainClient, operators EventListenerQuerier) *EventListener {
+func NewEventListener(ctx context.Context, node OperatorStateUpdator, mainnetClient EventListenerChainClient, operators EventListenerQuerier) *EventListener {
+	if node == nil {
+		log.Fatal("[EventListener] node not initialized")
+	}
 	if mainnetClient == nil {
 		log.Fatal("[EventListener] mainnet client not initialized")
 	}

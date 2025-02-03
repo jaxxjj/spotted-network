@@ -39,7 +39,7 @@ func (n *Node) syncPeerInfo(ctx context.Context) error {
 		// If operator is inactive, disconnect
 		if operator.Status != "active" {
 			log.Printf("[State] Operator %s (peer %s) is inactive, disconnecting", info.Address, peerID)
-			n.DisconnectPeer(peerID)
+			n.disconnectPeer(peerID)
 			continue
 		}
 
@@ -131,4 +131,37 @@ func (n *Node) getActiveOperators() []*pb.OperatorPeerState {
 	n.activeOperators.mu.RUnlock()
 
 	return activeOperators
+}
+
+// GetOperatorState returns the state of a connected operator
+func (n *Node) GetOperatorState(id peer.ID) *OperatorPeerInfo {
+	n.activeOperators.mu.RLock()
+	defer n.activeOperators.mu.RUnlock()
+	return n.activeOperators.active[id]
+}
+
+// GetConnectedOperators returns all connected operator IDs
+func (n *Node) getActivePeerIDs() []peer.ID {
+	n.activeOperators.mu.RLock()
+	defer n.activeOperators.mu.RUnlock()
+
+	operators := make([]peer.ID, 0, len(n.activeOperators.active))
+	for id := range n.activeOperators.active {
+		operators = append(operators, id)
+	}
+	return operators
+}
+
+// UpdateOperatorState updates an operator's state
+func (n *Node) UpdateOperatorState(id peer.ID, state *OperatorPeerInfo) {
+	n.activeOperators.mu.Lock()
+	defer n.activeOperators.mu.Unlock()
+	n.activeOperators.active[id] = state
+}
+
+// RemoveOperator removes an operator from the active set
+func (n *Node) RemoveOperator(id peer.ID) {
+	n.activeOperators.mu.Lock()
+	defer n.activeOperators.mu.Unlock()
+	delete(n.activeOperators.active, id)
 }

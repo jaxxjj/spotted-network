@@ -7,12 +7,12 @@ import (
 	"math/big"
 	"net/http"
 	"sync"
-	"time"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
@@ -34,6 +34,7 @@ type P2PHost interface {
 	NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error)
 	SetStreamHandler(pid protocol.ID, handler network.StreamHandler)
 	Network() network.Network
+	Peerstore() peerstore.Peerstore
 	Close() error
 }
 
@@ -57,6 +58,7 @@ type OperatorState struct {
 
 type ActivePeerStates struct {
 	active map[peer.ID]*OperatorState
+	stateRoot []byte
 	mu sync.RWMutex
 }
 
@@ -286,6 +288,17 @@ func (n *Node) Stop() error {
 	return n.host.Close()
 }
 
+func (n *Node) getRegistryInfo() *peer.AddrInfo {
+	return &peer.AddrInfo{
+		ID:    n.registryID,
+		Addrs: []multiaddr.Multiaddr{n.registryAddress},
+	}
+}
+
+func (n *Node) createStreamToRegistry(ctx context.Context, pid protocol.ID) (network.Stream, error) {
+	return n.host.NewStream(ctx, n.registryID, pid)
+}
+
 func (n *Node) connectToRegistry() error {
 	log.Printf("[Node] Attempting to connect to Registry Node at address: %s\n", n.registryAddress)
 
@@ -313,34 +326,6 @@ func (n *Node) connectToRegistry() error {
 	return nil
 }
 
-// PingPeer implements ping functionality for the node
-func (n *Node) PingPeer(ctx context.Context, p peer.ID) error {
-	// Add ping timeout
-	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
-	defer cancel()
-
-	result := <-n.pingService.Ping(ctx, p)
-	if result.Error != nil {
-		return fmt.Errorf("ping failed: %v", result.Error)
-	}
-
-	log.Printf("Successfully pinged peer: %s (RTT: %v)", p, result.RTT)
-	return nil
-}
-
-// UpdatePeerInfo updates the node's peer information
-func (n *Node) UpdatePeerInfo(info *PeerInfo) {
-	n.peerInfoMu.Lock()
-	defer n.peerInfoMu.Unlock()
-	n.peerInfo = info
-}
-
-// GetPeerInfo returns the current peer information
-func (n *Node) GetPeerInfo() *PeerInfo {
-	n.peerInfoMu.RLock()
-	defer n.peerInfoMu.RUnlock()
-	return n.peerInfo
-}
 
 // UpdateOperatorState updates the operator's business state
 func (n *Node) UpdateOperatorState(state *OperatorState) {
@@ -356,73 +341,13 @@ func (n *Node) GetOperatorState() *OperatorState {
 	return n.operatorState
 }
 
-// UpdateOperatorState updates an operator's state
-func (n *Node) UpdateOperatorState(address string, peerID peer.ID, state *OperatorState) {
-	n.operators.mu.Lock()
-	defer n.operators.mu.Unlock()
-
-	// Update both maps
-	n.operators.byAddress[address] = state
-	if peerID != "" {
-		n.operators.byPeerID[peerID] = state
-	}
+// RemoveOperator removes an operator from the active set
+func (n *Node) RemoveOperator(id peer.ID) {
+	n.activeOperators.mu.Lock()
+	defer n.activeOperators.mu.Unlock()
+	delete(n.activeOperators.active, id)
 }
 
-// RemoveOperator removes an operator from both maps
-func (n *Node) RemoveOperator(address string, peerID peer.ID) {
-	n.operators.mu.Lock()
-	defer n.operators.mu.Unlock()
 
-	delete(n.operators.byAddress, address)
-	if peerID != "" {
-		delete(n.operators.byPeerID, peerID)
-	}
-}
-
-// GetOperatorByAddress returns operator state by address
-func (n *Node) GetOperatorByAddress(address string) *OperatorState {
-	n.operators.mu.RLock()
-	defer n.operators.mu.RUnlock()
-	return n.operators.byAddress[address]
-}
-
-// GetOperatorByPeerID returns operator state by peer ID
-func (n *Node) GetOperatorByPeerID(peerID peer.ID) *OperatorState {
-	n.operators.mu.RLock()
-	defer n.operators.mu.RUnlock()
-	return n.operators.byPeerID[peerID]
-}
-
-// GetActiveOperators returns all active operator states
-func (n *Node) GetActiveOperators() []*OperatorState {
-	n.operators.mu.RLock()
-	defer n.operators.mu.RUnlock()
-	
-	operators := make([]*OperatorState, 0)
-	for _, state := range n.operators.byAddress {
-		if state.Status == "active" {
-			operators = append(operators, state)
-		}
-	}
-	return operators
-}
-
-// UpdateOperatorPeerInfo updates an operator's peer-related information
-func (n *Node) UpdateOperatorPeerInfo(address string, peerID peer.ID, addrs []multiaddr.Multiaddr) {
-	n.operators.mu.Lock()
-	defer n.operators.mu.Unlock()
-
-	if state := n.operators.byAddress[address]; state != nil {
-		// Update peer info
-		state.PeerID = peerID
-		state.Multiaddrs = addrs
-		state.AddrInfo = &peer.AddrInfo{
-			ID: peerID,
-			Addrs: addrs,
-		}
-		// Update peer ID map
-		n.operators.byPeerID[peerID] = state
-	}
-}
 
 

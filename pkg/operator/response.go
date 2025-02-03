@@ -274,19 +274,3 @@ func (tp *TaskProcessor) verifyResponse(response *task_responses.TaskResponses) 
 	return tp.signer.VerifyTaskResponse(params, response.Signature, response.SigningKey)
 }
 
-// checkP2PStatus checks the status of P2P topic connections
-func (tp *TaskProcessor) checkP2PStatus() {
-	peers := tp.node.host.Network().Peers()
-	log.Printf("[P2P] Connected to %d peers:", len(peers))
-	for _, peer := range peers {
-		addrs := tp.node.host.Network().Peerstore().Addrs(peer)
-		log.Printf("[P2P] - Peer %s at %v", peer.String(), addrs)
-	}
-
-	// Check pubsub topic
-	peers = tp.responseTopic.ListPeers()
-	log.Printf("[P2P] %d peers subscribed to response topic:", len(peers))
-	for _, peer := range peers {
-		log.Printf("[P2P] - Subscribed peer: %s", peer.String())
-	}
-}

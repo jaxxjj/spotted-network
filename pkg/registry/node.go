@@ -79,8 +79,9 @@ type NodeConfig struct {
 	Host           host.Host
 	OperatorsQuerier      *operators.Queries
 	MainnetClient  *ethereum.ChainClient
-	PubSub         *pubsub.PubSub
 	TxManager      *wpgx.Pool
+	PubSub         *pubsub.PubSub
+	Blacklist      pubsub.Blacklist  // Optional blacklist implementation
 }
 
 type Node struct {
@@ -109,7 +110,15 @@ type Node struct {
 
 	// Health checker
 	healthChecker *HealthChecker
+
+	// PubSub service
+	pubsub *pubsub.PubSub
+
+	// Blacklist for managing blocked peers
+	blacklist pubsub.Blacklist
 }
+
+
 
 func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	// Validate required dependencies
@@ -122,14 +131,25 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	if cfg.MainnetClient == nil {
 		log.Fatal("[Registry] mainnet client not initialized")
 	}
+	if cfg.PubSub == nil {
+		log.Fatal("[Registry] pubsub not initialized")
+	}
 
 	// Create ping service
 	pingService := ping.NewPingService(cfg.Host)
+
+	// Initialize blacklist if not provided
+	blacklist := cfg.Blacklist
+	if blacklist == nil {
+		blacklist = pubsub.NewMapBlacklist()
+	}
 
 	node := &Node{
 		host:               cfg.Host,
 		opQuerier:          cfg.OperatorsQuerier,
 		mainnetClient:      cfg.MainnetClient,
+		pubsub:            cfg.PubSub,
+		blacklist:         blacklist,
 	}
 
 	// Initialize operators management
@@ -165,7 +185,7 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	}
 	node.epochUpdator = epochUpdator
 	// Create and start health checker
-	healthChecker, err := NewHealthChecker(ctx, node, pingService)
+	healthChecker, err := newHealthChecker(ctx, node, pingService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start health checker: %w", err)
 	}
@@ -179,45 +199,10 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 }
 
 
-
-
 func (n *Node) Stop() error {
 	return n.host.Close()
 }
 
-// GetOperatorState returns the state of a connected operator
-func (n *Node) GetOperatorState(id peer.ID) *OperatorPeerInfo {
-	n.activeOperators.mu.RLock()
-	defer n.activeOperators.mu.RUnlock()
-	return n.activeOperators.active[id]
-}
-
-// GetConnectedOperators returns all connected operator IDs
-func (n *Node) GetConnectedOperators() []peer.ID {
-	n.activeOperators.mu.RLock()
-	defer n.activeOperators.mu.RUnlock()
-
-	operators := make([]peer.ID, 0, len(n.activeOperators.active))
-	for id := range n.activeOperators.active {
-		operators = append(operators, id)
-	}
-	return operators
-}
-
-// UpdateOperatorState updates an operator's state
-func (n *Node) UpdateOperatorState(id peer.ID, state *OperatorPeerInfo) {
-	n.activeOperators.mu.Lock()
-	defer n.activeOperators.mu.Unlock()
-	n.activeOperators.active[id] = state
-}
-
-// RemoveOperator removes an operator from the active set
-func (n *Node) RemoveOperator(id peer.ID) {
-	n.activeOperators.mu.Lock()
-	defer n.activeOperators.mu.Unlock()
-	delete(n.activeOperators.active, id)
-
-}
 
 // GetHostID returns the node's libp2p host ID
 func (n *Node) GetHostID() string {
@@ -229,7 +214,7 @@ func (n *Node) startRegistryService(cfg *NodeConfig) error {
 	n.registryHandler = NewRegistryHandler(n, cfg.OperatorsQuerier)
 
 	// Set up protocol handler
-	n.host.SetStreamHandler(RegistryProtocol, n.registryHandler.HandleStream)
+	n.host.SetStreamHandler(RegistryProtocol, n.registryHandler.HandleRegitsryStream)
 	log.Printf("[Registry] Registry handler set up for protocol: %s", RegistryProtocol)
 
 	return nil

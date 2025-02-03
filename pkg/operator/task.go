@@ -30,7 +30,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	}
 	log.Printf("[Task] Starting to process task %s", task.TaskID)
 
-	// Check if we have already processed this task
+	// Check if have already processed this task
 	tp.responsesMutex.RLock()
 	if responses, exists := tp.responses[task.TaskID]; exists {
 		if _, processed := responses[tp.signer.GetOperatorAddress().Hex()]; processed {
@@ -41,26 +41,10 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	}
 	tp.responsesMutex.RUnlock()
 
-	// Also check database
-	response, err := tp.taskResponse.GetTaskResponse(ctx, task_responses.GetTaskResponseParams{
-		TaskID: task.TaskID,
-		OperatorAddress: tp.signer.GetOperatorAddress().Hex(),
-	})
-	if err != nil {
-		// Real error occurred
-		return fmt.Errorf("failed to check task response: %w", err)
-	}
-	if response != nil {
-		// Task was already processed
-		log.Printf("[Task] Task %s already processed and stored in database", task.TaskID)
-		return nil
-	}
-
 	blockNumber := task.BlockNumber
 	if blockNumber == 0 {
 		return fmt.Errorf("task block number is nil")
 	}
-
 
 	log.Printf("[Task] Processing task for block number: %d", blockNumber)
 

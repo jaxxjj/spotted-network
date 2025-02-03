@@ -68,6 +68,24 @@ type EpochUpdator struct {
 }
 
 func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdator, error) {
+	if cfg.node == nil {
+		log.Fatal("node is nil")
+	}
+	if cfg.opQuerier == nil {
+		log.Fatal("opQuerier is nil")
+	}
+	if cfg.pubsub == nil {
+		log.Fatal("pubsub is nil")
+	}
+	if cfg.sp == nil {
+		log.Fatal("sp is nil")
+	}
+	if cfg.mainnetClient == nil {
+		log.Fatal("mainnetClient is nil")
+	}
+	if cfg.txManager == nil {
+		log.Fatal("txManager is nil")
+	}
 	e := &EpochUpdator{
 		node: cfg.node,
 		opQuerier: cfg.opQuerier,

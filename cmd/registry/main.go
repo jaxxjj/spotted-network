@@ -11,6 +11,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/registry"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	"github.com/libp2p/go-libp2p"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/rs/zerolog/log"
 
 	"github.com/galxe/spotted-network/internal/database/cache"
@@ -74,6 +75,15 @@ func main() {
 	}
 	defer host.Close()
 
+	// Initialize PubSub
+	pubsub, err := pubsub.NewGossipSub(ctx, host,
+		pubsub.WithBlacklist(pubsub.NewMapBlacklist()),
+	)
+	if err != nil {
+		metric.RecordError("pubsub_creation_failed")
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to create pubsub")
+	}
+
 	// Initialize database connection
 	db, err := dbwpgx.NewWPGXPool(ctx, "POSTGRES")
 	if err != nil {
@@ -105,19 +115,16 @@ func main() {
 	// Create Registry Node
 	node, err := registry.NewNode(ctx, &registry.NodeConfig{
 		Host:          host,
-		Operators:     operatorsQuerier,
+		OperatorsQuerier:     operatorsQuerier,
 		MainnetClient: mainnetClient,
+		PubSub:        pubsub,
+		TxManager:     db,
 	})
 	if err != nil {
 		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to create node")
 	}
 	defer node.Stop()
 
-	// Start the node
-	if err := node.Start(ctx); err != nil {
-		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to start registry node")
-	}
-		
 	metric.RecordRequest("registry", "startup_complete")
 	log.Info().Str("component", "registry").Msg("Registry node started successfully")
 

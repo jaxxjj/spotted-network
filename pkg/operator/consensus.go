@@ -19,6 +19,7 @@ import (
 
 type EpochStateQuerier interface {
     GetLatestEpochState(ctx context.Context) (*epoch_states.EpochState, error)
+	UpsertEpochState(ctx context.Context, arg epoch_states.UpsertEpochStateParams) (*epoch_states.EpochState, error)
 }
 
 type ConsensusResponseQuerier interface {

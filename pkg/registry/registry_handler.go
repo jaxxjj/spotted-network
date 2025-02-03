@@ -28,6 +28,8 @@ type OperatorStateController interface {
 	getActiveOperatorsRoot() []byte
 	setActiveOperatorsRoot(stateRoot []byte)
 	computeActiveOperatorsRoot() []byte
+	disconnectPeer(peerID peer.ID) error
+	blacklistPeer(peerID peer.ID, reason string)
 }
 
 // RegistryHandler handles registry protocol operations
@@ -42,6 +44,12 @@ type RegistryHandlerQuerier interface {
 
 // NewRegistryHandler creates a new registry handler
 func NewRegistryHandler(node OperatorStateController, opQuerier RegistryHandlerQuerier) *RegistryHandler {
+	if node == nil {
+		log.Fatal("node is nil")
+	}
+	if opQuerier == nil {
+		log.Fatal("opQuerier is nil")
+	}
 	return &RegistryHandler{
 		node: node,
 		opQuerier: opQuerier,
@@ -49,7 +57,7 @@ func NewRegistryHandler(node OperatorStateController, opQuerier RegistryHandlerQ
 }
 
 // HandleStream handles incoming registry streams
-func (rh *RegistryHandler) HandleStream(stream network.Stream) {
+func (rh *RegistryHandler) HandleRegitsryStream(stream network.Stream) {
 	defer stream.Close()
 
 	peerID := stream.Conn().RemotePeer()
@@ -124,7 +132,8 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 
 	if !success {
 		log.Printf("[Registry] Registration failed for peer %s: %s", peerID.String(), msg)
-		stream.Reset()
+		rh.node.disconnectPeer(peerID)
+		rh.node.blacklistPeer(peerID, msg)
 		return
 	}
 
