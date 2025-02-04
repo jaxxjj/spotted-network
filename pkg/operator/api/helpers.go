@@ -12,8 +12,9 @@ import (
 
 func writeJSON(w http.ResponseWriter, status int, response interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, err string) {
@@ -54,3 +55,4 @@ func (h *Handler) getRequiredConfirmations(chainID uint32) uint16 {
 	}
 	return 12 // Default to 12 confirmations for unknown chains
 }
+

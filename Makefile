@@ -1,4 +1,23 @@
-.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all start-monitoring
+# Project variables
+NAME=spotted-network
+TEST_DIRS := $(shell go list ./...)
+POSTGRES_USERNAME=spotted
+POSTGRES_PASSWORD=spotted
+POSTGRES_APPNAME=registry_test
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DBNAME=spotted
+
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all start-monitoring test lint codecov install-lint
+
+# Install golangci-lint
+install-lint:
+	@echo "Installing golangci-lint..."
+	@if [ "$(shell uname)" = "Darwin" ]; then \
+		brew install golangci-lint; \
+	else \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v1.55.2; \
+	fi
 
 # Start monitoring infrastructure
 start-prometheus:
@@ -141,4 +160,34 @@ stop:
 # Restart all services
 restart: stop start-all
 	@echo "All services restarted"
+
+# Run tests
+test:
+	@echo "Running tests..."
+	@export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
+	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
+	export POSTGRES_HOST=$(POSTGRES_HOST) && \
+	export POSTGRES_PORT=$(POSTGRES_PORT) && \
+	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
+	go test $(TEST_DIRS) -v -p 1
+
+# Run tests with coverage
+codecov:
+	@echo "Running tests with coverage..."
+	@export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
+	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
+	export POSTGRES_HOST=$(POSTGRES_HOST) && \
+	export POSTGRES_PORT=$(POSTGRES_PORT) && \
+	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
+	go test $(TEST_DIRS) -coverprofile=coverage.txt -covermode=atomic -p 1
+
+# Run linter (with automatic installation if needed)
+lint: 
+	golangci-lint run
+
+# Run linter with auto-fix (with automatic installation if needed)
+lint-fix:
+	golangci-lint run --fix
 

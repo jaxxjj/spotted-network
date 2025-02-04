@@ -19,6 +19,8 @@ import (
 const (
 	AuthTimeout = 30 * time.Second
 	RegistryProtocol = protocol.ID("/spotted/registry/1.0.0")
+	// Current protocol version
+	CurrentVersion = "1.0.0"
 )
 
 type RegistryHandlerConfig struct {
@@ -57,24 +59,38 @@ func (rh *RegistryHandler) HandleRegistryStream(stream network.Stream) {
 	var msg pb.RegistryMessage
 	if err := utils.ReadStreamMessage(stream, &msg, maxMessageSize); err != nil {
 		log.Printf("[Registry] Failed to read message: %v", err)
-		stream.Reset()
+		if err := stream.Reset(); err != nil {
+			log.Printf("[Registry] Failed to reset stream: %v", err)
+		}
+		if err := rh.node.disconnectPeer(peerID); err != nil {
+			log.Printf("[Registry] Failed to disconnect peer %s: %v", peerID, err)
+		}
 		return
 	}
 
 	switch msg.Type {
 	case pb.RegistryMessage_REGISTER:
 		rh.handleRegister(stream, peerID, msg.GetRegister())
-		rh.node.sp.broadcastStateUpdate(nil)
+		if err := rh.node.sp.broadcastStateUpdate(nil); err != nil {
+			log.Printf("[Registry] Failed to broadcast state update: %v", err)
+		}
 		rootHash := rh.node.computeActiveOperatorsRoot()
 		rh.node.setActiveOperatorsRoot(rootHash)
 	case pb.RegistryMessage_DISCONNECT:
 		rh.handleDisconnect(peerID)
-		rh.node.sp.broadcastStateUpdate(nil)
+		if err := rh.node.sp.broadcastStateUpdate(nil); err != nil {
+			log.Printf("[Registry] Failed to broadcast state update: %v", err)
+		}
 		rootHash := rh.node.computeActiveOperatorsRoot()
 		rh.node.setActiveOperatorsRoot(rootHash)
 	default:
 		log.Printf("[Registry] Unknown message type from %s: %v", peerID, msg.Type)
-		stream.Reset()
+		if err := stream.Reset(); err != nil {
+			log.Printf("[Registry] Failed to reset stream: %v", err)
+		}
+		if err := rh.node.disconnectPeer(peerID); err != nil {
+			log.Printf("[Registry] Failed to disconnect peer %s: %v", peerID, err)
+		}
 	}
 }
 
@@ -87,7 +103,12 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 	multiaddrs, err := utils.StringsToMultiaddrs(req.Multiaddrs)
 	if err != nil {
 		log.Printf("[Registry] Failed to convert multiaddrs to strings: %v", err)
-		stream.Reset()
+		if err := stream.Reset(); err != nil {
+			log.Printf("[Registry] Failed to reset stream: %v", err)
+		}
+		if err := rh.node.disconnectPeer(peerID); err != nil {
+			log.Printf("[Registry] Failed to disconnect peer %s: %v", peerID, err)
+		}
 		return
 	}
 	
@@ -109,24 +130,8 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 		// get the active operators for the response
 		activeOperators = rh.node.buildOperatorPeerStates()
 		
-		
 		log.Printf("[Registry] Operator %s (peer %s) registered successfully", req.Address, peerID)
-	}
-
-	resp := &pb.RegistryResponse{
-		Success: success,
-		Message: msg,
-		ActiveOperators: activeOperators,
-	}
-
-	// Send response
-	if err := utils.WriteStreamMessage(stream, resp); err != nil {
-		log.Printf("[Registry] Failed to write response: %v", err)
-		stream.Reset()
-		return
-	}
-
-	if !success {
+	} else {
 		log.Printf("[Registry] Registration failed for peer %s: %s", peerID.String(), msg)
 		
 		// get the ip address of the peer
@@ -134,8 +139,12 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 		ip, err := manet.ToIP(remoteAddr)
 		if err != nil {
 			log.Printf("[Registry] Failed to get IP from multiaddr: %v", err)
-			// disconnect if error
-			rh.node.disconnectPeer(peerID)
+			if err := stream.Reset(); err != nil {
+				log.Printf("[Registry] Failed to reset stream: %v", err)
+			}
+			if err := rh.node.disconnectPeer(peerID); err != nil {
+				log.Printf("[Registry] Failed to disconnect peer %s: %v", peerID, err)
+			}
 			return
 		}
 
@@ -147,11 +156,32 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 		if err := rh.node.BlacklistPeer(context.Background(), peerID, params); err != nil {
 			log.Printf("[Registry] Failed to blacklist peer: %v", err)
 		}
+	}
 
-		rh.node.disconnectPeer(peerID)
+	resp := &pb.RegistryResponse{
+		Success: success,
+		Message: msg,
+		ActiveOperators: activeOperators,
+	}
+
+	// Send response
+	if err := utils.WriteStreamMessage(stream, resp); err != nil {
+		log.Printf("[Registry] Failed to write response: %v", err)
+		if err := stream.Reset(); err != nil {
+			log.Printf("[Registry] Failed to reset stream: %v", err)
+		}
+		if err := rh.node.disconnectPeer(peerID); err != nil {
+			log.Printf("[Registry] Failed to disconnect peer %s: %v", peerID, err)
+		}
 		return
 	}
 
+	// If registration failed, disconnect after sending response
+	if !success {
+		if err := rh.node.disconnectPeer(peerID); err != nil {
+			log.Printf("[Registry] Failed to disconnect peer %s: %v", peerID, err)
+		}
+	}
 }
 
 func (rh *RegistryHandler) handleDisconnect(peerID peer.ID) {
@@ -165,10 +195,16 @@ func (rh *RegistryHandler) handleDisconnect(peerID peer.ID) {
 
 // verifyAuthRequest verifies the auth request
 func (rh *RegistryHandler) verifyAuthRequest(ctx context.Context, req *pb.RegisterMessage) (bool, string) {
+	// verify version compatibility
+	if req.Version != CurrentVersion {
+		return false, fmt.Sprintf("version mismatch: registry version %s, operator version %s", CurrentVersion, req.Version)
+	}
+
 	// verify the timestamp
 	if time.Since(time.Unix(int64(req.Timestamp), 0)) > AuthTimeout {
 		return false, "auth request expired"
 	}
+
 	// verify the operator status
 	operator, err := rh.opQuerier.GetOperatorByAddress(ctx, req.Address)
 	if err != nil {
@@ -187,6 +223,7 @@ func (rh *RegistryHandler) verifyAuthRequest(ctx context.Context, req *pb.Regist
 	message := crypto.Keccak256(
 		[]byte(req.Address),
 		utils.Uint64ToBytes(req.Timestamp),
+		[]byte(req.Version),
 	)
 	messageHash := crypto.Keccak256Hash(message)
 

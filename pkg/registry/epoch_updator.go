@@ -77,8 +77,18 @@ func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdato
 		mainnetClient: cfg.mainnetClient,
 		txManager: cfg.txManager, 
 	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	e.cancel = cancel
+	e.wg.Add(1)
 	
-	go e.start(ctx)
+	go func() {
+		defer e.wg.Done()
+		if err := e.start(ctx); err != nil {
+			log.Printf("[Epoch] Epoch monitoring failed: %v", err)
+		}
+	}()
+	
 	log.Printf("[Epoch] Epoch monitoring started")
 	
 	return e, nil

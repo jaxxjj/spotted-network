@@ -19,6 +19,8 @@ const (
 	AuthTimeout              = 30 * time.Second
 	RegistryProtocol       = protocol.ID("/spotted/registry/1.0.0")
 	maxMessageSize = 1024 * 1024 // 1MB
+	// Current protocol version
+	CurrentVersion = "1.0.0"
 )
 
 
@@ -94,6 +96,7 @@ func (rh *RegistryHandler) AuthToRegistry(ctx context.Context) error {
 	message := crypto.Keccak256(
 		[]byte(rh.signer.GetOperatorAddress().Hex()),
 		utils.Uint64ToBytes(timestamp),
+		[]byte(CurrentVersion),
 	)
 
 	// Sign the message
@@ -109,6 +112,7 @@ func (rh *RegistryHandler) AuthToRegistry(ctx context.Context) error {
 		Type: pb.RegistryMessage_REGISTER,
 		Message: &pb.RegistryMessage_Register{
 			Register: &pb.RegisterMessage{
+				Version:    CurrentVersion,
 				Address:    rh.signer.GetOperatorAddress().Hex(),
 				Timestamp: timestamp,
 				Signature: hex.EncodeToString(signature),

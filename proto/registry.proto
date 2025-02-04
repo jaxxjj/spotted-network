@@ -21,14 +21,16 @@ message RegistryMessage {
 
 // Message for operator registration
 message RegisterMessage {
+    // Protocol version for compatibility checking
+    string version = 1;
     // Operator's Ethereum address (with 0x prefix)
-    string address = 1;
+    string address = 2;
     // Current Unix timestamp
-    uint64 timestamp = 2;
-    // Hex-encoded signature of (address + timestamp)
-    string signature = 3;
+    uint64 timestamp = 3;
+    // Hex-encoded signature of (address + timestamp + version)
+    string signature = 4;
     // Operator's multiaddrs for p2p connection
-    repeated string multiaddrs = 4;
+    repeated string multiaddrs = 5;
 }
 
 // Message for operator disconnection
