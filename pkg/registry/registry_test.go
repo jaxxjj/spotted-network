@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"testing"
 	"time"
 
 	"github.com/coocood/freecache"
@@ -17,6 +18,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/suite"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx"
 	"github.com/stumble/wpgx/testsuite"
@@ -338,6 +340,11 @@ func (s *RegistryTestSuite) Golden(name string, serde Serde) {
 func (s *RegistryTestSuite) GoldenVarJSON(name string, v interface{}) {
 	s.WPgxTestSuite.GoldenVarJSON(name, v)
 }
+
+
+func TestOperatorSuite(t *testing.T) {
+	suite.Run(t, NewRegistryTestSuite())
+} 
 
 // NewRegistryTestSuite 创建新的测试套件实例
 func NewRegistryTestSuite() *RegistryTestSuite {
