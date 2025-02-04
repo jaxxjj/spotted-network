@@ -36,49 +36,107 @@ func (s *RegistryTestSuite) SetupEpochTest() {
 
 // TestEpochUpdator_Stop 测试 epoch updator 的停止功能
 func (s *RegistryTestSuite) TestEpochUpdator_Stop() {
-	s.SetupEpochTest()
+	tests := []struct {
+		name      string
+		mockSetup func()
+		operations func(updator *EpochUpdator)
+		wantErr   bool
+	}{
+		{
+			name: "normal_stop",
+			mockSetup: func() {
+				s.mockMainnet.On("BlockNumber", mock.Anything).
+					Return(uint64(100), nil).Maybe()
+			},
+			operations: func(updator *EpochUpdator) {
+				// Let it run for a bit
+				time.Sleep(100 * time.Millisecond)
+				
+				// Stop the updator
+				updator.Stop()
+				
+				// Verify that the wait group is done
+				done := make(chan struct{})
+				go func() {
+					updator.wg.Wait()
+					close(done)
+				}()
 
-	// Setup expectations
-	s.mockMainnet.On("BlockNumber", mock.Anything).Return(uint64(100), nil).Maybe()
+				select {
+				case <-done:
+					// Success - wait group completed
+				case <-time.After(1 * time.Second):
+					s.Fail("Timeout waiting for updator to stop")
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "immediate_stop",
+			mockSetup: func() {
+				s.mockMainnet.On("BlockNumber", mock.Anything).
+					Return(uint64(100), nil).Maybe()
+			},
+			operations: func(updator *EpochUpdator) {
+				// Stop immediately
+				updator.Stop()
+				
+				done := make(chan struct{})
+				go func() {
+					updator.wg.Wait()
+					close(done)
+				}()
 
-	// Create updator
-	ctx, cancel := context.WithCancel(context.Background())
-	updator := &EpochUpdator{
-		node:          s.mockStateSync,
-		mainnetClient: s.mockMainnet,
-		txManager:     s.mockTxManager,
-		opQuerier:     s.mockOpQuerier,
-		cancel:        cancel,
+				select {
+				case <-done:
+					// Success - wait group completed
+				case <-time.After(1 * time.Second):
+					s.Fail("Timeout waiting for updator to stop")
+				}
+			},
+			wantErr: false,
+		},
 	}
 
-	// Start the updator
-	updator.wg.Add(1)
-	go func() {
-		defer updator.wg.Done()
-		err := updator.start(ctx)
-		s.NoError(err)
-	}()
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			// Setup
+			s.SetupEpochTest()
+			
+			// Setup mocks
+			if tt.mockSetup != nil {
+				tt.mockSetup()
+			}
 
-	// Let it run for a bit
-	time.Sleep(100 * time.Millisecond)
+			// Create updator
+			ctx, cancel := context.WithCancel(context.Background())
+			updator := &EpochUpdator{
+				node:          s.mockStateSync,
+				mainnetClient: s.mockMainnet,
+				txManager:     s.mockTxManager,
+				opQuerier:     s.mockOpQuerier,
+				cancel:        cancel,
+			}
 
-	// Stop the updator
-	updator.Stop()
+			// Start the updator
+			updator.wg.Add(1)
+			go func() {
+				defer updator.wg.Done()
+				err := updator.start(ctx)
+				if tt.wantErr {
+					s.Error(err)
+				} else {
+					s.NoError(err)
+				}
+			}()
 
-	// Verify that the wait group is done
-	done := make(chan struct{})
-	go func() {
-		updator.wg.Wait()
-		close(done)
-	}()
+			// Execute operations
+			if tt.operations != nil {
+				tt.operations(updator)
+			}
 
-	select {
-	case <-done:
-		// Success - wait group completed
-	case <-time.After(1 * time.Second):
-		s.Fail("Timeout waiting for updator to stop")
+			// Verify mock expectations
+			s.mockMainnet.AssertExpectations(s.T())
+		})
 	}
-
-	s.mockMainnet.AssertExpectations(s.T())
 }
-
