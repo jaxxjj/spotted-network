@@ -89,3 +89,4 @@ SET signing_key = EXCLUDED.signing_key,
     exit_epoch = EXCLUDED.exit_epoch,
     updated_at = NOW()
 RETURNING *; 
+

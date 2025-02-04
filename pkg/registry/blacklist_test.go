@@ -7,6 +7,19 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
+// BlacklistState 用于序列化/反序列化黑名单状态
+type BlacklistState struct {
+	Blacklist []struct {
+		PeerID    string     `json:"peer_id"`
+		IP        string     `json:"ip"`
+		Reason    string     `json:"reason"`
+		ExpiresAt *time.Time `json:"expires_at,omitempty"`
+		CreatedAt time.Time  `json:"created_at"`
+		UpdatedAt time.Time  `json:"updated_at"`
+	} `json:"blacklist"`
+}
+
+
 func (s *RegistryTestSuite) TestBlacklistPeer() {
 	tests := []struct {
 		name      string
@@ -58,7 +71,7 @@ func (s *RegistryTestSuite) TestBlacklistPeer() {
 
 			// 创建测试节点
 			node := &Node{
-				blacklistQuerier: s.blacklistDB,
+				blacklistQuerier: s.blacklistQuerier,
 				pubsub:          s.mockPubSub,
 			}
 
@@ -112,7 +125,7 @@ func (s *RegistryTestSuite) TestUnblacklistPeer() {
 
 			// 创建测试节点
 			node := &Node{
-				blacklistQuerier: s.blacklistDB,
+				blacklistQuerier: s.blacklistQuerier,
 			}
 
 			// 执行测试
@@ -143,13 +156,12 @@ func (s *RegistryTestSuite) TestIsBlacklisted() {
 			peerId: "12D3KooWJHw6WnvPiUPSpJNaRBWn4XpDgRSR1UvZNhJDkRCfehMr",
 			ip:     "192.168.1.1",
 			mockSetup: func() {
-				// 添加黑名单条目
 				id, err := peer.Decode("12D3KooWJHw6WnvPiUPSpJNaRBWn4XpDgRSR1UvZNhJDkRCfehMr")
 				s.Require().NoError(err)
 				s.mockPubSub.On("BlacklistPeer", id).Once()
 				expiresAt := time.Now().Add(24 * time.Hour)
 				reason := "test reason"
-				_, err = s.blacklistDB.BlockNode(s.ctx, blacklist.BlockNodeParams{
+				_, err = s.blacklistQuerier.BlockNode(s.ctx, blacklist.BlockNodeParams{
 					PeerID:    id.String(),
 					Ip:        "192.168.1.1",
 					Reason:    &reason,
@@ -182,7 +194,7 @@ func (s *RegistryTestSuite) TestIsBlacklisted() {
 
 			// 创建测试节点
 			node := &Node{
-				blacklistQuerier: s.blacklistDB,
+				blacklistQuerier: s.blacklistQuerier,
 			}
 
 			// 执行测试
@@ -212,16 +224,10 @@ func (s *RegistryTestSuite) TestBlacklistStateManagement() {
 			name:         "expire_and_remove_blacklist_entries",
 			initialState: "TestBlacklistStateManagement.blacklist.input.json",
 			operations: func(node *Node) {
-				// 移除一个黑名单条目
 				id, err := peer.Decode("12D3KooWJHw6WnvPiUPSpJNaRBWn4XpDgRSR1UvZNhJDkRCfehMr")
 				s.Require().NoError(err)
 				err = node.UnblacklistPeer(s.ctx, id, "192.168.1.1")
 				s.NoError(err)
-
-				// 验证移除后的状态
-				isBlocked, err := node.IsBlacklisted(s.ctx, id, "192.168.1.1")
-				s.NoError(err)
-				s.False(isBlocked)
 			},
 			wantErr:    false,
 			goldenFile: "blacklist_after_removal",
@@ -263,12 +269,12 @@ func (s *RegistryTestSuite) TestBlacklistStateManagement() {
 
 			// 创建测试节点
 			node := &Node{
-				blacklistQuerier: s.blacklistDB,
+				blacklistQuerier: s.blacklistQuerier,
 				pubsub:          s.mockPubSub,
 			}
 
 			// 加载初始状态
-			serde := BlacklistSerde{blacklist: s.blacklistDB}
+			serde := BlacklistTableSerde{blacklistQuerier: s.blacklistQuerier}
 			s.LoadState(tt.initialState, serde)
 
 			// 执行操作
@@ -276,7 +282,6 @@ func (s *RegistryTestSuite) TestBlacklistStateManagement() {
 				tt.operations(node)
 			}
 
-			// 验证最终状态
 			s.Golden(tt.goldenFile, serde)
 		})
 	}

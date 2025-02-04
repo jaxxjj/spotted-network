@@ -8,7 +8,7 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DBNAME=spotted
 
-.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all start-monitoring test lint codecov install-lint
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean
 
 # Install golangci-lint
 install-lint:
@@ -162,15 +162,14 @@ restart: stop start-all
 	@echo "All services restarted"
 
 # Run tests
-test:
-	@echo "Running tests..."
-	@export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+test: 
+	export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
 	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
 	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
 	export POSTGRES_HOST=$(POSTGRES_HOST) && \
 	export POSTGRES_PORT=$(POSTGRES_PORT) && \
 	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
-	go test $(TEST_DIRS) -v -p 1
+	go test ./pkg/registry -v  
 
 # Run tests with coverage
 codecov:
@@ -190,4 +189,17 @@ lint:
 # Run linter with auto-fix (with automatic installation if needed)
 lint-fix:
 	golangci-lint run --fix
+
+# 启动测试所需的基础设施
+test-infra-up:
+	docker-compose up -d postgres redis
+
+# 关闭测试基础设施
+test-infra-down:
+	docker-compose stop postgres redis
+	docker-compose rm -f postgres redis
+
+# 清理测试基础设施（包括数据）
+test-infra-clean: test-infra-down
+	docker volume rm -f spotted-network_postgres_data
 

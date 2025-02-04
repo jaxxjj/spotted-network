@@ -54,10 +54,10 @@ type StateSyncProcessor struct {
 // NewStateSyncProcessor creates a new state sync processor
 func NewStateSyncProcessor(cfg *PubsubConfig) (*StateSyncProcessor, error) {
 	if cfg.node == nil {
-		log.Fatal("node is nil")
+		return nil, fmt.Errorf("node is nil")
 	}
 	if cfg.pubsub == nil {
-		log.Fatal("pubsub is nil")
+		return nil, fmt.Errorf("pubsub is nil")
 	}
 	// Join state sync topic for broadcasting updates
 	stateSyncTopic, err := cfg.pubsub.Join(StateSyncTopic)

@@ -64,7 +64,7 @@ func (n *Node) updateSingleOperatorState(ctx context.Context, operatorAddr strin
 	activeEpoch := operator.ActiveEpoch
 
 	// Determine operator status using helper
-	status, logMsg := DetermineOperatorStatus(currentBlock, activeEpoch, operator.ExitEpoch)
+	status, logMsg := determineOperatorStatus(currentBlock, activeEpoch, operator.ExitEpoch)
 	log.Printf("[EventListener] %s", logMsg)
 
 	// Get weight if status is active

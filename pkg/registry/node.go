@@ -75,7 +75,6 @@ type P2PHost interface {
 	Network() network.Network
 }
 
-
 // NodeConfig contains all the dependencies needed by Registry Node
 type NodeConfig struct {
 	Host           host.Host
@@ -112,8 +111,6 @@ type Node struct {
 	// Pubsub for publishing and subscribing to topics
 	pubsub PubSubService
 }
-
-
 
 func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	// Validate required dependencies
@@ -189,7 +186,6 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	return node, nil
 }
 
-
 func (n *Node) Stop() error {
 	log.Printf("[Registry] Stopping registry node...")
 
@@ -198,7 +194,6 @@ func (n *Node) Stop() error {
 	n.sp.Stop()
 	return n.host.Close()
 }
-
 
 // GetHostID returns the node's libp2p host ID
 func (n *Node) GetHostID() string {
@@ -235,4 +230,17 @@ func (n *Node) startStateSync(cfg *NodeConfig) error {
     
     n.sp = processor
     return nil
+}
+
+// NotifyEpochUpdate handles all necessary state synchronization when an epoch is updated
+func (n *Node) NotifyEpochUpdate(ctx context.Context, epoch uint32) error {
+	if err := n.syncPeerInfo(ctx); err != nil {
+		return fmt.Errorf("failed to sync peer info: %w", err)
+	}
+
+	if err := n.sp.broadcastStateUpdate(&epoch); err != nil {
+		return fmt.Errorf("failed to broadcast state update: %w", err)
+	}
+
+	return nil
 }

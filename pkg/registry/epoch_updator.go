@@ -11,6 +11,7 @@ import (
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	utils "github.com/galxe/spotted-network/pkg/common"
+	"github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -18,13 +19,15 @@ import (
 )
 
 const (
-
 	GenesisBlock = 0     
 	EpochPeriod  = 12   
 
 	epochMonitorInterval = 5 * time.Second
 )
 
+type StateSyncNotifier interface {
+	NotifyEpochUpdate(ctx context.Context, epoch uint32) error
+}
 
 // TransactionManager abstracts database transaction operations
 type TxManager interface {
@@ -32,7 +35,7 @@ type TxManager interface {
 }
 
 type EpochUpdatorConfig struct {
-	node *Node
+	node StateSyncNotifier
 
 	opQuerier OperatorsQuerier
 	mainnetClient MainnetClient
@@ -41,7 +44,7 @@ type EpochUpdatorConfig struct {
 }
 
 type EpochUpdator struct {
-	node *Node
+	node StateSyncNotifier
 
 	opQuerier OperatorsQuerier
 	mainnetClient MainnetClient
@@ -56,19 +59,19 @@ type EpochUpdator struct {
 
 func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdator, error) {
 	if cfg.node == nil {
-		log.Fatal("node is nil")
+		return nil, fmt.Errorf("node is nil")
 	}
 	if cfg.opQuerier == nil {
-		log.Fatal("opQuerier is nil")
+		return nil, fmt.Errorf("opQuerier is nil")
 	}
 	if cfg.pubsub == nil {
-		log.Fatal("pubsub is nil")
+		return nil, fmt.Errorf("pubsub is nil")
 	}
 	if cfg.mainnetClient == nil {
-		log.Fatal("mainnetClient is nil")
+		return nil, fmt.Errorf("mainnetClient is nil")
 	}
 	if cfg.txManager == nil {
-		log.Fatal("txManager is nil")
+		return nil, fmt.Errorf("txManager is nil")
 	}
 	e := &EpochUpdator{
 		node: cfg.node,
@@ -139,7 +142,10 @@ func (e *EpochUpdator) start(ctx context.Context) error {
 							currentEpoch, err)
 						return
 					}
-					
+					if err := e.node.NotifyEpochUpdate(ctx, currentEpoch); err != nil {
+						log.Printf("[Epoch] Failed to notify epoch update: %v", err)
+					}
+			
 					e.lastProcessedEpoch = currentEpoch
 					log.Printf("[Epoch] Successfully updated operator states for epoch %d", currentEpoch)
 				}
@@ -149,7 +155,6 @@ func (e *EpochUpdator) start(ctx context.Context) error {
 }
 
 func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint32) error {
-	// Use txManager instead of dbPool
 	currentBlock, err := e.mainnetClient.BlockNumber(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get current block number: %w", err)
@@ -158,7 +163,6 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 	_, err = e.txManager.Transact(ctx, pgx.TxOptions{}, func(ctx context.Context, tx *wpgx.WTx) (any, error) {
 		txQuerier := e.opQuerier.WithTx(tx)
 
-		// Get all operators using transaction
 		allOperators, err := txQuerier.ListAllOperators(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get all operators: %w", err)
@@ -166,28 +170,26 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 
 		log.Printf("[Epoch] Processing %d operators for epoch %d (block %d)", len(allOperators), currentEpoch, currentBlock)
 
-		// Update operator states in DB
 		for _, operator := range allOperators {
 			activeEpoch := operator.ActiveEpoch
 			exitEpoch := operator.ExitEpoch
 			
-			// Use helper function to determine status
-			newStatus, logMsg := DetermineOperatorStatus(currentBlock, activeEpoch, exitEpoch)
+			newStatus, logMsg := determineOperatorStatus(currentBlock, activeEpoch, exitEpoch)
 			log.Printf("[Node] %s", logMsg)
 
 			var currentWeight *big.Int
 			var weightNum pgtype.Numeric
-			var currentSigningKey ethcommon.Address
+			currentSigningKey := operator.SigningKey
 
-			// Only get weight and signing key if operator will be active
-			if newStatus == "active" {
+			if newStatus == types.OperatorStatusActive {
 				currentWeight, err = e.mainnetClient.GetOperatorWeight(ctx, ethcommon.HexToAddress(operator.Address))
 				if err != nil {
 					log.Printf("[Epoch] Failed to get weight for operator %s: %v", operator.Address, err)
 					return nil, fmt.Errorf("failed to get weight for operator %s: %w", operator.Address, err)
 				}
 				
-				currentSigningKey, err = e.mainnetClient.GetOperatorSigningKey(ctx, ethcommon.HexToAddress(operator.Address), currentEpoch)
+				signingKey, err := e.mainnetClient.GetOperatorSigningKey(ctx, ethcommon.HexToAddress(operator.Address), currentEpoch)
+				currentSigningKey = signingKey.Hex()
 				if err != nil {
 					log.Printf("[Epoch] Failed to get signing key for operator %s: %v", operator.Address, err)
 					return nil, fmt.Errorf("failed to get signing key for operator %s: %w", operator.Address, err)
@@ -195,16 +197,14 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 
 				weightNum = utils.BigIntToNumeric(currentWeight)
 			} else {
-				// If not active, set weight to 0
 				weightNum = utils.BigIntToNumeric(big.NewInt(0))
 			}
 
-			// Update operator state in database using transaction
 			_, err = txQuerier.UpdateOperatorState(ctx, operators.UpdateOperatorStateParams{
 				Address: operator.Address,
 				Status:  newStatus,
 				Weight:  weightNum,
-				SigningKey: currentSigningKey.Hex(),
+				SigningKey: currentSigningKey,
 			}, &operator.Address)
 
 			if err != nil {
@@ -212,16 +212,6 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 				return nil, fmt.Errorf("failed to update operator %s state: %w", operator.Address, err)
 			}
 		}
-
-		// Sync peer info and broadcast state update within transaction
-		if err := e.node.syncPeerInfo(ctx); err != nil {
-			return nil, fmt.Errorf("failed to sync peer info: %w", err)
-		}
-
-		if err := e.node.sp.broadcastStateUpdate(&currentEpoch); err != nil {
-			return nil, fmt.Errorf("failed to broadcast state update: %w", err)
-		}
-
 		return nil, nil
 	})
 
@@ -230,13 +220,11 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 	}
 
 	return nil
-}	
+}
 
 func (e *EpochUpdator) Stop() {
 	e.cancel()
-	
 	e.wg.Wait()
-	
 	log.Printf("[Epoch] Epoch monitoring stopped")
 }	
 

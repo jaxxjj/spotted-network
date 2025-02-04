@@ -1,0 +1,26 @@
+[
+    {
+        "address": "0x0000000000000000000000000000000000000001",
+        "signing_key": "0x0000000000000000000000000000000000000010",
+        "registered_at_block_number": 0,
+        "registered_at_timestamp": 0,
+        "active_epoch": 0,
+        "exit_epoch": 4294967295,
+        "status": "active",
+        "weight": 200,
+        "created_at": "1970-01-01T00:00:00Z",
+        "updated_at": "1970-01-01T00:00:00Z"
+    },
+    {
+        "address": "0x0000000000000000000000000000000000000003",
+        "signing_key": "0x0000000000000000000000000000000000000011",
+        "registered_at_block_number": 0,
+        "registered_at_timestamp": 0,
+        "active_epoch": 0,
+        "exit_epoch": 4294967295,
+        "status": "active",
+        "weight": 300,
+        "created_at": "1970-01-01T00:00:00Z",
+        "updated_at": "1970-01-01T00:00:00Z"
+    }
+] 

@@ -224,6 +224,22 @@ func _ListBlacklist(ctx context.Context, q CacheQuerierConn, arg ListBlacklistPa
 	return items, err
 }
 
+const refreshIDSerial = `-- name: RefreshIDSerial :exec
+SELECT setval(pg_get_serial_sequence('blacklist', 'id'), (SELECT MAX(id) FROM blacklist)+1, false)
+`
+
+// -- timeout: 300ms
+func (q *Queries) RefreshIDSerial(ctx context.Context) error {
+	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*300)
+	defer cancel()
+	_, err := q.db.WExec(qctx, "blacklist.RefreshIDSerial", refreshIDSerial)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 const unblockNode = `-- name: UnblockNode :exec
 DELETE FROM blacklist 
 WHERE peer_id = $1 AND ip = $2

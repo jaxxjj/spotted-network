@@ -45,3 +45,8 @@ OFFSET COALESCE(sqlc.arg('offset')::int, 0);
 -- -- timeout: 5s
 DELETE FROM blacklist
 WHERE expires_at < NOW();
+
+-- name: RefreshIDSerial :exec
+-- -- timeout: 300ms
+SELECT setval(pg_get_serial_sequence('blacklist', 'id'), (SELECT MAX(id) FROM blacklist)+1, false);
+
