@@ -171,6 +171,15 @@ test:
 	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
 	go test ./pkg/registry -v  
 
+registry-cov:
+	export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
+	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
+	export POSTGRES_HOST=$(POSTGRES_HOST) && \
+	export POSTGRES_PORT=$(POSTGRES_PORT) && \
+	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
+	go test -cover ./pkg/registry
+	
 # Run tests with coverage
 codecov:
 	@echo "Running tests with coverage..."

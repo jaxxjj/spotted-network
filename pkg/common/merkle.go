@@ -70,11 +70,13 @@ func NewMerkleTree(items []Hashable) *MerkleTree {
 	return tree
 }
 
-// RootBytes returns the merkle root hash as bytes
+// RootBytes returns the root hash of the tree
 func (t *MerkleTree) RootBytes() []byte {
-	if len(t.nodes) == 0 {
+	if t == nil || len(t.nodes) == 0 {
 		return nil
 	}
+	log.Printf("[MerkleTree] RootBytes: tree size=%d, root=%x", 
+		len(t.nodes), t.nodes[len(t.nodes)-1])
 	return t.nodes[len(t.nodes)-1]
 }
 

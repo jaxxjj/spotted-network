@@ -9,19 +9,25 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 )
 const (
-	HealthCheckInterval = 20 * time.Second
+	HealthCheckInterval = 1 * time.Second
 )
 type PingService interface {
 	Ping(ctx context.Context, p peer.ID) <-chan ping.Result
 }
+type OperatorController interface {
+	getActivePeerIDs() []peer.ID
+	GetOperatorState(p peer.ID) *OperatorPeerInfo
+	UpdateOperatorState(p peer.ID, info *OperatorPeerInfo)
+	disconnectPeer(p peer.ID) error
+}
 
 type HealthChecker struct {
-	node         *Node
+	node         OperatorController
 	pingService  PingService
 }
 
 // NewHealthChecker creates and starts a new health checker
-func newHealthChecker(ctx context.Context, node *Node, pingService PingService) (*HealthChecker, error) {
+func newHealthChecker(ctx context.Context, node OperatorController, pingService PingService) (*HealthChecker, error) {
 	if node == nil {
 		log.Fatal("[Health] node is nil")
 	}
@@ -73,7 +79,9 @@ func (hc *HealthChecker) checkOperators(ctx context.Context) error {
 	for _, id := range operators {
 		if err := hc.pingOperator(ctx, id); err != nil {
 			log.Printf("[Health] Operator %s failed health check: %v", id, err)
-			hc.node.disconnectPeer(id)
+			if err := hc.node.disconnectPeer(id); err != nil {
+				log.Printf("[Health] Error disconnecting operator %s: %v", id, err)
+			}
 			// continue to check other nodes, don't return error
 		}
 	}

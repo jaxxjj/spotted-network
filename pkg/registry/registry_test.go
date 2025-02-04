@@ -219,6 +219,33 @@ func NewMockOperatorsQuerier() *MockOperatorsQuerier {
 	}
 }
 
+// MockNode 实现 Node 接口用于测试
+type MockNode struct {
+	mock.Mock
+}
+
+func (m *MockNode) getActivePeerIDs() []peer.ID {
+	args := m.Called()
+	return args.Get(0).([]peer.ID)
+}
+
+func (m *MockNode) GetOperatorState(p peer.ID) *OperatorPeerInfo {
+	args := m.Called(p)
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(*OperatorPeerInfo)
+}
+
+func (m *MockNode) UpdateOperatorState(p peer.ID, info *OperatorPeerInfo) {
+	m.Called(p, info)
+}
+
+func (m *MockNode) disconnectPeer(p peer.ID) error {
+	args := m.Called(p)
+	return args.Error(0)
+}
+
 // TestRegistrySuite 运行测试套件
 func TestRegistrySuite(t *testing.T) {
 	suite.Run(t, NewRegistryTestSuite())
