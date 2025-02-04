@@ -1,78 +1,47 @@
--- name: UpsertBlacklist :one
--- Add or update a blacklist entry
-INSERT INTO blacklists (
-    type,
-    value,
+-- name: BlockNode :one
+-- -- timeout: 500ms
+-- -- invalidate: IsBlocked
+INSERT INTO blacklist (
+    peer_id,
+    ip,
     reason,
-    created_by,
     expires_at
 ) VALUES (
-    @type::blacklist_type,
-    @value,
+    @peer_id,
+    @ip,
     @reason,
-    @created_by,
     @expires_at
 )
-ON CONFLICT (type, value) WHERE deleted_at IS NULL DO UPDATE
+ON CONFLICT (peer_id, ip) DO UPDATE
 SET 
     reason = EXCLUDED.reason,
-    created_by = EXCLUDED.created_by,
-    expires_at = EXCLUDED.expires_at,
-    created_at = NOW()
+    expires_at = EXCLUDED.expires_at
 RETURNING *;
 
--- name: BulkUpsertBlacklist :copyfrom
--- Bulk add or update blacklist entries
-INSERT INTO blacklists (
-    type,
-    value,
-    reason,
-    created_by,
-    expires_at
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5
-);
-
--- name: RemoveFromBlacklist :exec
--- Soft delete a blacklist entry
-UPDATE blacklists 
-SET deleted_at = NOW()
-WHERE type = @type::blacklist_type 
-  AND value = @value
-  AND deleted_at IS NULL;
-
--- name: IsBlacklisted :one
--- Check if an entry is blacklisted
--- -- timeout: 100ms
--- -- cache: 1m
-SELECT EXISTS (
-    SELECT 1 FROM active_blacklists
-    WHERE type = @type::blacklist_type 
-      AND value = @value
-) as is_blacklisted;
-
--- name: ListActiveBlacklists :many
--- Get all active blacklist entries
+-- name: UnblockNode :exec
 -- -- timeout: 500ms
--- -- cache: 1m
-SELECT * FROM active_blacklists
-WHERE type = COALESCE(sqlc.narg('type')::blacklist_type, type)
-ORDER BY created_at DESC;
+-- -- invalidate: IsBlocked
+DELETE FROM blacklist 
+WHERE peer_id = @peer_id AND ip = @ip;
 
--- name: GetBlacklistByValue :one
--- Get a specific blacklist entry
+-- name: IsBlocked :one
 -- -- timeout: 100ms
--- -- cache: 1m
-SELECT * FROM active_blacklists
-WHERE type = @type::blacklist_type 
-  AND value = @value;
+-- -- cache: 24h
+SELECT EXISTS (
+    SELECT 1 FROM blacklist
+    WHERE (peer_id = @peer_id OR ip = @ip)
+    AND (expires_at IS NULL OR expires_at > NOW())
+) as is_blocked;
 
--- name: CleanExpiredBlacklists :exec
--- Remove expired entries
-DELETE FROM blacklists
-WHERE expires_at < NOW()
-  AND deleted_at IS NULL; 
+-- name: ListBlacklist :many
+-- -- timeout: 500ms
+SELECT * FROM blacklist
+WHERE expires_at IS NULL OR expires_at > NOW()
+ORDER BY created_at DESC
+LIMIT COALESCE(sqlc.arg('limit')::int, 100)
+OFFSET COALESCE(sqlc.arg('offset')::int, 0);
+
+-- name: CleanExpiredBlocks :exec
+-- -- timeout: 5s
+DELETE FROM blacklist
+WHERE expires_at < NOW();

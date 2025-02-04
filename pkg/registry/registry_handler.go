@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 const (
@@ -127,8 +128,27 @@ func (rh *RegistryHandler) handleRegister(stream network.Stream, peerID peer.ID,
 
 	if !success {
 		log.Printf("[Registry] Registration failed for peer %s: %s", peerID.String(), msg)
+		
+		// get the ip address of the peer
+		remoteAddr := stream.Conn().RemoteMultiaddr()
+		ip, err := manet.ToIP(remoteAddr)
+		if err != nil {
+			log.Printf("[Registry] Failed to get IP from multiaddr: %v", err)
+			// disconnect if error
+			rh.node.disconnectPeer(peerID)
+			return
+		}
+
+		params := &BlacklistParams{
+			IP:        ip.String(),
+			Reason:    fmt.Sprintf("Registration failed: %s", msg),
+		}
+
+		if err := rh.node.BlacklistPeer(context.Background(), peerID, params); err != nil {
+			log.Printf("[Registry] Failed to blacklist peer: %v", err)
+		}
+
 		rh.node.disconnectPeer(peerID)
-		rh.node.blacklistPeer(peerID)
 		return
 	}
 

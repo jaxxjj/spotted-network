@@ -10,6 +10,7 @@ import (
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
+	"github.com/galxe/spotted-network/pkg/repos/registry/blacklist"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -68,7 +69,7 @@ type P2PHost interface {
 	Addrs() []multiaddr.Multiaddr
 	Connect(ctx context.Context, pi peer.AddrInfo) error
 	NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error)
-	SetStreamHandler(pid protocol.ID, handler network.StreamHandler)
+	SetStreamHandler(peerId protocol.ID, handler network.StreamHandler)
 	Peerstore() peerstore.Peerstore
 	Close() error
 	Network() network.Network
@@ -79,10 +80,10 @@ type P2PHost interface {
 type NodeConfig struct {
 	Host           host.Host
 	OperatorsQuerier      *operators.Queries
+	BlacklistQuerier      *blacklist.Queries
 	MainnetClient  *ethereum.ChainClient
 	TxManager      *wpgx.Pool
 	PubSub         *pubsub.PubSub
-	Blacklist      pubsub.Blacklist  // Optional blacklist implementation
 }
 
 type Node struct {
@@ -90,6 +91,8 @@ type Node struct {
 	host P2PHost
 	// Operator querier for querying the operators from the database
 	opQuerier OperatorsQuerier
+	// Blacklist querier for querying the blacklist from the database
+	blacklistQuerier *blacklist.Queries
 	// Chain clients manager
 	mainnetClient MainnetClient
 
@@ -192,7 +195,6 @@ func (n *Node) Stop() error {
 
 	n.el.Stop()
 	n.eu.Stop()
-	n.hc.Stop()
 	n.sp.Stop()
 	return n.host.Close()
 }

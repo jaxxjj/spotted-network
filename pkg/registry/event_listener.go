@@ -258,7 +258,6 @@ func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *
 	return nil
 }
 
-// Stop 停止事件监听
 func (el *EventListener) Stop() {
 	log.Printf("[EventListener] Stopping event listener...")
 	

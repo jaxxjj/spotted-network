@@ -12,13 +12,13 @@ import (
 
 // Config represents the main configuration structure
 type Config struct {
-	Chains   map[uint32]*ChainConfig  `yaml:"chains"`
-	Database DatabaseConfig          `yaml:"database"`
-	P2P      P2PConfig              `yaml:"p2p"`
-	HTTP     HTTPConfig             `yaml:"http"`
-	Logging  LoggingConfig          `yaml:"logging"`
-	RegistryID string `yaml:"registry_id"`
-	Metric   MetricConfig         `yaml:"metric"`
+	Chains     map[uint32]*ChainConfig  `yaml:"chains"`
+	Database   DatabaseConfig           `yaml:"database"`
+	P2P        P2PConfig               `yaml:"p2p"`
+	HTTP       HTTPConfig              `yaml:"http"`
+	Logging    LoggingConfig           `yaml:"logging"`
+	RegistryID string                  `yaml:"registry_id"`
+	Metric     MetricConfig            `yaml:"metric"`
 }
 
 // ChainConfig represents configuration for a specific chain

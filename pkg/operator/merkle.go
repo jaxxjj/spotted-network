@@ -8,7 +8,7 @@ import (
 
 // GetActiveOperatorsRoot returns the merkle root hash of all active operators
 func (n *Node) computeActiveOperatorsRoot() []byte {
-	n.activeOperatorsMu.RLock()
+	n.activeOperators.mu.RLock()
 	log.Printf("[Merkle] Starting to compute root for %d operators", len(n.activeOperators.active))
 	operators := make([]*types.OperatorState, 0, len(n.activeOperators.active))
 	
@@ -31,7 +31,7 @@ func (n *Node) computeActiveOperatorsRoot() []byte {
 			Weight:     op.Weight,
 		})
 	}
-	n.activeOperatorsMu.RUnlock()
+	n.activeOperators.mu.RUnlock()
 
 	// If no valid operators, return empty root
 	if len(operators) == 0 {
@@ -53,13 +53,13 @@ func (n *Node) computeActiveOperatorsRoot() []byte {
 }
 
 func (n *Node) getCurrentStateRoot() []byte {
-	n.activeOperatorsMu.RLock()
-	defer n.activeOperatorsMu.RUnlock()
+	n.activeOperators.mu.RLock()
+	defer n.activeOperators.mu.RUnlock()
 	return n.activeOperators.stateRoot
 }
 
 func (n *Node) setCurrentStateRoot(root []byte) {
-	n.activeOperatorsMu.Lock()
-	defer n.activeOperatorsMu.Unlock()
+	n.activeOperators.mu.Lock()
+	defer n.activeOperators.mu.Unlock()
 	n.activeOperators.stateRoot = root
 }

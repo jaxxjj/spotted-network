@@ -9,6 +9,8 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/registry"
+	"github.com/galxe/spotted-network/pkg/registry/gater"
+	"github.com/galxe/spotted-network/pkg/repos/registry/blacklist"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -63,8 +65,30 @@ func main() {
 		}
 	}()
 
+	// Initialize database connection
+	db, err := dbwpgx.NewWPGXPool(ctx, "POSTGRES")
+	if err != nil {
+		metric.RecordError("database_connection_failed")
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to connect to database")
+	}
+	defer db.Close()
+
+	// Initialize Redis and DCache
+	redisConn, dCache, err := cache.InitCache("registry")
+	if err != nil {
+		metric.RecordError("cache_init_failed")
+		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to initialize cache")
+	}
+	defer redisConn.Close()
+
+	// Create database queries
+	operatorsQuerier := operators.New(db.WConn(), dCache)
+	blacklistQuerier := blacklist.New(db.WConn(), dCache)
+
+	gater := gater.NewOperatorGater(ctx, blacklistQuerier)
 	// Create P2P host
 	host, err := libp2p.New(
+		libp2p.ConnectionGater(gater),
 		libp2p.ListenAddrStrings(
 			fmt.Sprintf("/ip4/%s/tcp/%d", cfg.P2P.ExternalIP, cfg.P2P.Port),
 		),
@@ -84,24 +108,8 @@ func main() {
 		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to create pubsub")
 	}
 
-	// Initialize database connection
-	db, err := dbwpgx.NewWPGXPool(ctx, "POSTGRES")
-	if err != nil {
-		metric.RecordError("database_connection_failed")
-		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to connect to database")
-	}
-	defer db.Close()
 
-	// Initialize Redis and DCache
-	redisConn, dCache, err := cache.InitCache("registry")
-	if err != nil {
-		metric.RecordError("cache_init_failed")
-		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to initialize cache")
-	}
-	defer redisConn.Close()
 
-	// Create database queries
-	operatorsQuerier := operators.New(db.WConn(), dCache)
 	chainManager, err := ethereum.NewManager(cfg)
 	if err != nil {
 		log.Fatal().Err(err).Str("component", "registry").Msg("Failed to initialize chain manager")

@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
@@ -24,6 +23,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	"github.com/libp2p/go-libp2p"
 )
 
 // P2PHost defines the minimal interface required for p2p functionality
@@ -32,8 +32,8 @@ type P2PHost interface {
 	Addrs() []multiaddr.Multiaddr
 	Connect(ctx context.Context, pi peer.AddrInfo) error
 	NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error)
-	SetStreamHandler(pid protocol.ID, handler network.StreamHandler)
-	RemoveStreamHandler(pid protocol.ID)
+	SetStreamHandler(peerId protocol.ID, handler network.StreamHandler)
+	RemoveStreamHandler(peerId protocol.ID)
 	Network() network.Network
 	Peerstore() peerstore.Peerstore
 	Close() error
@@ -65,10 +65,8 @@ type ActivePeerStates struct {
 
 // NodeConfig contains all the dependencies needed by Node
 type NodeConfig struct {
-	Host            host.Host
 	ChainManager    ChainManager
 	Signer          signer.Signer
-	PubSub          *pubsub.PubSub
 	TasksQuerier     *tasks.Queries
 	TaskResponseQuerier *task_responses.Queries
 	ConsensusResponseQuerier *consensus_responses.Queries
@@ -98,17 +96,12 @@ type Node struct {
 	registryID     peer.ID
 	registryAddress   string
 	activeOperators ActivePeerStates
-	activeOperatorsMu sync.RWMutex
 
 }
-
 
 // NewNode creates a new operator node with the given dependencies
 func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	// Validate required dependencies
-	if cfg.Host == nil {
-		return nil, fmt.Errorf("host is required")
-	}
 	if cfg.ChainManager == nil {
 		return nil, fmt.Errorf("chain manager is required")
 	}
@@ -146,9 +139,8 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 		return nil, fmt.Errorf("failed to parse registry peer info: %w", err)
 	}
 
-
+	// Create initial incomplete node instance (without host)
 	node := &Node{
-		host:           cfg.Host,
 		registryID:     addrInfo.ID,
 		registryAddress:   cfg.RegistryAddress,
 		signer:         cfg.Signer,
@@ -163,10 +155,28 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 		},
 	}
 
-	// Initialize pubsub
-	pubsub, err := pubsub.NewGossipSub(ctx, cfg.Host)
+	// Create gater
+	gater := newOperatorGater(node)
+
+	// Use gater to create host
+	host, err := libp2p.New(
+		libp2p.ListenAddrStrings(
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", cfg.Config.P2P.Port),
+			fmt.Sprintf("/ip4/%s/tcp/%d", cfg.Config.P2P.ExternalIP, cfg.Config.P2P.Port),
+		),
+		libp2p.ConnectionGater(gater),
+	)
 	if err != nil {
-		log.Fatal("Failed to create pubsub:", err)
+		return nil, fmt.Errorf("failed to create host: %w", err)
+	}
+
+	// Set host to node
+	node.host = host
+
+	// Initialize pubsub
+	pubsub, err := pubsub.NewGossipSub(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pubsub: %w", err)
 	}
 
 	// Initialize task processor
@@ -189,20 +199,22 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 		return nil, fmt.Errorf("failed to create state sync processor: %w", err)
 	}
 	registryId, err := peer.Decode(cfg.Config.RegistryID)
-	if err != nil{
-		log.Fatal()
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode registry ID: %w", err)
 	}
 
-	pingService := ping.NewPingService(cfg.Host)
+	// Initialize ping service
+	pingService := ping.NewPingService(host)
 	_, err = newHealthChecker(ctx, node, pingService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create health checker: %w", err)
 	}
 	node.rh = NewRegistryHandler(node, cfg.Signer, registryId)
+
 	// Create API handler and server
 	apiHandler := api.NewHandler(cfg.TasksQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
 	node.apiServer = api.NewServer(apiHandler, cfg.Config.HTTP.Port)
-	
+
 	// Start API server
 	go func() {
 		if err := node.apiServer.Start(); err != nil && err != http.ErrServerClosed {
@@ -260,7 +272,6 @@ func (n *Node) Start(ctx context.Context) error {
 	}
 	log.Printf("[Node] Successfully authenticated with registry")
 
-
 	return nil
 }
 
@@ -275,8 +286,8 @@ func (n *Node) Stop(ctx context.Context) error {
 	return n.host.Close()
 }
 
-func (n *Node) createStreamToRegistry(ctx context.Context, pid protocol.ID) (network.Stream, error) {
-	return n.host.NewStream(ctx, n.registryID, pid)
+func (n *Node) createStreamToRegistry(ctx context.Context, peerId protocol.ID) (network.Stream, error) {
+	return n.host.NewStream(ctx, n.registryID, peerId)
 }
 
 func (n *Node) connectToRegistry(ctx context.Context) error {
@@ -312,8 +323,8 @@ func (n *Node) getHostID() peer.ID {
 
 // GetOperatorState returns the current operator state
 func (n *Node) GetOperatorState(peerID peer.ID) *OperatorState {
-	n.activeOperatorsMu.RLock()
-	defer n.activeOperatorsMu.RUnlock()
+	n.activeOperators.mu.RLock()
+	defer n.activeOperators.mu.RUnlock()
 	return n.activeOperators.active[peerID]
 }
 

@@ -66,8 +66,8 @@ func (n *Node) UpsertActivePeerStates(states []*OperatorState) error {
 		return fmt.Errorf("cannot update empty states")
 	}
 
-	n.activeOperatorsMu.Lock()
-	defer n.activeOperatorsMu.Unlock()
+	n.activeOperators.mu.Lock()
+	defer n.activeOperators.mu.Unlock()
 
 	log.Printf("[StateSync] Starting batch update of %d operator states", len(states))
 	
@@ -87,8 +87,8 @@ func (n *Node) UpsertActivePeerStates(states []*OperatorState) error {
 }
 
 func (n *Node) getOperatorWeight(peerID peer.ID) (*big.Int, error) {
-	n.activeOperatorsMu.RLock()
-	defer n.activeOperatorsMu.RUnlock()
+	n.activeOperators.mu.RLock()
+	defer n.activeOperators.mu.RUnlock()
 
 	operator, ok := n.activeOperators.active[peerID]
 	if !ok {
@@ -159,8 +159,8 @@ func (n *Node) updateOperatorStates(ctx context.Context, states []*OperatorState
 
 // PrintOperatorStates prints all operator states stored in memory
 func (n *Node) PrintOperatorStates() {
-	n.activeOperatorsMu.RLock()
-	defer n.activeOperatorsMu.RUnlock()
+	n.activeOperators.mu.RLock()
+	defer n.activeOperators.mu.RUnlock()
 
 	for peerID, state := range n.activeOperators.active {
 		log.Printf("Operator ID: %s, Address: %s, Weight: %s", peerID, state.Address, state.Weight.String())

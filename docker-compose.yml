@@ -12,7 +12,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./pkg/repos/registry/operators/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./pkg/repos/registry/operators/schema.sql:/docker-entrypoint-initdb.d/01-operators-schema.sql
+      - ./pkg/repos/registry/blacklist/schema.sql:/docker-entrypoint-initdb.d/02-blacklist-schema.sql
     networks:
       - spotted-net
     healthcheck:
@@ -152,6 +153,12 @@ services:
       - REDIS_READ_TIMEOUT=3s
       - REDIS_POOL_SIZE=50
       - METRIC_PORT=4014
+      # Rate Limit Configuration
+      - RATE_LIMIT_GLOBAL=100
+      - RATE_LIMIT_GLOBAL_BURST=200
+      - RATE_LIMIT_PEER=10
+      - RATE_LIMIT_PEER_BURST=20
+      - RATE_LIMIT_CLEANUP=1h
     volumes:
       - ./config:/app/config
     networks:

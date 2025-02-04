@@ -116,3 +116,17 @@ sql:
             go_type: "uint32"
           - column: "epoch_states.block_number"
             go_type: "uint64"
+
+  # Add blacklist schema and queries
+  - schema: 
+      - "registry/blacklist/schema.sql"
+    queries: "registry/blacklist/query.sql"
+    engine: "postgresql"
+    gen:
+      go:
+        package: "blacklist"
+        out: "registry/blacklist"
+        sql_package: "wpgx"
+        emit_json_tags: true
+        emit_exact_table_names: true
+        emit_empty_slices: true

@@ -3,7 +3,6 @@ package registry
 import (
 	"context"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -19,9 +18,6 @@ type PingService interface {
 type HealthChecker struct {
 	node         *Node
 	pingService  PingService
-	
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
 }
 
 // NewHealthChecker creates and starts a new health checker
@@ -33,24 +29,19 @@ func newHealthChecker(ctx context.Context, node *Node, pingService PingService) 
 		log.Fatal("[Health] pingService is nil")
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
-	
 	hc := &HealthChecker{
 		node:        node,
 		pingService: pingService,
-		cancel:      cancel,
 	}
 	
-	hc.wg.Add(1)
 	go func() {
-		defer hc.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[Health] Recovered from panic: %v", r)
 			}
 		}()
 		
-		if err := hc.start(ctx); err != nil {
+		if err := hc.start(ctx); err != nil && err != context.Canceled {
 			log.Printf("[Health] Health checker stopped with error: %v", err)
 		}
 	}()
@@ -74,14 +65,6 @@ func (hc *HealthChecker) start(ctx context.Context) error {
 			}
 		}
 	}
-}
-
-func (hc *HealthChecker) Stop() {
-	hc.cancel()
-	
-	hc.wg.Wait()
-	
-	log.Printf("[Health] Health checker stopped")
 }
 
 // checkOperators checks the health of all connected operators

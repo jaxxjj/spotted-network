@@ -9,8 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/libp2p/go-libp2p"
-
 	"github.com/galxe/spotted-network/internal/database/cache"
 	dbwpgx "github.com/galxe/spotted-network/internal/database/wpgx"
 	"github.com/galxe/spotted-network/internal/metric"
@@ -93,18 +91,6 @@ func main() {
 	}
 	defer chainManager.Close()
 
-	// Create P2P host
-	host, err := libp2p.New(
-		libp2p.ListenAddrStrings(
-			fmt.Sprintf("/ip4/%s/tcp/%d", cfg.P2P.ExternalIP, cfg.P2P.Port),
-		),
-	)
-	if err != nil {
-		metric.RecordError("p2p_host_creation_failed")
-		log.Fatal("Failed to create P2P host:", err)
-	}
-	defer host.Close()
-
 	// Initialize database connection
 	ctx := context.Background()
 	db, err := dbwpgx.NewWPGXPool(ctx, "POSTGRES")
@@ -130,7 +116,6 @@ func main() {
 
 	// Start operator node
 	node, err := operator.NewNode(ctx, &operator.NodeConfig{
-		Host:            host,
 		ChainManager:    chainManager,
 		Signer:          signer,
 		TasksQuerier:     tasksQuerier,
