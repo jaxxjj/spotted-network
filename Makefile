@@ -162,7 +162,7 @@ restart: stop start-all
 	@echo "All services restarted"
 
 # Run tests
-test: 
+test-registry: 
 	export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
 	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
 	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
@@ -170,6 +170,16 @@ test:
 	export POSTGRES_PORT=$(POSTGRES_PORT) && \
 	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
 	go test ./pkg/registry -v  
+
+
+test-operator: 
+	export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
+	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
+	export POSTGRES_HOST=$(POSTGRES_HOST) && \
+	export POSTGRES_PORT=$(POSTGRES_PORT) && \
+	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
+	go test ./pkg/operator -v  
 
 registry-cov:
 	export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
@@ -179,7 +189,7 @@ registry-cov:
 	export POSTGRES_PORT=$(POSTGRES_PORT) && \
 	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
 	go test -cover ./pkg/registry
-	
+
 # Run tests with coverage
 codecov:
 	@echo "Running tests with coverage..."

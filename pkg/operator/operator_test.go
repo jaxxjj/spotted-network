@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"testing"
 	"time"
 
 	"github.com/coocood/freecache"
@@ -14,11 +16,15 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/suite"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx/testsuite"
 
-	"github.com/galxe/spotted-network/pkg/repos/registry/blacklist"
-	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
+	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
+	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
 )
 
 type MockHost struct {
@@ -48,20 +54,19 @@ type Serde interface {
 	Dump() ([]byte, error)
 }
 
-// 1. 为每个表定义 TableSerde
-type OperatorsTableSerde struct {
-	opQuerier *operators.Queries
+type TasksTableSerde struct {
+	tasksQuerier *tasks.Queries
 }
 
-func (o OperatorsTableSerde) Load(data []byte) error {
-	if err := o.opQuerier.Load(context.Background(), data); err != nil {
-		return fmt.Errorf("failed to load operators data: %w", err)
+func (o TasksTableSerde) Load(data []byte) error {
+	if err := o.tasksQuerier.Load(context.Background(), data); err != nil {
+		return fmt.Errorf("failed to load tasks data: %w", err)
 	}
 	return nil
 }
 
-func (o OperatorsTableSerde) Dump() ([]byte, error) {
-	return o.opQuerier.Dump(context.Background(), func(m *operators.Operators) {
+func (o TasksTableSerde) Dump() ([]byte, error) {
+	return o.tasksQuerier.Dump(context.Background(), func(m *tasks.Tasks) {
 		m.CreatedAt = time.Unix(0, 0).UTC()
 		m.UpdatedAt = time.Unix(0, 0).UTC()
 	})
@@ -115,26 +120,69 @@ func (m *MockP2PHost) Close() error {
 	return args.Error(0)
 }
 
+// OperatorTestSuite 是主测试套件
+type OperatorTestSuite struct {
+	*testsuite.WPgxTestSuite
+	// 核心组件
+	node          *Node
+	
+	// 数据库组件
+	tasksQuerier  *tasks.Queries
+	taskResponseQuerier *task_responses.Queries
+	consensusResponseQuerier *consensus_responses.Queries
+	epochStateQuerier *epoch_states.Queries
+	
+	// 缓存组件
+	redisConn     redis.UniversalClient
+	freeCache     *freecache.Cache
+	dcache        *dcache.DCache
+	
+	// Mock 组件
+	mockHost      *MockHost
+	mockPubSub    *MockPubSub
+	mockChainManager *MockChainManager
+	mockP2PHost   *MockP2PHost
+	
+	// 测试辅助
+	ctx           context.Context
+}
 
+
+func TestOperatorSuite(t *testing.T) {
+	suite.Run(t, NewOperatorTestSuite())
+} 
 
 // SetupTest 在每个测试前运行
 func (s *OperatorTestSuite) SetupTest() {
 	s.WPgxTestSuite.SetupTest()
 	s.ctx = context.Background()
+	
+	// 清理缓存
 	s.Require().NoError(s.redisConn.FlushAll(context.Background()).Err())
 	s.freeCache.Clear()
-	s.blacklistQuerier = blacklist.New(s.GetPool().WConn(), s.dcache)
-	s.opQuerier = operators.New(s.GetPool().WConn(), s.dcache)
 	
-	// 初始化 mockP2PHost
+	// 初始化 queriers
+	s.tasksQuerier = tasks.New(s.GetPool().WConn(), s.dcache)
+	s.taskResponseQuerier = task_responses.New(s.GetPool().WConn(), s.dcache)
+	s.consensusResponseQuerier = consensus_responses.New(s.GetPool().WConn(), s.dcache)
+	s.epochStateQuerier = epoch_states.New(s.GetPool().WConn(), s.dcache)
+	
+	// 初始化 mocks
 	s.mockP2PHost = new(MockP2PHost)
+	s.mockChainManager = new(MockChainManager)
+
 	
+	// 创建节点
 	s.node = &Node{
-		blacklistQuerier: s.blacklistQuerier,
-		opQuerier:       s.opQuerier,
-		pubsub:          s.mockPubSub,
-		mainnetClient:   s.mockMainnet,
-		host:            s.mockP2PHost,  // 添加 host
+		host:            s.mockP2PHost,
+		chainManager:   s.mockChainManager,
+		tasksQuerier:   s.tasksQuerier,
+		taskResponseQuerier: s.taskResponseQuerier,
+		consensusResponseQuerier: s.consensusResponseQuerier,
+		epochStateQuerier: s.epochStateQuerier,
+		activeOperators: ActivePeerStates{
+			active: make(map[peer.ID]*OperatorState),
+		},
 	}
 }
 
@@ -155,7 +203,7 @@ func (s *OperatorTestSuite) GoldenVarJSON(name string, v interface{}) {
 
 // NewOperatorTestSuite 创建新的测试套件实例
 func NewOperatorTestSuite() *OperatorTestSuite {
-	// 初始化基础设施
+	// 初始化 Redis
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:        "127.0.0.1:6379",
 		ReadTimeout: 3 * time.Second,
@@ -167,9 +215,10 @@ func NewOperatorTestSuite() *OperatorTestSuite {
 		panic(fmt.Errorf("redis connection failed to ping"))
 	}
 	
-	// Create freecache instance
+	// 创建 freecache 实例
 	memCache := freecache.NewCache(100 * 1024 * 1024)
 	
+	// 创建 dcache
 	dCache, err := dcache.NewDCache(
 		"test", redisClient, memCache, 100*time.Millisecond, true, true)
 	if err != nil {
@@ -178,13 +227,15 @@ func NewOperatorTestSuite() *OperatorTestSuite {
 	
 	s := &OperatorTestSuite{
 		WPgxTestSuite: testsuite.NewWPgxTestSuiteFromEnv("operator_test", []string{
-			blacklist.Schema,
-			operators.Schema,
+			tasks.Schema,
+			epoch_states.Schema,
+			consensus_responses.Schema, 
+			task_responses.Schema,
 		}),
-		redisConn: redisClient,
-		freeCache: memCache,
-		dcache:    dCache,
-		mockHost:  new(MockHost),
+		redisConn:  redisClient,
+		freeCache:  memCache,
+		dcache:     dCache,
+		mockHost:   new(MockHost),
 		mockPubSub: new(MockPubSub),
 	}
 	
@@ -193,4 +244,71 @@ func NewOperatorTestSuite() *OperatorTestSuite {
 	s.mockPubSub.On("Join", mock.Anything).Return(new(pubsub.Topic), nil)
 	
 	return s
-} 
+}
+
+// 添加必要的 mock 实现
+type MockPubSub struct {
+	mock.Mock
+}
+
+func (m *MockPubSub) Join(topic string, opts ...pubsub.TopicOpt) (*pubsub.Topic, error) {
+	args := m.Called(topic)
+	return args.Get(0).(*pubsub.Topic), args.Error(1)
+}
+
+func (m *MockPubSub) BlacklistPeer(p peer.ID) {
+	m.Called(p)
+}
+
+// 需要添加新的mock实现
+type MockChainManager struct {
+	mock.Mock
+}
+
+func (m *MockChainManager) GetChainID() (uint64, error) {
+	args := m.Called()
+	return args.Get(0).(uint64), args.Error(1)
+}
+
+func (m *MockChainManager) GetClientByChainId(chainId uint32) (*ethereum.ChainClient, error) {
+	args := m.Called(chainId)
+	return args.Get(0).(*ethereum.ChainClient), args.Error(1)
+}
+
+func (m *MockChainManager) GetMainnetClient() (*ethereum.ChainClient, error) {
+	args := m.Called()
+	return args.Get(0).(*ethereum.ChainClient), args.Error(1)
+}
+
+// MockChainClient mocks ethereum.ChainClient
+type MockChainClient struct {
+	mock.Mock
+}
+
+func (m *MockChainClient) GetMinimumWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*big.Int), args.Error(1)
+}
+
+func (m *MockChainClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*big.Int), args.Error(1)
+}
+
+func (m *MockChainClient) GetThresholdWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*big.Int), args.Error(1)
+}
+
+
+
+
