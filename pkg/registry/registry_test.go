@@ -4,17 +4,19 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"testing"
 	"time"
 
 	"github.com/coocood/freecache"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/suite"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx"
 	"github.com/stumble/wpgx/testsuite"
@@ -22,6 +24,20 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/registry/blacklist"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
 )
+
+type MockHost struct {
+	mock.Mock
+}
+
+func (m *MockHost) ID() peer.ID {
+	args := m.Called()
+	return args.Get(0).(peer.ID)
+}
+
+func (m *MockHost) Network() network.Network {
+	args := m.Called()
+	return args.Get(0).(network.Network)
+}
 
 // TimePointSet 用于模板中的时间点
 type TimePointSet struct {
@@ -96,20 +112,11 @@ type RegistryTestSuite struct {
 	mockTxManager *MockTxManager
 	mockOpQuerier *MockOperatorsQuerier
 	mockStateSync *MockStateSyncNotifier
+	mockP2PHost   *MockP2PHost
 	
 	// 测试辅助
 	ctx           context.Context
 	timePoints    *TimePointSet
-}
-
-// MockHost 实现 host.Host 接口
-type MockHost struct {
-	mock.Mock
-}
-
-func (m *MockHost) ID() peer.ID {
-	args := m.Called()
-	return args.Get(0).(peer.ID)
 }
 
 // MockPubSub 实现 PubSubService 接口
@@ -246,10 +253,55 @@ func (m *MockNode) disconnectPeer(p peer.ID) error {
 	return args.Error(0)
 }
 
-// TestRegistrySuite 运行测试套件
-func TestRegistrySuite(t *testing.T) {
-	suite.Run(t, NewRegistryTestSuite())
+// MockP2PHost implements P2PHost interface
+type MockP2PHost struct {
+	mock.Mock
 }
+
+func (m *MockP2PHost) ID() peer.ID {
+	args := m.Called()
+	return args.Get(0).(peer.ID)
+}
+
+func (m *MockP2PHost) Addrs() []multiaddr.Multiaddr {
+	args := m.Called()
+	return args.Get(0).([]multiaddr.Multiaddr)
+}
+
+func (m *MockP2PHost) Connect(ctx context.Context, pi peer.AddrInfo) error {
+	args := m.Called(ctx, pi)
+	return args.Error(0)
+}
+
+func (m *MockP2PHost) NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error) {
+	args := m.Called(ctx, p, pids)
+	return args.Get(0).(network.Stream), args.Error(1)
+}
+
+func (m *MockP2PHost) SetStreamHandler(pid protocol.ID, handler network.StreamHandler) {
+	m.Called(pid, handler)
+}
+
+func (m *MockP2PHost) RemoveStreamHandler(pid protocol.ID) {
+	m.Called(pid)
+}
+
+func (m *MockP2PHost) Network() network.Network {
+	args := m.Called()
+	return args.Get(0).(network.Network)
+}
+
+func (m *MockP2PHost) Peerstore() peerstore.Peerstore {
+	args := m.Called()
+	return args.Get(0).(peerstore.Peerstore)
+}
+
+func (m *MockP2PHost) Close() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+
 
 // SetupTest 在每个测试前运行
 func (s *RegistryTestSuite) SetupTest() {
@@ -259,11 +311,16 @@ func (s *RegistryTestSuite) SetupTest() {
 	s.freeCache.Clear()
 	s.blacklistQuerier = blacklist.New(s.GetPool().WConn(), s.dcache)
 	s.opQuerier = operators.New(s.GetPool().WConn(), s.dcache)
+	
+	// 初始化 mockP2PHost
+	s.mockP2PHost = new(MockP2PHost)
+	
 	s.node = &Node{
 		blacklistQuerier: s.blacklistQuerier,
 		opQuerier:       s.opQuerier,
 		pubsub:          s.mockPubSub,
 		mainnetClient:   s.mockMainnet,
+		host:            s.mockP2PHost,  // 添加 host
 	}
 }
 

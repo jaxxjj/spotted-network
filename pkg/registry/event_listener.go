@@ -16,10 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type EventListenerQuerier interface {
-	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string) (*operators.Operators, error)
-	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams, getOperatorByAddress *string) (*operators.Operators, error)
-}
+
 
 type EventListenerChainClient interface {
 	GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error)
@@ -31,13 +28,13 @@ type EventListenerChainClient interface {
 type EventListenerConfig struct {
 	node *Node
 	mainnetClient EventListenerChainClient
-	operators EventListenerQuerier
+	operators OperatorsQuerier
 }
 
 type EventListener struct {
 	node *Node
 	mainnetClient EventListenerChainClient
-	operators EventListenerQuerier
+	operators OperatorsQuerier
 	
 	cancel context.CancelFunc
 	wg     sync.WaitGroup

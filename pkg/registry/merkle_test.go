@@ -1,48 +1,18 @@
 package registry
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"sync"
 	"time"
 
 	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/registry/operators"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
-
-// MerkleState 直接使用 Operators 结构
-type MerkleState struct {
-	Operators []operators.Operators `json:"operators"`
-	// 额外的运行时信息，不存入数据库
-	RuntimeInfo map[string]struct {
-		PeerID     string   `json:"peer_id"`
-		Multiaddrs []string `json:"multiaddrs"`
-	} `json:"runtime_info"`
-}
-
-type MerkleTableSerde struct {
-	opQuerier *operators.Queries
-}
-
-func (s *MerkleTableSerde) Load(data []byte) error {
-	err := s.opQuerier.Load(context.Background(), json.RawMessage(data))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *MerkleTableSerde) Dump() ([]byte, error) {
-	return s.opQuerier.Dump(context.Background(), func(op *operators.Operators) {
-		op.CreatedAt = time.Unix(0, 0).UTC()
-		op.UpdatedAt = time.Unix(0, 0).UTC()
-	})
-}
 
 func (s *RegistryTestSuite) TestMerkleStateManagement() {
 	tests := []struct {
@@ -74,10 +44,30 @@ func (s *RegistryTestSuite) TestMerkleStateManagement() {
 				s.Require().NoError(err)
 				multiaddrs, err := utils.StringsToMultiaddrs([]string{"/ip4/127.0.0.1/tcp/9012"})		
 				s.Require().NoError(err)
+				params := operators.UpsertOperatorParams{
+					Address:     "0x0000000000000000000000000000000000000005",
+					SigningKey:  "0x0000000000000000000000000000000000000006",
+					RegisteredAtBlockNumber: 1,
+					RegisteredAtTimestamp: 1,
+					ActiveEpoch: 1,
+					Weight: pgtype.Numeric{
+						Int:    big.NewInt(200),
+						Exp:    0,
+						Valid:  true,
+					},
+					ExitEpoch: 4294967295,
+				}
+				log.Printf("Created operator params: %+v", params)
+			
+				// Update operator in database
+				_, err = node.opQuerier.UpsertOperator(s.ctx, params, &params.Address)
+				s.Require().NoError(err)
 				// Update active operators
 				node.activeOperators.mu.Lock()
 				node.activeOperators.active[id] = &OperatorPeerInfo{
-					Address:    "0x789",
+					Address:    "0x0000000000000000000000000000000000000005",
+					PeerID:     id,
+					LastSeen:   time.Now(),
 					Multiaddrs: multiaddrs,
 				}
 				node.activeOperators.mu.Unlock()
@@ -98,7 +88,7 @@ func (s *RegistryTestSuite) TestMerkleStateManagement() {
 			s.Require().NoError(err)
 
 			// 加载初始数据到数据库
-			serde := &MerkleTableSerde{opQuerier: s.opQuerier}
+			serde := &OperatorsTableSerde{opQuerier: s.opQuerier}
 			s.LoadState(tt.initialState, serde)
 
 			// 从数据库加载 operators

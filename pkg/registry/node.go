@@ -53,6 +53,7 @@ type OperatorsQuerier interface {
 	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
 	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
 	WithTx(tx *wpgx.WTx) *operators.Queries
+	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams, getOperatorByAddress *string) (*operators.Operators, error)
 }
 
 type MainnetClient interface {

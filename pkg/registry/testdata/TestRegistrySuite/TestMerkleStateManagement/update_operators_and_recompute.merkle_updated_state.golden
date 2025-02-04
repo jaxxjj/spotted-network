@@ -22,5 +22,17 @@
     "weight": 200,
     "created_at": "1970-01-01T00:00:00Z",
     "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x0000000000000000000000000000000000000005",
+    "signing_key": "0x0000000000000000000000000000000000000006",
+    "registered_at_block_number": 1,
+    "registered_at_timestamp": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "status": "inactive",
+    "weight": 200,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
   }
 ]
