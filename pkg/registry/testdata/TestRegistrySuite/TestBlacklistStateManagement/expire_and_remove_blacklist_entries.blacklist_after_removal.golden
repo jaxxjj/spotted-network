@@ -1,0 +1,12 @@
+{
+    "blacklist": [
+        {
+            "peer_id": "12D3KooWRHVDHQBHN9qFP8UfvUd8azdHxvRHqhYMgwMEjxwj7YGk",
+            "ip": "192.168.1.2",
+            "reason": "test reason 2",
+            "expires_at": "2025-02-04T22:17:58-05:00",
+            "created_at": "1970-01-01T00:00:00Z",
+            "updated_at": "1970-01-01T00:00:00Z"
+        }
+    ]
+}

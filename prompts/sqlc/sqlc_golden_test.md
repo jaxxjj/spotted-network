@@ -1,71 +1,225 @@
-<anthropic_sqlc_golden_test_protocol>
+# Testing Protocol for Go Services
 
-## Core Architecture
+## Core Testing Patterns
 
-### Test Suite Setup
+### 1. Table Driven Tests
+
+Table Driven Tests are part of Google's coding style and help standardize tests while reducing code duplication. For large projects, test code maintainability is as important as the code itself.
+
 ```go
-type myTestSuite struct {
-    *testsuite.WPgxTestSuite
-    usecase   *Usecase
-    redisConn redis.UniversalClient
-    cache     *dcache.DCache
-}
-
-func newMyTestSuite() *myTestSuite {
-    return &myTestSuite{
-        WPgxTestSuite: testsuite.NewWPgxTestSuiteFromEnv("testdb", []string{
-            books.Schema,
-            activities.Schema,
-        }),
+func TestFunction(t *testing.T) {
+    tests := []struct {
+        name     string
+        input    string
+        expected Result
+        wantErr  error
+    }{
+        {
+            name:     "normal case",
+            input:    "test",
+            expected: expectedResult,
+            wantErr:  nil,
+        },
+        {
+            name:     "error case",
+            input:    "invalid",
+            expected: Result{},
+            wantErr:  ErrInvalid,
+        },
     }
-}
 
-func (s *myTestSuite) SetupTest() {
-    s.WPgxTestSuite.SetupTest()
-    s.cache.Clear()
-    s.usecase = NewUsecase(s.GetPool(), s.cache)
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            result, err := Function(tt.input)
+            if tt.wantErr != nil {
+                assert.Equal(t, tt.wantErr, err)
+                return
+            }
+            assert.Equal(t, tt.expected, result)
+        })
+    }
 }
 ```
 
-### Serde Implementation
+### 2. Golden Tests
+
+Golden tests are particularly useful for testing complex data structures and database states.
+
 ```go
-type booksTableSerde struct {
-    books *books.Queries
+type TableSerde struct {
+    repo *Repo
 }
 
-func (b booksTableSerde) Load(data []byte) error {
-    err := b.books.Load(context.Background(), data)
+func (s TableSerde) Load(data []byte) error {
+    err := s.repo.Load(context.Background(), data)
     if err != nil {
         return err
     }
-    return b.books.RefreshIDSerial(context.Background())
+    return s.repo.RefreshIDSerial(context.Background())
 }
 
-func (b booksTableSerde) Dump() ([]byte, error) {
-    return b.books.Dump(context.Background(), func(m *books.Book) {
+func (s TableSerde) Dump() ([]byte, error) {
+    return s.repo.Dump(context.Background(), func(m *Model) {
+        // Normalize timestamps
         m.CreatedAt = time.Unix(0, 0).UTC()
         m.UpdatedAt = time.Unix(0, 0).UTC()
     })
 }
 ```
 
-## Core Features
+### 3. Test Suite Setup
 
-### State Management
-- Load initial state:
 ```go
-suite.LoadState("test_data.json", bookserde)
+type MyTestSuite struct {
+    *testsuite.WPgxTestSuite
+    usecase   *Usecase
+    redisConn redis.UniversalClient
+    cache     *dcache.DCache
+}
+
+func newMyTestSuite() *MyTestSuite {
+    return &MyTestSuite{
+        WPgxTestSuite: testsuite.NewWPgxTestSuiteFromEnv("testdb", []string{
+            schema1,
+            schema2,
+        }),
+    }
+}
+
+func TestMyTestSuite(t *testing.T) {
+    suite.Run(t, newMyTestSuite())
+}
 ```
 
-- Verify state after operations:
+## Testing Best Practices
+
+### 1. State Management
+
 ```go
-suite.Golden("books_table", bookserde)
-suite.Golden("activities_table", activitiesSerde)
+// Load initial state
+suite.LoadState("test_data.json", serde)
+
+// Verify final state
+suite.Golden("table_state", serde)
+suite.GoldenVarJSON("complex_result", result)
 ```
 
-### Time-Sensitive Testing
+### 2. Database Testing
+
 ```go
-// Template file: orders.json.tmpl
+func (suite *MyTestSuite) TestDatabaseOperation() {
+    // Prepare data
+    suite.LoadState("initial_state.json", serde)
+    
+    // Execute operation
+    err := suite.usecase.Operation(ctx)
+    suite.NoError(err)
+    
+    // Verify result
+    suite.Golden("final_state", serde)
+}
+```
+
+### 3. Cache Testing
+
+```go
+func (suite *MyTestSuite) TestCache() {
+    // Clear cache
+    suite.cache.Clear()
+    
+    // First query
+    result1, err := suite.usecase.CachedQuery()
+    suite.NoError(err)
+    
+    // Verify cache hit
+    result2, err := suite.usecase.CachedQuery()
+    suite.NoError(err)
+    suite.Equal(result1, result2)
+}
+```
+
+### 4. Parallel Testing
+
+```go
+func TestParallel(t *testing.T) {
+    tests := []struct {
+        name  string
+        input string
+    }{
+        {"test1", "input1"},
+        {"test2", "input2"},
+    }
+    
+    for _, tt := range tests {
+        tt := tt // Create local copy
+        t.Run(tt.name, func(t *testing.T) {
+            t.Parallel()
+            // Test logic
+        })
+    }
+}
+```
+
+## Key Testing Principles
+
+1. **Test Independence**
+   - Each test should be independent
+   - No dependencies between tests
+   - Reset state before each test
+
+2. **Test Readability**
+   - Use clear test names
+   - Provide detailed error messages
+   - Use Table Driven Tests to organize cases
+
+3. **Test Completeness**
+   - Test normal paths
+   - Test error paths
+   - Test edge cases
+
+4. **Test Efficiency**
+   - Use parallel testing where appropriate
+   - Optimize test data preparation
+   - Use test caching wisely
+
+5. **Test Maintainability**
+   - Use Golden Tests for complex data
+   - Extract common test logic
+   - Keep test code clean
+
+## Database Testing with WPgx
+
+For services depending on PostgreSQL, use wpgx testsuite:
+
+```go
+import (
+    "github.com/stumble/wpgx/testsuite"
+)
+
+type myTestSuite struct {
+    *testsuite.WPgxTestSuite
+}
+
+func newMyTestSuite() *myTestSuite {
+    return &myTestSuite{
+        WPgxTestSuite: testsuite.NewWPgxTestSuiteFromEnv("testDbName", []string{
+            `CREATE TABLE IF NOT EXISTS books (
+                // Schema definition
+            );`,
+            // Add other schemas
+        }),
+    }
+}
+
+func TestMyTestSuite(t *testing.T) {
+    suite.Run(t, newMyTestSuite())
+}
+```
+
+## Time-Sensitive Testing
+
+```go
+// Template file: data.json.tmpl
 [
     {
         "id": 1,
@@ -78,39 +232,36 @@ timePoints := &TimePointSet{
     Now:  now,
     P12H: now.Add(-12 * time.Hour).Format(time.RFC3339),
 }
-suite.LoadStateTmpl("orders.json.tmpl", serde, timePoints)
+suite.LoadStateTmpl("data.json.tmpl", serde, timePoints)
 ```
 
-### Variable Comparison
+## Error Testing
+
 ```go
-// Compare complex structures
-suite.GoldenVarJSON("result_name", resultVar)
+func TestErrors(t *testing.T) {
+    tests := []struct {
+        name    string
+        input   string
+        wantErr error
+    }{
+        {
+            name:    "invalid input",
+            input:   "invalid",
+            wantErr: ErrInvalidInput,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            _, err := Function(tt.input)
+            assert.Equal(t, tt.wantErr, err)
+        })
+    }
+}
 ```
 
-## Best Practices
+## Best Practices Summary
 
-### State Handling
-- Reset database state in `SetupTest()`
-- Clear cache between tests
-- Use `RefreshIDSerial` for auto-increment columns
-- Normalize timestamps for comparisons
-
-### Time Management
-- Use templates for time-sensitive tests
-- Normalize timestamps in Dump()
-- Use relative time points in templates
-
-### Cache Verification
-- Clear cache in SetupTest
-- Verify cache invalidation in transactions
-- Test cache miss scenarios
-
-### Transaction Testing
-- Test complete transaction flows
-- Verify state after rollbacks
-- Check cache invalidation in transactions
-
-## Key Points
 1. Always call `SetupTest()` in subtests
 2. Normalize volatile fields (timestamps, IDs)
 3. Use templates for time-dependent tests
@@ -118,7 +269,8 @@ suite.GoldenVarJSON("result_name", resultVar)
 5. Verify both success and failure cases
 6. Test cache invalidation
 7. Use GoldenVarJSON for complex comparisons
+8. Implement proper cleanup in `TearDownTest()`
+9. Use meaningful test names
+10. Provide detailed error messages
 
-> Claude must follow this protocol in implementing golden tests.
-
-</anthropic_sqlc_golden_test_protocol>
+This protocol ensures consistent, maintainable, and reliable tests across the project.
