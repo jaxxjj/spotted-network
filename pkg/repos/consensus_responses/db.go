@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v2.3.0-wicked-fork
 
-package blacklist
+package consensus_responses
 
 import (
 	"github.com/stumble/dcache"
@@ -10,7 +10,7 @@ import (
 )
 
 // BeforeDump allows you to edit result before dump.
-type BeforeDump func(m *Blacklist)
+type BeforeDump func(m *ConsensusResponse)
 
 type CacheQuerierConn interface {
 	GetCache() *dcache.DCache
@@ -92,31 +92,21 @@ func (q *ReadOnlyQueries) GetConn() wpgx.WQuerier {
 }
 
 var Schema = `
-CREATE TABLE IF NOT EXISTS blacklist (
-    id              BIGSERIAL       PRIMARY KEY,
-
-    peer_id         VARCHAR(255)    NOT NULL,    -- libp2p peer ID
-    ip              VARCHAR(45)     NOT NULL,    -- 节点的公网IP
+CREATE TABLE IF NOT EXISTS consensus_responses (
+    task_id VARCHAR(66) PRIMARY KEY,                
+    epoch INT4 NOT NULL,
+    chain_id INT4 NOT NULL,
+    target_address VARCHAR(42) NOT NULL,
+    block_number BIGINT NOT NULL,        
+    key NUMERIC NOT NULL,                        
+    value NUMERIC NOT NULL,                                                                                        
+    aggregated_signatures BYTEA,                                        
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     
-    reason          TEXT           NULL,         -- 封禁原因
-    created_at      TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
-    expires_at      TIMESTAMPTZ    NULL CHECK (expires_at > created_at),
-
-    CONSTRAINT valid_peer_id CHECK (
-        peer_id ~ '^12D3KooW[1-9A-HJ-NP-Za-km-z]{44,48}$'  -- libp2p peer ID
-    ),
-    CONSTRAINT valid_ip CHECK (
-        ip ~ '^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$' OR          -- IPv4
-        ip ~ '^[0-9a-fA-F:]+$'                             -- IPv6
-    ),
-
-    CONSTRAINT unique_peer_ip UNIQUE (peer_id, ip)
+    CONSTRAINT unique_consensus_request UNIQUE (target_address, chain_id, block_number, key)
 );
 
--- index
-CREATE INDEX IF NOT EXISTS blacklist_peer_id_idx ON blacklist(peer_id);
-CREATE INDEX IF NOT EXISTS blacklist_ip_idx ON blacklist(ip);
-CREATE INDEX IF NOT EXISTS blacklist_created_at_idx ON blacklist(created_at);
-CREATE INDEX IF NOT EXISTS blacklist_expires_at_idx ON blacklist(expires_at);
-
+CREATE INDEX IF NOT EXISTS idx_consensus_responses_epoch ON consensus_responses(epoch);
+CREATE INDEX IF NOT EXISTS idx_consensus_responses_chain_block ON consensus_responses(chain_id, target_address, key, block_number);
 `

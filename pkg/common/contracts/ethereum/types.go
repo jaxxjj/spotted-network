@@ -41,7 +41,7 @@ type OperatorRegisteredEvent struct {
 	Operator    common.Address
 	BlockNumber *big.Int
 	SigningKey  common.Address
-	Timestamp   *big.Int
+	P2PKey      common.Address
 	AVS         common.Address
 }
 

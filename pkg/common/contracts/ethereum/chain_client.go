@@ -208,7 +208,7 @@ func (c *ChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink 
 						Operator:    event.Operator,
 						BlockNumber: event.BlockNumber,
 						SigningKey:  event.SigningKey,
-						Timestamp:   event.Timestamp,
+						P2PKey:   event.P2pKey,
 						AVS:        event.Avs,
 					}
 					// Update last block to the event's block number

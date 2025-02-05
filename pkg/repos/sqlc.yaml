@@ -1,20 +1,18 @@
 version: "2"
 sql:
   - schema: 
-      - "registry/operators/schema.sql"
-    queries: "registry/operators/query.sql"
+      - "operators/schema.sql"
+    queries: "operators/query.sql"
     engine: "postgresql"
     gen:
       go:
         package: "operators"
-        out: "registry/operators"
+        out: "operators"
         sql_package: "wpgx"
         emit_json_tags: true
         emit_exact_table_names: true
         overrides:
           - column: "operators.registered_at_block_number"
-            go_type: "uint64"
-          - column: "operators.registered_at_timestamp"
             go_type: "uint64"
           - column: "operators.active_epoch"
             go_type: "uint32"
@@ -27,8 +25,8 @@ sql:
               type: "OperatorStatus"
             
   - schema: 
-      - "operator/tasks/schema.sql"
-    queries: "operator/tasks/query.sql"
+      - "tasks/schema.sql"
+    queries: "tasks/query.sql"
     engine: "postgresql"
     gen:
       go:
@@ -47,8 +45,6 @@ sql:
             go_type: "uint32"
           - column: "tasks.block_number"
             go_type: "uint64"
-          - column: "tasks.timestamp"
-            go_type: "uint64"
           - column: "tasks.epoch"
             go_type: "uint32"
           - column: "tasks.status"
@@ -58,39 +54,14 @@ sql:
               type: "TaskStatus"
   
   - schema: 
-      - "operator/task_responses/schema.sql"
-      - "operator/tasks/schema.sql"
-    queries: "operator/task_responses/query.sql"
-    engine: "postgresql"
-    gen:
-      go:
-        package: "task_responses"
-        out: "operator/task_responses"
-        sql_package: "wpgx"
-        emit_json_tags: true
-        emit_exact_table_names: true
-        emit_empty_slices: true
-        overrides:
-          # Column-specific mappings for task_responses table
-          - column: "task_responses.chain_id"
-            go_type: "uint32"
-          - column: "task_responses.epoch"
-            go_type: "uint32"
-          - column: "task_responses.block_number"
-            go_type: "uint64"
-          - column: "task_responses.timestamp"
-            go_type: "uint64"
-
-
-  - schema: 
-      - "operator/consensus_responses/schema.sql"
-      - "operator/tasks/schema.sql"
-    queries: "operator/consensus_responses/query.sql"
+      - "consensus_responses/schema.sql"
+      - "tasks/schema.sql"
+    queries: "consensus_responses/query.sql"
     engine: "postgresql"
     gen:
       go:
         package: "consensus_responses"
-        out: "operator/consensus_responses"
+        out: "consensus_responses"
         sql_package: "wpgx"
         emit_json_tags: true
         emit_empty_slices: true
@@ -101,31 +72,15 @@ sql:
             go_type: "uint64"
           - column: "consensus_responses.epoch"
             go_type: "uint32"
-  - schema: "operator/epoch_states/schema.sql"
-    queries: "operator/epoch_states/query.sql"
-    engine: "postgresql"
-    gen:
-      go:
-        package: "epoch_states"
-        out: "operator/epoch_states"
-        sql_package: "wpgx"
-        emit_json_tags: true
-        emit_empty_slices: true
-        overrides:
-          - column: "epoch_states.epoch_number"
-            go_type: "uint32"
-          - column: "epoch_states.block_number"
-            go_type: "uint64"
-
   # Add blacklist schema and queries
   - schema: 
-      - "registry/blacklist/schema.sql"
-    queries: "registry/blacklist/query.sql"
+      - "blacklist/schema.sql"
+    queries: "blacklist/query.sql"
     engine: "postgresql"
     gen:
       go:
         package: "blacklist"
-        out: "registry/blacklist"
+        out: "blacklist"
         sql_package: "wpgx"
         emit_json_tags: true
         emit_exact_table_names: true

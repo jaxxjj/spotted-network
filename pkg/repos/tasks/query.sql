@@ -6,29 +6,19 @@ INSERT INTO tasks (
     target_address,
     chain_id,
     block_number,
-    timestamp,
     epoch,
     key,
     value,
     status,
     required_confirmations
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+    $1, $2, $3, $4, $5, $6, $7, $8, $9
 ) RETURNING *;
 
 -- name: GetTaskByID :one
 -- -- timeout: 500ms
 SELECT * FROM tasks
 WHERE task_id = $1;
-
--- name: UpdateTaskStatus :one
--- -- timeout: 500ms
-
-UPDATE tasks
-SET status = $2,
-    updated_at = NOW()
-WHERE task_id = $1
-RETURNING *;
 
 -- name: ListPendingTasks :many
 -- -- timeout: 500ms
@@ -48,10 +38,8 @@ SELECT * FROM tasks
 WHERE status = 'confirming'
 ORDER BY created_at DESC;
 
--- name: UpdateTaskCompleted :exec
+-- name: UpdateTaskToCompleted :exec
 -- -- timeout: 500ms
-
-
 UPDATE tasks
 SET status = 'completed',
     updated_at = NOW()
@@ -59,8 +47,6 @@ WHERE task_id = $1;
 
 -- name: UpdateTaskToPending :exec
 -- -- timeout: 500ms
-
-
 UPDATE tasks 
 SET status = 'pending', 
     updated_at = NOW()
@@ -68,12 +54,11 @@ WHERE task_id = $1;
 
 -- name: ListAllTasks :many
 -- -- timeout: 500ms
-SELECT * FROM tasks ORDER BY created_at DESC;
+SELECT * FROM tasks 
+ORDER BY created_at DESC;
 
 -- name: IncrementRetryCount :one
 -- -- timeout: 500ms
-
-
 UPDATE tasks
 SET retry_count = retry_count + 1,
     updated_at = NOW()
@@ -82,7 +67,6 @@ RETURNING *;
 
 -- name: DeleteTaskByID :exec
 -- -- timeout: 500ms
-
 DELETE FROM tasks
 WHERE task_id = $1;
 

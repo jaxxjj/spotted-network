@@ -24,31 +24,25 @@ INSERT INTO consensus_responses (
     task_id,
     epoch,
     value,
-    block_number,
-    chain_id,
-    target_address,
     key,
-    aggregated_signatures,
-    operator_signatures,
-    total_weight,
-    consensus_reached_at
+    chain_id, 
+    block_number,
+    target_address,
+    aggregated_signatures
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
-) RETURNING id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at
+    $1, $2, $3, $4, $5, $6, $7, $8
+) RETURNING task_id, epoch, chain_id, target_address, block_number, key, value, aggregated_signatures, created_at, updated_at
 `
 
 type CreateConsensusResponseParams struct {
 	TaskID               string         `json:"task_id"`
 	Epoch                uint32         `json:"epoch"`
 	Value                pgtype.Numeric `json:"value"`
-	BlockNumber          uint64         `json:"block_number"`
-	ChainID              uint32         `json:"chain_id"`
-	TargetAddress        string         `json:"target_address"`
 	Key                  pgtype.Numeric `json:"key"`
+	ChainID              uint32         `json:"chain_id"`
+	BlockNumber          uint64         `json:"block_number"`
+	TargetAddress        string         `json:"target_address"`
 	AggregatedSignatures []byte         `json:"aggregated_signatures"`
-	OperatorSignatures   []byte         `json:"operator_signatures"`
-	TotalWeight          pgtype.Numeric `json:"total_weight"`
-	ConsensusReachedAt   *time.Time     `json:"consensus_reached_at"`
 }
 
 // -- timeout: 500ms
@@ -63,28 +57,21 @@ func _CreateConsensusResponse(ctx context.Context, q CacheQuerierConn, arg Creat
 		arg.TaskID,
 		arg.Epoch,
 		arg.Value,
-		arg.BlockNumber,
-		arg.ChainID,
-		arg.TargetAddress,
 		arg.Key,
-		arg.AggregatedSignatures,
-		arg.OperatorSignatures,
-		arg.TotalWeight,
-		arg.ConsensusReachedAt)
+		arg.ChainID,
+		arg.BlockNumber,
+		arg.TargetAddress,
+		arg.AggregatedSignatures)
 	var i *ConsensusResponse = new(ConsensusResponse)
 	err := row.Scan(
-		&i.ID,
 		&i.TaskID,
 		&i.Epoch,
-		&i.Value,
-		&i.Key,
-		&i.TotalWeight,
 		&i.ChainID,
-		&i.BlockNumber,
 		&i.TargetAddress,
+		&i.BlockNumber,
+		&i.Key,
+		&i.Value,
 		&i.AggregatedSignatures,
-		&i.OperatorSignatures,
-		&i.ConsensusReachedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -98,7 +85,7 @@ func _CreateConsensusResponse(ctx context.Context, q CacheQuerierConn, arg Creat
 }
 
 const getConsensusResponseByRequest = `-- name: GetConsensusResponseByRequest :one
-SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
+SELECT task_id, epoch, chain_id, target_address, block_number, key, value, aggregated_signatures, created_at, updated_at FROM consensus_responses
 WHERE target_address = $1 
 AND chain_id = $2 
 AND block_number = $3 
@@ -133,18 +120,14 @@ func _GetConsensusResponseByRequest(ctx context.Context, q CacheQuerierConn, arg
 		arg.Key)
 	var i *ConsensusResponse = new(ConsensusResponse)
 	err := row.Scan(
-		&i.ID,
 		&i.TaskID,
 		&i.Epoch,
-		&i.Value,
-		&i.Key,
-		&i.TotalWeight,
 		&i.ChainID,
-		&i.BlockNumber,
 		&i.TargetAddress,
+		&i.BlockNumber,
+		&i.Key,
+		&i.Value,
 		&i.AggregatedSignatures,
-		&i.OperatorSignatures,
-		&i.ConsensusReachedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -158,7 +141,7 @@ func _GetConsensusResponseByRequest(ctx context.Context, q CacheQuerierConn, arg
 }
 
 const getConsensusResponseByTaskId = `-- name: GetConsensusResponseByTaskId :one
-SELECT id, task_id, epoch, value, key, total_weight, chain_id, block_number, target_address, aggregated_signatures, operator_signatures, consensus_reached_at, created_at, updated_at FROM consensus_responses
+SELECT task_id, epoch, chain_id, target_address, block_number, key, value, aggregated_signatures, created_at, updated_at FROM consensus_responses
 WHERE task_id = $1 LIMIT 1
 `
 
@@ -178,18 +161,14 @@ func _GetConsensusResponseByTaskId(ctx context.Context, q CacheQuerierConn, task
 	row := q.GetConn().WQueryRow(qctx, "consensus_responses.GetConsensusResponseByTaskId", getConsensusResponseByTaskId, taskID)
 	var i *ConsensusResponse = new(ConsensusResponse)
 	err := row.Scan(
-		&i.ID,
 		&i.TaskID,
 		&i.Epoch,
-		&i.Value,
-		&i.Key,
-		&i.TotalWeight,
 		&i.ChainID,
-		&i.BlockNumber,
 		&i.TargetAddress,
+		&i.BlockNumber,
+		&i.Key,
+		&i.Value,
 		&i.AggregatedSignatures,
-		&i.OperatorSignatures,
-		&i.ConsensusReachedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -205,7 +184,7 @@ func _GetConsensusResponseByTaskId(ctx context.Context, q CacheQuerierConn, task
 //// auto generated functions
 
 func (q *Queries) Dump(ctx context.Context, beforeDump ...BeforeDump) ([]byte, error) {
-	sql := "SELECT id,task_id,epoch,value,key,total_weight,chain_id,block_number,target_address,aggregated_signatures,operator_signatures,consensus_reached_at,created_at,updated_at FROM \"consensus_responses\" ORDER BY id,task_id,target_address,consensus_reached_at,created_at,updated_at ASC;"
+	sql := "SELECT task_id,epoch,chain_id,target_address,block_number,key,value,aggregated_signatures,created_at,updated_at FROM \"consensus_responses\" ORDER BY task_id,target_address,created_at,updated_at ASC;"
 	rows, err := q.db.WQuery(ctx, "consensus_responses.Dump", sql)
 	if err != nil {
 		return nil, err
@@ -214,7 +193,7 @@ func (q *Queries) Dump(ctx context.Context, beforeDump ...BeforeDump) ([]byte, e
 	var items []ConsensusResponse
 	for rows.Next() {
 		var v ConsensusResponse
-		if err := rows.Scan(&v.ID, &v.TaskID, &v.Epoch, &v.Value, &v.Key, &v.TotalWeight, &v.ChainID, &v.BlockNumber, &v.TargetAddress, &v.AggregatedSignatures, &v.OperatorSignatures, &v.ConsensusReachedAt, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.TaskID, &v.Epoch, &v.ChainID, &v.TargetAddress, &v.BlockNumber, &v.Key, &v.Value, &v.AggregatedSignatures, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
 		for _, applyBeforeDump := range beforeDump {
@@ -233,14 +212,14 @@ func (q *Queries) Dump(ctx context.Context, beforeDump ...BeforeDump) ([]byte, e
 }
 
 func (q *Queries) Load(ctx context.Context, data []byte) error {
-	sql := "INSERT INTO \"consensus_responses\" (id,task_id,epoch,value,key,total_weight,chain_id,block_number,target_address,aggregated_signatures,operator_signatures,consensus_reached_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14);"
+	sql := "INSERT INTO \"consensus_responses\" (task_id,epoch,chain_id,target_address,block_number,key,value,aggregated_signatures,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10);"
 	rows := make([]ConsensusResponse, 0)
 	err := json.Unmarshal(data, &rows)
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
-		_, err := q.db.WExec(ctx, "consensus_responses.Load", sql, row.ID, row.TaskID, row.Epoch, row.Value, row.Key, row.TotalWeight, row.ChainID, row.BlockNumber, row.TargetAddress, row.AggregatedSignatures, row.OperatorSignatures, row.ConsensusReachedAt, row.CreatedAt, row.UpdatedAt)
+		_, err := q.db.WExec(ctx, "consensus_responses.Load", sql, row.TaskID, row.Epoch, row.ChainID, row.TargetAddress, row.BlockNumber, row.Key, row.Value, row.AggregatedSignatures, row.CreatedAt, row.UpdatedAt)
 		if err != nil {
 			return err
 		}

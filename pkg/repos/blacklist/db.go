@@ -2,7 +2,7 @@
 // versions:
 //   sqlc v2.3.0-wicked-fork
 
-package epoch_states
+package blacklist
 
 import (
 	"github.com/stumble/dcache"
@@ -10,7 +10,7 @@ import (
 )
 
 // BeforeDump allows you to edit result before dump.
-type BeforeDump func(m *EpochState)
+type BeforeDump func(m *Blacklist)
 
 type CacheQuerierConn interface {
 	GetCache() *dcache.DCache
@@ -92,16 +92,19 @@ func (q *ReadOnlyQueries) GetConn() wpgx.WQuerier {
 }
 
 var Schema = `
--- Epoch states table stores consensus state for each epoch
-CREATE TABLE IF NOT EXISTS epoch_states (
-    epoch_number INT4 PRIMARY KEY,
-    block_number BIGINT NOT NULL,
-    minimum_weight NUMERIC NOT NULL,
-    total_weight NUMERIC NOT NULL,
-    threshold_weight NUMERIC NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS blacklist (
+    peer_id VARCHAR(128) PRIMARY KEY,
+    violation_count INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NULL CHECK (expires_at > created_at),
+
+    CONSTRAINT valid_peer_id CHECK (
+        peer_id ~ '^12D3KooW[1-9A-HJ-NP-Za-km-z]{44,48}$'
+    ),
+    CONSTRAINT valid_violation_count CHECK (violation_count >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS idx_epoch_states_block_number ON epoch_states(block_number);
-CREATE INDEX IF NOT EXISTS idx_epoch_states_updated_at ON epoch_states(updated_at); 
+CREATE INDEX IF NOT EXISTS idx_blacklist_violations ON blacklist(peer_id, violation_count, expires_at);
+
 `

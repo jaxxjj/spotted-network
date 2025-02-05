@@ -17,6 +17,7 @@ type Tasks struct {
 	TargetAddress         string           `json:"target_address"`
 	Key                   pgtype.Numeric   `json:"key"`
 	BlockNumber           uint64           `json:"block_number"`
+	Timestamp             uint64           `json:"timestamp"`
 	Value                 pgtype.Numeric   `json:"value"`
 	Epoch                 uint32           `json:"epoch"`
 	Status                types.TaskStatus `json:"status"`

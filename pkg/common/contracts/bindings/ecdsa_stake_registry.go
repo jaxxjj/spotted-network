@@ -49,7 +49,7 @@ type StrategyParams struct {
 
 // ECDSAStakeRegistryMetaData contains all meta data concerning the ECDSAStakeRegistry contract.
 var ECDSAStakeRegistryMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[{\"name\":\"_delegationManager\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_epochManager\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_serviceManager\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"deregisterOperator\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"getLastCheckpointOperatorWeight\",\"inputs\":[{\"name\":\"_operator\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getLastCheckpointThresholdWeight\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getLastCheckpointThresholdWeightAtEpoch\",\"inputs\":[{\"name\":\"_epochNumber\",\"type\":\"uint32\",\"internalType\":\"uint32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getLastCheckpointTotalWeight\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getLastestOperatorSigningKey\",\"inputs\":[{\"name\":\"_operator\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getOperatorSigningKeyAtEpoch\",\"inputs\":[{\"name\":\"_operator\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_epochNumber\",\"type\":\"uint32\",\"internalType\":\"uint32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getOperatorWeight\",\"inputs\":[{\"name\":\"_operator\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getOperatorWeightAtEpoch\",\"inputs\":[{\"name\":\"_operator\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"_epochNumber\",\"type\":\"uint32\",\"internalType\":\"uint32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getTotalWeightAtEpoch\",\"inputs\":[{\"name\":\"_epochNumber\",\"type\":\"uint32\",\"internalType\":\"uint32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getThresholdWeightAtEpoch\",\"inputs\":[{\"name\":\"_epochNumber\",\"type\":\"uint32\",\"internalType\":\"uint32\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_thresholdWeight\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"_quorum\",\"type\":\"tuple\",\"internalType\":\"structQuorum\",\"components\":[{\"name\":\"strategies\",\"type\":\"tuple[]\",\"internalType\":\"structStrategyParams[]\",\"components\":[{\"name\":\"strategy\",\"type\":\"address\",\"internalType\":\"contractIStrategy\"},{\"name\":\"multiplier\",\"type\":\"uint96\",\"internalType\":\"uint96\"}]}]}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"isValidSignature\",\"inputs\":[{\"name\":\"_dataHash\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"_signatureData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bytes4\",\"internalType\":\"bytes4\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"minimumWeight\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"operatorRegistered\",\"inputs\":[{\"name\":\"_operator\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"quorum\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structQuorum\",\"components\":[{\"name\":\"strategies\",\"type\":\"tuple[]\",\"internalType\":\"structStrategyParams[]\",\"components\":[{\"name\":\"strategy\",\"type\":\"address\",\"internalType\":\"contractIStrategy\"},{\"name\":\"multiplier\",\"type\":\"uint96\",\"internalType\":\"uint96\"}]}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"registerOperatorWithSignature\",\"inputs\":[{\"name\":\"_operatorSignature\",\"type\":\"tuple\",\"internalType\":\"structISignatureUtils.SignatureWithSaltAndExpiry\",\"components\":[{\"name\":\"signature\",\"type\":\"bytes\",\"internalType\":\"bytes\"},{\"name\":\"salt\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"expiry\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"name\":\"_signingKey\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateMinimumWeight\",\"inputs\":[{\"name\":\"_newMinimumWeight\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"_operators\",\"type\":\"address[]\",\"internalType\":\"address[]\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateOperatorSigningKey\",\"inputs\":[{\"name\":\"_newSigningKey\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateOperators\",\"inputs\":[{\"name\":\"_operators\",\"type\":\"address[]\",\"internalType\":\"address[]\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateOperatorsForQuorum\",\"inputs\":[{\"name\":\"operatorsPerQuorum\",\"type\":\"address[][]\",\"internalType\":\"address[][]\"},{\"name\":\"\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateQuorumConfig\",\"inputs\":[{\"name\":\"_quorum\",\"type\":\"tuple\",\"internalType\":\"structQuorum\",\"components\":[{\"name\":\"strategies\",\"type\":\"tuple[]\",\"internalType\":\"structStrategyParams[]\",\"components\":[{\"name\":\"strategy\",\"type\":\"address\",\"internalType\":\"contractIStrategy\"},{\"name\":\"multiplier\",\"type\":\"uint96\",\"internalType\":\"uint96\"}]}]},{\"name\":\"_operators\",\"type\":\"address[]\",\"internalType\":\"address[]\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"updateStakeThreshold\",\"inputs\":[{\"name\":\"_thresholdWeight\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint8\",\"indexed\":false,\"internalType\":\"uint8\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"MinimumWeightUpdated\",\"inputs\":[{\"name\":\"_old\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"_new\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OperatorDeregistered\",\"inputs\":[{\"name\":\"_operator\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"blockNumber\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"_avs\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OperatorRegistered\",\"inputs\":[{\"name\":\"_operator\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"blockNumber\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"_signingKey\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"timestamp\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"_avs\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OperatorWeightUpdated\",\"inputs\":[{\"name\":\"_operator\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"oldWeight\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"newWeight\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"QuorumUpdated\",\"inputs\":[{\"name\":\"_old\",\"type\":\"tuple\",\"indexed\":false,\"internalType\":\"structQuorum\",\"components\":[{\"name\":\"strategies\",\"type\":\"tuple[]\",\"internalType\":\"structStrategyParams[]\",\"components\":[{\"name\":\"strategy\",\"type\":\"address\",\"internalType\":\"contractIStrategy\"},{\"name\":\"multiplier\",\"type\":\"uint96\",\"internalType\":\"uint96\"}]}]},{\"name\":\"_new\",\"type\":\"tuple\",\"indexed\":false,\"internalType\":\"structQuorum\",\"components\":[{\"name\":\"strategies\",\"type\":\"tuple[]\",\"internalType\":\"structStrategyParams[]\",\"components\":[{\"name\":\"strategy\",\"type\":\"address\",\"internalType\":\"contractIStrategy\"},{\"name\":\"multiplier\",\"type\":\"uint96\",\"internalType\":\"uint96\"}]}]}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"SigningKeyUpdate\",\"inputs\":[{\"name\":\"operator\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newSigningKey\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"oldSigningKey\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ThresholdWeightUpdated\",\"inputs\":[{\"name\":\"_thresholdWeight\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"TotalWeightUpdated\",\"inputs\":[{\"name\":\"oldTotalWeight\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"newTotalWeight\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"UpdateMinimumWeight\",\"inputs\":[{\"name\":\"oldMinimumWeight\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"newMinimumWeight\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"InsufficientSignedStake\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InsufficientWeight\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidEpoch\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidEpoch\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidLength\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidQuorum\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidReferenceBlock\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidReferenceEpoch\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidSignature\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidSignedWeight\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"InvalidThreshold\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"LengthMismatch\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"MustUpdateAllOperators\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotSorted\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OperatorAlreadyRegistered\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OperatorNotRegistered\",\"inputs\":[]}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_delegationManager\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"_epochManager\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"_serviceManager\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InsufficientSignedStake\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InsufficientWeight\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InvalidEpoch\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InvalidEpoch\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InvalidLength\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InvalidQuorum\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InvalidReferenceBlock\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InvalidReferenceEpoch\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InvalidSignature\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InvalidSignedWeight\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"InvalidThreshold\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"LengthMismatch\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"MustUpdateAllOperators\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"NotSorted\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"OperatorAlreadyRegistered\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"OperatorNotRegistered\"},{\"inputs\":[],\"type\":\"error\",\"name\":\"SigningKeyAlreadyExists\"},{\"inputs\":[{\"internalType\":\"uint8\",\"name\":\"version\",\"type\":\"uint8\",\"indexed\":false}],\"type\":\"event\",\"name\":\"Initialized\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_old\",\"type\":\"uint256\",\"indexed\":false},{\"internalType\":\"uint256\",\"name\":\"_new\",\"type\":\"uint256\",\"indexed\":false}],\"type\":\"event\",\"name\":\"MinimumWeightUpdated\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\",\"indexed\":true},{\"internalType\":\"uint256\",\"name\":\"blockNumber\",\"type\":\"uint256\",\"indexed\":true},{\"internalType\":\"address\",\"name\":\"_avs\",\"type\":\"address\",\"indexed\":true}],\"type\":\"event\",\"name\":\"OperatorDeregistered\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\",\"indexed\":true},{\"internalType\":\"uint256\",\"name\":\"blockNumber\",\"type\":\"uint256\",\"indexed\":true},{\"internalType\":\"address\",\"name\":\"_p2pKey\",\"type\":\"address\",\"indexed\":true},{\"internalType\":\"address\",\"name\":\"_signingKey\",\"type\":\"address\",\"indexed\":false},{\"internalType\":\"address\",\"name\":\"_avs\",\"type\":\"address\",\"indexed\":false}],\"type\":\"event\",\"name\":\"OperatorRegistered\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\",\"indexed\":true},{\"internalType\":\"uint256\",\"name\":\"oldWeight\",\"type\":\"uint256\",\"indexed\":false},{\"internalType\":\"uint256\",\"name\":\"newWeight\",\"type\":\"uint256\",\"indexed\":false}],\"type\":\"event\",\"name\":\"OperatorWeightUpdated\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true},{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true}],\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"operator\",\"type\":\"address\",\"indexed\":true},{\"internalType\":\"address\",\"name\":\"newP2PKey\",\"type\":\"address\",\"indexed\":true},{\"internalType\":\"address\",\"name\":\"oldP2PKey\",\"type\":\"address\",\"indexed\":false}],\"type\":\"event\",\"name\":\"P2PKeyUpdate\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"structQuorum\",\"name\":\"_old\",\"type\":\"tuple\",\"components\":[{\"internalType\":\"structStrategyParams[]\",\"name\":\"strategies\",\"type\":\"tuple[]\",\"components\":[{\"internalType\":\"contractIStrategy\",\"name\":\"strategy\",\"type\":\"address\"},{\"internalType\":\"uint96\",\"name\":\"multiplier\",\"type\":\"uint96\"}]}],\"indexed\":false},{\"internalType\":\"structQuorum\",\"name\":\"_new\",\"type\":\"tuple\",\"components\":[{\"internalType\":\"structStrategyParams[]\",\"name\":\"strategies\",\"type\":\"tuple[]\",\"components\":[{\"internalType\":\"contractIStrategy\",\"name\":\"strategy\",\"type\":\"address\"},{\"internalType\":\"uint96\",\"name\":\"multiplier\",\"type\":\"uint96\"}]}],\"indexed\":false}],\"type\":\"event\",\"name\":\"QuorumUpdated\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"operator\",\"type\":\"address\",\"indexed\":true},{\"internalType\":\"address\",\"name\":\"newSigningKey\",\"type\":\"address\",\"indexed\":true},{\"internalType\":\"address\",\"name\":\"oldSigningKey\",\"type\":\"address\",\"indexed\":false}],\"type\":\"event\",\"name\":\"SigningKeyUpdate\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_thresholdWeight\",\"type\":\"uint256\",\"indexed\":false}],\"type\":\"event\",\"name\":\"ThresholdWeightUpdated\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"oldTotalWeight\",\"type\":\"uint256\",\"indexed\":false},{\"internalType\":\"uint256\",\"name\":\"newTotalWeight\",\"type\":\"uint256\",\"indexed\":false}],\"type\":\"event\",\"name\":\"TotalWeightUpdated\",\"anonymous\":false},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"oldMinimumWeight\",\"type\":\"uint256\",\"indexed\":false},{\"internalType\":\"uint256\",\"name\":\"newMinimumWeight\",\"type\":\"uint256\",\"indexed\":false}],\"type\":\"event\",\"name\":\"UpdateMinimumWeight\",\"anonymous\":false},{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"deregisterOperator\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getLastCheckpointOperatorWeight\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}]},{\"inputs\":[],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getLastCheckpointThresholdWeight\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}]},{\"inputs\":[],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getLastCheckpointTotalWeight\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}]},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getLastestOperatorP2PKey\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}]},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getLastestOperatorSigningKey\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}]},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\"},{\"internalType\":\"uint32\",\"name\":\"_epochNumber\",\"type\":\"uint32\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getOperatorSigningKeyAtEpoch\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}]},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getOperatorWeight\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}]},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\"},{\"internalType\":\"uint32\",\"name\":\"_epochNumber\",\"type\":\"uint32\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getOperatorWeightAtEpoch\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}]},{\"inputs\":[{\"internalType\":\"uint32\",\"name\":\"_referenceEpoch\",\"type\":\"uint32\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getThresholdStake\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}]},{\"inputs\":[{\"internalType\":\"uint32\",\"name\":\"_epochNumber\",\"type\":\"uint32\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getThresholdWeightAtEpoch\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}]},{\"inputs\":[{\"internalType\":\"uint32\",\"name\":\"_epochNumber\",\"type\":\"uint32\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"getTotalWeightAtEpoch\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}]},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_thresholdWeight\",\"type\":\"uint256\"},{\"internalType\":\"structQuorum\",\"name\":\"quorumParams\",\"type\":\"tuple\",\"components\":[{\"internalType\":\"structStrategyParams[]\",\"name\":\"strategies\",\"type\":\"tuple[]\",\"components\":[{\"internalType\":\"contractIStrategy\",\"name\":\"strategy\",\"type\":\"address\"},{\"internalType\":\"uint96\",\"name\":\"multiplier\",\"type\":\"uint96\"}]}]}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"initialize\"},{\"inputs\":[{\"internalType\":\"bytes32\",\"name\":\"_dataHash\",\"type\":\"bytes32\"},{\"internalType\":\"bytes\",\"name\":\"_signatureData\",\"type\":\"bytes\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"isValidSignature\",\"outputs\":[{\"internalType\":\"bytes4\",\"name\":\"\",\"type\":\"bytes4\"}]},{\"inputs\":[],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"minimumWeight\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}]},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_operator\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"operatorRegistered\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}]},{\"inputs\":[],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}]},{\"inputs\":[],\"stateMutability\":\"view\",\"type\":\"function\",\"name\":\"quorum\",\"outputs\":[{\"internalType\":\"structQuorum\",\"name\":\"\",\"type\":\"tuple\",\"components\":[{\"internalType\":\"structStrategyParams[]\",\"name\":\"strategies\",\"type\":\"tuple[]\",\"components\":[{\"internalType\":\"contractIStrategy\",\"name\":\"strategy\",\"type\":\"address\"},{\"internalType\":\"uint96\",\"name\":\"multiplier\",\"type\":\"uint96\"}]}]}]},{\"inputs\":[{\"internalType\":\"structISignatureUtils.SignatureWithSaltAndExpiry\",\"name\":\"_operatorSignature\",\"type\":\"tuple\",\"components\":[{\"internalType\":\"bytes\",\"name\":\"signature\",\"type\":\"bytes\"},{\"internalType\":\"bytes32\",\"name\":\"salt\",\"type\":\"bytes32\"},{\"internalType\":\"uint256\",\"name\":\"expiry\",\"type\":\"uint256\"}]},{\"internalType\":\"address\",\"name\":\"_signingKey\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"_p2pKey\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"registerOperatorWithSignature\"},{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"renounceOwnership\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"transferOwnership\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_newMinimumWeight\",\"type\":\"uint256\"},{\"internalType\":\"address[]\",\"name\":\"_operators\",\"type\":\"address[]\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"updateMinimumWeight\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_newP2PKey\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"updateOperatorP2PKey\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_newSigningKey\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"updateOperatorSigningKey\"},{\"inputs\":[{\"internalType\":\"address[]\",\"name\":\"_operators\",\"type\":\"address[]\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"updateOperators\"},{\"inputs\":[{\"internalType\":\"address[][]\",\"name\":\"operatorsPerQuorum\",\"type\":\"address[][]\"},{\"internalType\":\"bytes\",\"name\":\"\",\"type\":\"bytes\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"updateOperatorsForQuorum\"},{\"inputs\":[{\"internalType\":\"structQuorum\",\"name\":\"newQuorumConfig\",\"type\":\"tuple\",\"components\":[{\"internalType\":\"structStrategyParams[]\",\"name\":\"strategies\",\"type\":\"tuple[]\",\"components\":[{\"internalType\":\"contractIStrategy\",\"name\":\"strategy\",\"type\":\"address\"},{\"internalType\":\"uint96\",\"name\":\"multiplier\",\"type\":\"uint96\"}]}]},{\"internalType\":\"address[]\",\"name\":\"_operators\",\"type\":\"address[]\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"updateQuorumConfig\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_thresholdWeight\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\",\"name\":\"updateStakeThreshold\"}]",
 }
 
 // ECDSAStakeRegistryABI is the input ABI used to generate the binding from.
@@ -260,37 +260,6 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistryCallerSession) GetLastCheckpointThr
 	return _ECDSAStakeRegistry.Contract.GetLastCheckpointThresholdWeight(&_ECDSAStakeRegistry.CallOpts)
 }
 
-// GetLastCheckpointThresholdWeightAtEpoch is a free data retrieval call binding the contract method 0x14494e92.
-//
-// Solidity: function getLastCheckpointThresholdWeightAtEpoch(uint32 _epochNumber) view returns(uint256)
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryCaller) GetLastCheckpointThresholdWeightAtEpoch(opts *bind.CallOpts, _epochNumber uint32) (*big.Int, error) {
-	var out []interface{}
-	err := _ECDSAStakeRegistry.contract.Call(opts, &out, "getLastCheckpointThresholdWeightAtEpoch", _epochNumber)
-
-	if err != nil {
-		return *new(*big.Int), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
-
-	return out0, err
-
-}
-
-// GetLastCheckpointThresholdWeightAtEpoch is a free data retrieval call binding the contract method 0x14494e92.
-//
-// Solidity: function getLastCheckpointThresholdWeightAtEpoch(uint32 _epochNumber) view returns(uint256)
-func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) GetLastCheckpointThresholdWeightAtEpoch(_epochNumber uint32) (*big.Int, error) {
-	return _ECDSAStakeRegistry.Contract.GetLastCheckpointThresholdWeightAtEpoch(&_ECDSAStakeRegistry.CallOpts, _epochNumber)
-}
-
-// GetLastCheckpointThresholdWeightAtEpoch is a free data retrieval call binding the contract method 0x14494e92.
-//
-// Solidity: function getLastCheckpointThresholdWeightAtEpoch(uint32 _epochNumber) view returns(uint256)
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryCallerSession) GetLastCheckpointThresholdWeightAtEpoch(_epochNumber uint32) (*big.Int, error) {
-	return _ECDSAStakeRegistry.Contract.GetLastCheckpointThresholdWeightAtEpoch(&_ECDSAStakeRegistry.CallOpts, _epochNumber)
-}
-
 // GetLastCheckpointTotalWeight is a free data retrieval call binding the contract method 0x314f3a49.
 //
 // Solidity: function getLastCheckpointTotalWeight() view returns(uint256)
@@ -320,6 +289,37 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) GetLastCheckpointTotalWeig
 // Solidity: function getLastCheckpointTotalWeight() view returns(uint256)
 func (_ECDSAStakeRegistry *ECDSAStakeRegistryCallerSession) GetLastCheckpointTotalWeight() (*big.Int, error) {
 	return _ECDSAStakeRegistry.Contract.GetLastCheckpointTotalWeight(&_ECDSAStakeRegistry.CallOpts)
+}
+
+// GetLastestOperatorP2PKey is a free data retrieval call binding the contract method 0x84d6cf4f.
+//
+// Solidity: function getLastestOperatorP2PKey(address _operator) view returns(address)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryCaller) GetLastestOperatorP2PKey(opts *bind.CallOpts, _operator common.Address) (common.Address, error) {
+	var out []interface{}
+	err := _ECDSAStakeRegistry.contract.Call(opts, &out, "getLastestOperatorP2PKey", _operator)
+
+	if err != nil {
+		return *new(common.Address), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+
+	return out0, err
+
+}
+
+// GetLastestOperatorP2PKey is a free data retrieval call binding the contract method 0x84d6cf4f.
+//
+// Solidity: function getLastestOperatorP2PKey(address _operator) view returns(address)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) GetLastestOperatorP2PKey(_operator common.Address) (common.Address, error) {
+	return _ECDSAStakeRegistry.Contract.GetLastestOperatorP2PKey(&_ECDSAStakeRegistry.CallOpts, _operator)
+}
+
+// GetLastestOperatorP2PKey is a free data retrieval call binding the contract method 0x84d6cf4f.
+//
+// Solidity: function getLastestOperatorP2PKey(address _operator) view returns(address)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryCallerSession) GetLastestOperatorP2PKey(_operator common.Address) (common.Address, error) {
+	return _ECDSAStakeRegistry.Contract.GetLastestOperatorP2PKey(&_ECDSAStakeRegistry.CallOpts, _operator)
 }
 
 // GetLastestOperatorSigningKey is a free data retrieval call binding the contract method 0xcdcd3581.
@@ -444,6 +444,37 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) GetOperatorWeightAtEpoch(_
 // Solidity: function getOperatorWeightAtEpoch(address _operator, uint32 _epochNumber) view returns(uint256)
 func (_ECDSAStakeRegistry *ECDSAStakeRegistryCallerSession) GetOperatorWeightAtEpoch(_operator common.Address, _epochNumber uint32) (*big.Int, error) {
 	return _ECDSAStakeRegistry.Contract.GetOperatorWeightAtEpoch(&_ECDSAStakeRegistry.CallOpts, _operator, _epochNumber)
+}
+
+// GetThresholdStake is a free data retrieval call binding the contract method 0xb208cd38.
+//
+// Solidity: function getThresholdStake(uint32 _referenceEpoch) view returns(uint256)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryCaller) GetThresholdStake(opts *bind.CallOpts, _referenceEpoch uint32) (*big.Int, error) {
+	var out []interface{}
+	err := _ECDSAStakeRegistry.contract.Call(opts, &out, "getThresholdStake", _referenceEpoch)
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// GetThresholdStake is a free data retrieval call binding the contract method 0xb208cd38.
+//
+// Solidity: function getThresholdStake(uint32 _referenceEpoch) view returns(uint256)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) GetThresholdStake(_referenceEpoch uint32) (*big.Int, error) {
+	return _ECDSAStakeRegistry.Contract.GetThresholdStake(&_ECDSAStakeRegistry.CallOpts, _referenceEpoch)
+}
+
+// GetThresholdStake is a free data retrieval call binding the contract method 0xb208cd38.
+//
+// Solidity: function getThresholdStake(uint32 _referenceEpoch) view returns(uint256)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryCallerSession) GetThresholdStake(_referenceEpoch uint32) (*big.Int, error) {
+	return _ECDSAStakeRegistry.Contract.GetThresholdStake(&_ECDSAStakeRegistry.CallOpts, _referenceEpoch)
 }
 
 // GetThresholdWeightAtEpoch is a free data retrieval call binding the contract method 0xbb12059f.
@@ -686,44 +717,44 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) DeregisterOperat
 
 // Initialize is a paid mutator transaction binding the contract method 0x4251a489.
 //
-// Solidity: function initialize(uint256 _thresholdWeight, ((address,uint96)[]) _quorum) returns()
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactor) Initialize(opts *bind.TransactOpts, _thresholdWeight *big.Int, _quorum Quorum) (*types.Transaction, error) {
-	return _ECDSAStakeRegistry.contract.Transact(opts, "initialize", _thresholdWeight, _quorum)
+// Solidity: function initialize(uint256 _thresholdWeight, ((address,uint96)[]) quorumParams) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactor) Initialize(opts *bind.TransactOpts, _thresholdWeight *big.Int, quorumParams Quorum) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.contract.Transact(opts, "initialize", _thresholdWeight, quorumParams)
 }
 
 // Initialize is a paid mutator transaction binding the contract method 0x4251a489.
 //
-// Solidity: function initialize(uint256 _thresholdWeight, ((address,uint96)[]) _quorum) returns()
-func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) Initialize(_thresholdWeight *big.Int, _quorum Quorum) (*types.Transaction, error) {
-	return _ECDSAStakeRegistry.Contract.Initialize(&_ECDSAStakeRegistry.TransactOpts, _thresholdWeight, _quorum)
+// Solidity: function initialize(uint256 _thresholdWeight, ((address,uint96)[]) quorumParams) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) Initialize(_thresholdWeight *big.Int, quorumParams Quorum) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.Contract.Initialize(&_ECDSAStakeRegistry.TransactOpts, _thresholdWeight, quorumParams)
 }
 
 // Initialize is a paid mutator transaction binding the contract method 0x4251a489.
 //
-// Solidity: function initialize(uint256 _thresholdWeight, ((address,uint96)[]) _quorum) returns()
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) Initialize(_thresholdWeight *big.Int, _quorum Quorum) (*types.Transaction, error) {
-	return _ECDSAStakeRegistry.Contract.Initialize(&_ECDSAStakeRegistry.TransactOpts, _thresholdWeight, _quorum)
+// Solidity: function initialize(uint256 _thresholdWeight, ((address,uint96)[]) quorumParams) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) Initialize(_thresholdWeight *big.Int, quorumParams Quorum) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.Contract.Initialize(&_ECDSAStakeRegistry.TransactOpts, _thresholdWeight, quorumParams)
 }
 
-// RegisterOperatorWithSignature is a paid mutator transaction binding the contract method 0x3d5611f6.
+// RegisterOperatorWithSignature is a paid mutator transaction binding the contract method 0x2a855b17.
 //
-// Solidity: function registerOperatorWithSignature((bytes,bytes32,uint256) _operatorSignature, address _signingKey) returns()
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactor) RegisterOperatorWithSignature(opts *bind.TransactOpts, _operatorSignature ISignatureUtilsSignatureWithSaltAndExpiry, _signingKey common.Address) (*types.Transaction, error) {
-	return _ECDSAStakeRegistry.contract.Transact(opts, "registerOperatorWithSignature", _operatorSignature, _signingKey)
+// Solidity: function registerOperatorWithSignature((bytes,bytes32,uint256) _operatorSignature, address _signingKey, address _p2pKey) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactor) RegisterOperatorWithSignature(opts *bind.TransactOpts, _operatorSignature ISignatureUtilsSignatureWithSaltAndExpiry, _signingKey common.Address, _p2pKey common.Address) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.contract.Transact(opts, "registerOperatorWithSignature", _operatorSignature, _signingKey, _p2pKey)
 }
 
-// RegisterOperatorWithSignature is a paid mutator transaction binding the contract method 0x3d5611f6.
+// RegisterOperatorWithSignature is a paid mutator transaction binding the contract method 0x2a855b17.
 //
-// Solidity: function registerOperatorWithSignature((bytes,bytes32,uint256) _operatorSignature, address _signingKey) returns()
-func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) RegisterOperatorWithSignature(_operatorSignature ISignatureUtilsSignatureWithSaltAndExpiry, _signingKey common.Address) (*types.Transaction, error) {
-	return _ECDSAStakeRegistry.Contract.RegisterOperatorWithSignature(&_ECDSAStakeRegistry.TransactOpts, _operatorSignature, _signingKey)
+// Solidity: function registerOperatorWithSignature((bytes,bytes32,uint256) _operatorSignature, address _signingKey, address _p2pKey) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) RegisterOperatorWithSignature(_operatorSignature ISignatureUtilsSignatureWithSaltAndExpiry, _signingKey common.Address, _p2pKey common.Address) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.Contract.RegisterOperatorWithSignature(&_ECDSAStakeRegistry.TransactOpts, _operatorSignature, _signingKey, _p2pKey)
 }
 
-// RegisterOperatorWithSignature is a paid mutator transaction binding the contract method 0x3d5611f6.
+// RegisterOperatorWithSignature is a paid mutator transaction binding the contract method 0x2a855b17.
 //
-// Solidity: function registerOperatorWithSignature((bytes,bytes32,uint256) _operatorSignature, address _signingKey) returns()
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) RegisterOperatorWithSignature(_operatorSignature ISignatureUtilsSignatureWithSaltAndExpiry, _signingKey common.Address) (*types.Transaction, error) {
-	return _ECDSAStakeRegistry.Contract.RegisterOperatorWithSignature(&_ECDSAStakeRegistry.TransactOpts, _operatorSignature, _signingKey)
+// Solidity: function registerOperatorWithSignature((bytes,bytes32,uint256) _operatorSignature, address _signingKey, address _p2pKey) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) RegisterOperatorWithSignature(_operatorSignature ISignatureUtilsSignatureWithSaltAndExpiry, _signingKey common.Address, _p2pKey common.Address) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.Contract.RegisterOperatorWithSignature(&_ECDSAStakeRegistry.TransactOpts, _operatorSignature, _signingKey, _p2pKey)
 }
 
 // RenounceOwnership is a paid mutator transaction binding the contract method 0x715018a6.
@@ -787,6 +818,27 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) UpdateMinimumWeight(_newMi
 // Solidity: function updateMinimumWeight(uint256 _newMinimumWeight, address[] _operators) returns()
 func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) UpdateMinimumWeight(_newMinimumWeight *big.Int, _operators []common.Address) (*types.Transaction, error) {
 	return _ECDSAStakeRegistry.Contract.UpdateMinimumWeight(&_ECDSAStakeRegistry.TransactOpts, _newMinimumWeight, _operators)
+}
+
+// UpdateOperatorP2PKey is a paid mutator transaction binding the contract method 0xddf6ee62.
+//
+// Solidity: function updateOperatorP2PKey(address _newP2PKey) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactor) UpdateOperatorP2PKey(opts *bind.TransactOpts, _newP2PKey common.Address) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.contract.Transact(opts, "updateOperatorP2PKey", _newP2PKey)
+}
+
+// UpdateOperatorP2PKey is a paid mutator transaction binding the contract method 0xddf6ee62.
+//
+// Solidity: function updateOperatorP2PKey(address _newP2PKey) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) UpdateOperatorP2PKey(_newP2PKey common.Address) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.Contract.UpdateOperatorP2PKey(&_ECDSAStakeRegistry.TransactOpts, _newP2PKey)
+}
+
+// UpdateOperatorP2PKey is a paid mutator transaction binding the contract method 0xddf6ee62.
+//
+// Solidity: function updateOperatorP2PKey(address _newP2PKey) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) UpdateOperatorP2PKey(_newP2PKey common.Address) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.Contract.UpdateOperatorP2PKey(&_ECDSAStakeRegistry.TransactOpts, _newP2PKey)
 }
 
 // UpdateOperatorSigningKey is a paid mutator transaction binding the contract method 0x743c31f4.
@@ -854,23 +906,23 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) UpdateOperatorsF
 
 // UpdateQuorumConfig is a paid mutator transaction binding the contract method 0xdec5d1f6.
 //
-// Solidity: function updateQuorumConfig(((address,uint96)[]) _quorum, address[] _operators) returns()
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactor) UpdateQuorumConfig(opts *bind.TransactOpts, _quorum Quorum, _operators []common.Address) (*types.Transaction, error) {
-	return _ECDSAStakeRegistry.contract.Transact(opts, "updateQuorumConfig", _quorum, _operators)
+// Solidity: function updateQuorumConfig(((address,uint96)[]) newQuorumConfig, address[] _operators) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactor) UpdateQuorumConfig(opts *bind.TransactOpts, newQuorumConfig Quorum, _operators []common.Address) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.contract.Transact(opts, "updateQuorumConfig", newQuorumConfig, _operators)
 }
 
 // UpdateQuorumConfig is a paid mutator transaction binding the contract method 0xdec5d1f6.
 //
-// Solidity: function updateQuorumConfig(((address,uint96)[]) _quorum, address[] _operators) returns()
-func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) UpdateQuorumConfig(_quorum Quorum, _operators []common.Address) (*types.Transaction, error) {
-	return _ECDSAStakeRegistry.Contract.UpdateQuorumConfig(&_ECDSAStakeRegistry.TransactOpts, _quorum, _operators)
+// Solidity: function updateQuorumConfig(((address,uint96)[]) newQuorumConfig, address[] _operators) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistrySession) UpdateQuorumConfig(newQuorumConfig Quorum, _operators []common.Address) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.Contract.UpdateQuorumConfig(&_ECDSAStakeRegistry.TransactOpts, newQuorumConfig, _operators)
 }
 
 // UpdateQuorumConfig is a paid mutator transaction binding the contract method 0xdec5d1f6.
 //
-// Solidity: function updateQuorumConfig(((address,uint96)[]) _quorum, address[] _operators) returns()
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) UpdateQuorumConfig(_quorum Quorum, _operators []common.Address) (*types.Transaction, error) {
-	return _ECDSAStakeRegistry.Contract.UpdateQuorumConfig(&_ECDSAStakeRegistry.TransactOpts, _quorum, _operators)
+// Solidity: function updateQuorumConfig(((address,uint96)[]) newQuorumConfig, address[] _operators) returns()
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryTransactorSession) UpdateQuorumConfig(newQuorumConfig Quorum, _operators []common.Address) (*types.Transaction, error) {
+	return _ECDSAStakeRegistry.Contract.UpdateQuorumConfig(&_ECDSAStakeRegistry.TransactOpts, newQuorumConfig, _operators)
 }
 
 // UpdateStakeThreshold is a paid mutator transaction binding the contract method 0x5ef53329.
@@ -1396,16 +1448,16 @@ func (it *ECDSAStakeRegistryOperatorRegisteredIterator) Close() error {
 type ECDSAStakeRegistryOperatorRegistered struct {
 	Operator    common.Address
 	BlockNumber *big.Int
+	P2pKey      common.Address
 	SigningKey  common.Address
-	Timestamp   *big.Int
 	Avs         common.Address
 	Raw         types.Log // Blockchain specific contextual infos
 }
 
-// FilterOperatorRegistered is a free log retrieval operation binding the contract event 0x2cc12af15d607deb355aaef5caeae8ce4ee3e0e82b5730cf3af743ed51c51c89.
+// FilterOperatorRegistered is a free log retrieval operation binding the contract event 0xe0a0b7f17ef76bcee73033890bc3864e96d49ea12881e0b4b0b4b865c890ff4e.
 //
-// Solidity: event OperatorRegistered(address indexed _operator, uint256 indexed blockNumber, address indexed _signingKey, uint256 timestamp, address _avs)
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) FilterOperatorRegistered(opts *bind.FilterOpts, _operator []common.Address, blockNumber []*big.Int, _signingKey []common.Address) (*ECDSAStakeRegistryOperatorRegisteredIterator, error) {
+// Solidity: event OperatorRegistered(address indexed _operator, uint256 indexed blockNumber, address indexed _p2pKey, address _signingKey, address _avs)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) FilterOperatorRegistered(opts *bind.FilterOpts, _operator []common.Address, blockNumber []*big.Int, _p2pKey []common.Address) (*ECDSAStakeRegistryOperatorRegisteredIterator, error) {
 
 	var _operatorRule []interface{}
 	for _, _operatorItem := range _operator {
@@ -1415,22 +1467,22 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) FilterOperatorRegistered(
 	for _, blockNumberItem := range blockNumber {
 		blockNumberRule = append(blockNumberRule, blockNumberItem)
 	}
-	var _signingKeyRule []interface{}
-	for _, _signingKeyItem := range _signingKey {
-		_signingKeyRule = append(_signingKeyRule, _signingKeyItem)
+	var _p2pKeyRule []interface{}
+	for _, _p2pKeyItem := range _p2pKey {
+		_p2pKeyRule = append(_p2pKeyRule, _p2pKeyItem)
 	}
 
-	logs, sub, err := _ECDSAStakeRegistry.contract.FilterLogs(opts, "OperatorRegistered", _operatorRule, blockNumberRule, _signingKeyRule)
+	logs, sub, err := _ECDSAStakeRegistry.contract.FilterLogs(opts, "OperatorRegistered", _operatorRule, blockNumberRule, _p2pKeyRule)
 	if err != nil {
 		return nil, err
 	}
 	return &ECDSAStakeRegistryOperatorRegisteredIterator{contract: _ECDSAStakeRegistry.contract, event: "OperatorRegistered", logs: logs, sub: sub}, nil
 }
 
-// WatchOperatorRegistered is a free log subscription operation binding the contract event 0x2cc12af15d607deb355aaef5caeae8ce4ee3e0e82b5730cf3af743ed51c51c89.
+// WatchOperatorRegistered is a free log subscription operation binding the contract event 0xe0a0b7f17ef76bcee73033890bc3864e96d49ea12881e0b4b0b4b865c890ff4e.
 //
-// Solidity: event OperatorRegistered(address indexed _operator, uint256 indexed blockNumber, address indexed _signingKey, uint256 timestamp, address _avs)
-func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) WatchOperatorRegistered(opts *bind.WatchOpts, sink chan<- *ECDSAStakeRegistryOperatorRegistered, _operator []common.Address, blockNumber []*big.Int, _signingKey []common.Address) (event.Subscription, error) {
+// Solidity: event OperatorRegistered(address indexed _operator, uint256 indexed blockNumber, address indexed _p2pKey, address _signingKey, address _avs)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) WatchOperatorRegistered(opts *bind.WatchOpts, sink chan<- *ECDSAStakeRegistryOperatorRegistered, _operator []common.Address, blockNumber []*big.Int, _p2pKey []common.Address) (event.Subscription, error) {
 
 	var _operatorRule []interface{}
 	for _, _operatorItem := range _operator {
@@ -1440,12 +1492,12 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) WatchOperatorRegistered(o
 	for _, blockNumberItem := range blockNumber {
 		blockNumberRule = append(blockNumberRule, blockNumberItem)
 	}
-	var _signingKeyRule []interface{}
-	for _, _signingKeyItem := range _signingKey {
-		_signingKeyRule = append(_signingKeyRule, _signingKeyItem)
+	var _p2pKeyRule []interface{}
+	for _, _p2pKeyItem := range _p2pKey {
+		_p2pKeyRule = append(_p2pKeyRule, _p2pKeyItem)
 	}
 
-	logs, sub, err := _ECDSAStakeRegistry.contract.WatchLogs(opts, "OperatorRegistered", _operatorRule, blockNumberRule, _signingKeyRule)
+	logs, sub, err := _ECDSAStakeRegistry.contract.WatchLogs(opts, "OperatorRegistered", _operatorRule, blockNumberRule, _p2pKeyRule)
 	if err != nil {
 		return nil, err
 	}
@@ -1477,9 +1529,9 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) WatchOperatorRegistered(o
 	}), nil
 }
 
-// ParseOperatorRegistered is a log parse operation binding the contract event 0x2cc12af15d607deb355aaef5caeae8ce4ee3e0e82b5730cf3af743ed51c51c89.
+// ParseOperatorRegistered is a log parse operation binding the contract event 0xe0a0b7f17ef76bcee73033890bc3864e96d49ea12881e0b4b0b4b865c890ff4e.
 //
-// Solidity: event OperatorRegistered(address indexed _operator, uint256 indexed blockNumber, address indexed _signingKey, uint256 timestamp, address _avs)
+// Solidity: event OperatorRegistered(address indexed _operator, uint256 indexed blockNumber, address indexed _p2pKey, address _signingKey, address _avs)
 func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) ParseOperatorRegistered(log types.Log) (*ECDSAStakeRegistryOperatorRegistered, error) {
 	event := new(ECDSAStakeRegistryOperatorRegistered)
 	if err := _ECDSAStakeRegistry.contract.UnpackLog(event, "OperatorRegistered", log); err != nil {
@@ -1782,6 +1834,160 @@ func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) WatchOwnershipTransferred
 func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) ParseOwnershipTransferred(log types.Log) (*ECDSAStakeRegistryOwnershipTransferred, error) {
 	event := new(ECDSAStakeRegistryOwnershipTransferred)
 	if err := _ECDSAStakeRegistry.contract.UnpackLog(event, "OwnershipTransferred", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// ECDSAStakeRegistryP2PKeyUpdateIterator is returned from FilterP2PKeyUpdate and is used to iterate over the raw logs and unpacked data for P2PKeyUpdate events raised by the ECDSAStakeRegistry contract.
+type ECDSAStakeRegistryP2PKeyUpdateIterator struct {
+	Event *ECDSAStakeRegistryP2PKeyUpdate // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *ECDSAStakeRegistryP2PKeyUpdateIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(ECDSAStakeRegistryP2PKeyUpdate)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(ECDSAStakeRegistryP2PKeyUpdate)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *ECDSAStakeRegistryP2PKeyUpdateIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *ECDSAStakeRegistryP2PKeyUpdateIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// ECDSAStakeRegistryP2PKeyUpdate represents a P2PKeyUpdate event raised by the ECDSAStakeRegistry contract.
+type ECDSAStakeRegistryP2PKeyUpdate struct {
+	Operator  common.Address
+	NewP2PKey common.Address
+	OldP2PKey common.Address
+	Raw       types.Log // Blockchain specific contextual infos
+}
+
+// FilterP2PKeyUpdate is a free log retrieval operation binding the contract event 0x1ac6dfe4a3a4302bd7582864b20e7e6350fc9fe83be3626d2978e791e354a65d.
+//
+// Solidity: event P2PKeyUpdate(address indexed operator, address indexed newP2PKey, address oldP2PKey)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) FilterP2PKeyUpdate(opts *bind.FilterOpts, operator []common.Address, newP2PKey []common.Address) (*ECDSAStakeRegistryP2PKeyUpdateIterator, error) {
+
+	var operatorRule []interface{}
+	for _, operatorItem := range operator {
+		operatorRule = append(operatorRule, operatorItem)
+	}
+	var newP2PKeyRule []interface{}
+	for _, newP2PKeyItem := range newP2PKey {
+		newP2PKeyRule = append(newP2PKeyRule, newP2PKeyItem)
+	}
+
+	logs, sub, err := _ECDSAStakeRegistry.contract.FilterLogs(opts, "P2PKeyUpdate", operatorRule, newP2PKeyRule)
+	if err != nil {
+		return nil, err
+	}
+	return &ECDSAStakeRegistryP2PKeyUpdateIterator{contract: _ECDSAStakeRegistry.contract, event: "P2PKeyUpdate", logs: logs, sub: sub}, nil
+}
+
+// WatchP2PKeyUpdate is a free log subscription operation binding the contract event 0x1ac6dfe4a3a4302bd7582864b20e7e6350fc9fe83be3626d2978e791e354a65d.
+//
+// Solidity: event P2PKeyUpdate(address indexed operator, address indexed newP2PKey, address oldP2PKey)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) WatchP2PKeyUpdate(opts *bind.WatchOpts, sink chan<- *ECDSAStakeRegistryP2PKeyUpdate, operator []common.Address, newP2PKey []common.Address) (event.Subscription, error) {
+
+	var operatorRule []interface{}
+	for _, operatorItem := range operator {
+		operatorRule = append(operatorRule, operatorItem)
+	}
+	var newP2PKeyRule []interface{}
+	for _, newP2PKeyItem := range newP2PKey {
+		newP2PKeyRule = append(newP2PKeyRule, newP2PKeyItem)
+	}
+
+	logs, sub, err := _ECDSAStakeRegistry.contract.WatchLogs(opts, "P2PKeyUpdate", operatorRule, newP2PKeyRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(ECDSAStakeRegistryP2PKeyUpdate)
+				if err := _ECDSAStakeRegistry.contract.UnpackLog(event, "P2PKeyUpdate", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseP2PKeyUpdate is a log parse operation binding the contract event 0x1ac6dfe4a3a4302bd7582864b20e7e6350fc9fe83be3626d2978e791e354a65d.
+//
+// Solidity: event P2PKeyUpdate(address indexed operator, address indexed newP2PKey, address oldP2PKey)
+func (_ECDSAStakeRegistry *ECDSAStakeRegistryFilterer) ParseP2PKeyUpdate(log types.Log) (*ECDSAStakeRegistryP2PKeyUpdate, error) {
+	event := new(ECDSAStakeRegistryP2PKeyUpdate)
+	if err := _ECDSAStakeRegistry.contract.UnpackLog(event, "P2PKeyUpdate", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log

@@ -11,18 +11,14 @@ import (
 )
 
 type ConsensusResponse struct {
-	ID                   int64          `json:"id"`
 	TaskID               string         `json:"task_id"`
 	Epoch                uint32         `json:"epoch"`
-	Value                pgtype.Numeric `json:"value"`
-	Key                  pgtype.Numeric `json:"key"`
-	TotalWeight          pgtype.Numeric `json:"total_weight"`
 	ChainID              uint32         `json:"chain_id"`
-	BlockNumber          uint64         `json:"block_number"`
 	TargetAddress        string         `json:"target_address"`
+	BlockNumber          uint64         `json:"block_number"`
+	Key                  pgtype.Numeric `json:"key"`
+	Value                pgtype.Numeric `json:"value"`
 	AggregatedSignatures []byte         `json:"aggregated_signatures"`
-	OperatorSignatures   []byte         `json:"operator_signatures"`
-	ConsensusReachedAt   *time.Time     `json:"consensus_reached_at"`
 	CreatedAt            time.Time      `json:"created_at"`
 	UpdatedAt            time.Time      `json:"updated_at"`
 }

@@ -1,35 +1,35 @@
--- name: BlockNode :one
+-- name: IncrementViolationCount :one
 -- -- timeout: 500ms
 -- -- invalidate: IsBlocked
 INSERT INTO blacklist (
     peer_id,
-    ip,
-    reason,
+    violation_count,
     expires_at
 ) VALUES (
     @peer_id,
-    @ip,
-    @reason,
+    @violation_count,
     @expires_at
 )
-ON CONFLICT (peer_id, ip) DO UPDATE
+ON CONFLICT (peer_id) DO UPDATE
 SET 
-    reason = EXCLUDED.reason,
-    expires_at = EXCLUDED.expires_at
+    violation_count = blacklist.violation_count + EXCLUDED.violation_count,
+    expires_at = EXCLUDED.expires_at,
+    updated_at = NOW()
 RETURNING *;
 
 -- name: UnblockNode :exec
 -- -- timeout: 500ms
 -- -- invalidate: IsBlocked
 DELETE FROM blacklist 
-WHERE peer_id = @peer_id AND ip = @ip;
+WHERE peer_id = @peer_id;
 
 -- name: IsBlocked :one
--- -- timeout: 100ms
 -- -- cache: 24h
+-- -- timeout: 100ms
 SELECT EXISTS (
     SELECT 1 FROM blacklist
-    WHERE (peer_id = @peer_id OR ip = @ip)
+    WHERE peer_id = @peer_id
+    AND violation_count >= 3
     AND (expires_at IS NULL OR expires_at > NOW())
 ) as is_blocked;
 
@@ -43,10 +43,8 @@ OFFSET COALESCE(sqlc.arg('offset')::int, 0);
 
 -- name: CleanExpiredBlocks :exec
 -- -- timeout: 5s
+-- -- invalidate: IsBlocked
 DELETE FROM blacklist
 WHERE expires_at < NOW();
 
--- name: RefreshIDSerial :exec
--- -- timeout: 300ms
-SELECT setval(pg_get_serial_sequence('blacklist', 'id'), (SELECT MAX(id) FROM blacklist)+1, false);
 

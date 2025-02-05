@@ -8,7 +8,7 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DBNAME=spotted
 
-.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean generate-bindings clean-bindings
 
 # Install golangci-lint
 install-lint:
@@ -222,3 +222,23 @@ test-infra-down:
 test-infra-clean: test-infra-down
 	docker volume rm -f spotted-network_postgres_data
 
+# Generate contract bindings
+generate-bindings: clean-bindings
+	@echo "Creating bindings directory..."
+	@mkdir -p pkg/common/contracts/bindings
+	
+	@echo "Generating ECDSA Stake Registry bindings..."
+	@abigen --abi abi/ecdsa_stake_registry.json --pkg bindings --type ECDSAStakeRegistry --out pkg/common/contracts/bindings/ecdsa_stake_registry.go
+	
+	@echo "Generating Epoch Manager bindings..."
+	@abigen --abi abi/epoch_manager.json --pkg bindings --type EpochManager --out pkg/common/contracts/bindings/epoch_manager.go
+	
+	@echo "Generating State Manager bindings..."
+	@abigen --abi abi/state_manager.json --pkg bindings --type StateManager --out pkg/common/contracts/bindings/state_manager.go
+	
+	@echo "All contract bindings generated successfully"
+
+# Clean old bindings
+clean-bindings:
+	@echo "Cleaning old bindings..."
+	@rm -f pkg/common/contracts/bindings/*.go

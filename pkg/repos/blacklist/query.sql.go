@@ -18,53 +18,84 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const blockNode = `-- name: BlockNode :one
+const cleanExpiredBlocks = `-- name: CleanExpiredBlocks :exec
+DELETE FROM blacklist
+WHERE expires_at < NOW()
+`
+
+// -- timeout: 5s
+// -- invalidate: IsBlocked
+func (q *Queries) CleanExpiredBlocks(ctx context.Context, isBlocked *string) error {
+	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*5000)
+	defer cancel()
+	_, err := q.db.WExec(qctx, "blacklist.CleanExpiredBlocks", cleanExpiredBlocks)
+	if err != nil {
+		return err
+	}
+	// invalidate
+	_ = q.db.PostExec(func() error {
+		anyErr := make(chan error, 1)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if isBlocked != nil {
+				key := "blacklist:IsBlocked:" + hashIfLong(fmt.Sprintf("%+v", (*isBlocked)))
+				err = q.cache.Invalidate(ctx, key)
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msgf(
+						"Failed to invalidate: %s", key)
+					anyErr <- err
+				}
+			}
+		}()
+		wg.Wait()
+		close(anyErr)
+		return <-anyErr
+	})
+	return nil
+}
+
+const incrementViolationCount = `-- name: IncrementViolationCount :one
 INSERT INTO blacklist (
     peer_id,
-    ip,
-    reason,
+    violation_count,
     expires_at
 ) VALUES (
     $1,
     $2,
-    $3,
-    $4
+    $3
 )
-ON CONFLICT (peer_id, ip) DO UPDATE
+ON CONFLICT (peer_id) DO UPDATE
 SET 
-    reason = EXCLUDED.reason,
-    expires_at = EXCLUDED.expires_at
-RETURNING id, peer_id, ip, reason, created_at, expires_at
+    violation_count = blacklist.violation_count + EXCLUDED.violation_count,
+    expires_at = EXCLUDED.expires_at,
+    updated_at = NOW()
+RETURNING peer_id, violation_count, created_at, updated_at, expires_at
 `
 
-type BlockNodeParams struct {
-	PeerID    string     `json:"peer_id"`
-	Ip        string     `json:"ip"`
-	Reason    *string    `json:"reason"`
-	ExpiresAt *time.Time `json:"expires_at"`
+type IncrementViolationCountParams struct {
+	PeerID         string     `json:"peer_id"`
+	ViolationCount int32      `json:"violation_count"`
+	ExpiresAt      *time.Time `json:"expires_at"`
 }
 
 // -- timeout: 500ms
 // -- invalidate: IsBlocked
-func (q *Queries) BlockNode(ctx context.Context, arg BlockNodeParams, isBlocked *IsBlockedParams) (*Blacklist, error) {
-	return _BlockNode(ctx, q, arg, isBlocked)
+func (q *Queries) IncrementViolationCount(ctx context.Context, arg IncrementViolationCountParams, isBlocked *string) (*Blacklist, error) {
+	return _IncrementViolationCount(ctx, q, arg, isBlocked)
 }
 
-func _BlockNode(ctx context.Context, q CacheWGConn, arg BlockNodeParams, isBlocked *IsBlockedParams) (*Blacklist, error) {
+func _IncrementViolationCount(ctx context.Context, q CacheWGConn, arg IncrementViolationCountParams, isBlocked *string) (*Blacklist, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
-	row := q.GetConn().WQueryRow(qctx, "blacklist.BlockNode", blockNode,
-		arg.PeerID,
-		arg.Ip,
-		arg.Reason,
-		arg.ExpiresAt)
+	row := q.GetConn().WQueryRow(qctx, "blacklist.IncrementViolationCount", incrementViolationCount, arg.PeerID, arg.ViolationCount, arg.ExpiresAt)
 	var i *Blacklist = new(Blacklist)
 	err := row.Scan(
-		&i.ID,
 		&i.PeerID,
-		&i.Ip,
-		&i.Reason,
+		&i.ViolationCount,
 		&i.CreatedAt,
+		&i.UpdatedAt,
 		&i.ExpiresAt,
 	)
 	if err == pgx.ErrNoRows {
@@ -81,7 +112,7 @@ func _BlockNode(ctx context.Context, q CacheWGConn, arg BlockNodeParams, isBlock
 		go func() {
 			defer wg.Done()
 			if isBlocked != nil {
-				key := (*isBlocked).CacheKey()
+				key := "blacklist:IsBlocked:" + hashIfLong(fmt.Sprintf("%+v", (*isBlocked)))
 				err = q.GetCache().Invalidate(ctx, key)
 				if err != nil {
 					log.Ctx(ctx).Error().Err(err).Msgf(
@@ -97,59 +128,32 @@ func _BlockNode(ctx context.Context, q CacheWGConn, arg BlockNodeParams, isBlock
 	return i, err
 }
 
-const cleanExpiredBlocks = `-- name: CleanExpiredBlocks :exec
-DELETE FROM blacklist
-WHERE expires_at < NOW()
-`
-
-// -- timeout: 5s
-func (q *Queries) CleanExpiredBlocks(ctx context.Context) error {
-	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*5000)
-	defer cancel()
-	_, err := q.db.WExec(qctx, "blacklist.CleanExpiredBlocks", cleanExpiredBlocks)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 const isBlocked = `-- name: IsBlocked :one
 SELECT EXISTS (
     SELECT 1 FROM blacklist
-    WHERE (peer_id = $1 OR ip = $2)
+    WHERE peer_id = $1
+    AND violation_count >= 3
     AND (expires_at IS NULL OR expires_at > NOW())
 ) as is_blocked
 `
 
-type IsBlockedParams struct {
-	PeerID string `json:"peer_id"`
-	Ip     string `json:"ip"`
-}
-
-// CacheKey - cache key
-func (arg IsBlockedParams) CacheKey() string {
-	prefix := "blacklist:IsBlocked:"
-	return prefix + hashIfLong(fmt.Sprintf("%+v,%+v", arg.PeerID, arg.Ip))
-}
-
-// -- timeout: 100ms
 // -- cache: 24h
-func (q *Queries) IsBlocked(ctx context.Context, arg IsBlockedParams) (*bool, error) {
-	return _IsBlocked(ctx, q.AsReadOnly(), arg)
+// -- timeout: 100ms
+func (q *Queries) IsBlocked(ctx context.Context, peerID string) (*bool, error) {
+	return _IsBlocked(ctx, q.AsReadOnly(), peerID)
 }
 
-func (q *ReadOnlyQueries) IsBlocked(ctx context.Context, arg IsBlockedParams) (*bool, error) {
-	return _IsBlocked(ctx, q, arg)
+func (q *ReadOnlyQueries) IsBlocked(ctx context.Context, peerID string) (*bool, error) {
+	return _IsBlocked(ctx, q, peerID)
 }
 
-func _IsBlocked(ctx context.Context, q CacheQuerierConn, arg IsBlockedParams) (*bool, error) {
+func _IsBlocked(ctx context.Context, q CacheQuerierConn, peerID string) (*bool, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
 	defer cancel()
 	q.GetConn().CountIntent("blacklist.IsBlocked")
 	dbRead := func() (any, time.Duration, error) {
 		cacheDuration := time.Duration(time.Millisecond * 86400000)
-		row := q.GetConn().WQueryRow(qctx, "blacklist.IsBlocked", isBlocked, arg.PeerID, arg.Ip)
+		row := q.GetConn().WQueryRow(qctx, "blacklist.IsBlocked", isBlocked, peerID)
 		var is_blocked *bool = new(bool)
 		err := row.Scan(is_blocked)
 		if err == pgx.ErrNoRows {
@@ -163,7 +167,7 @@ func _IsBlocked(ctx context.Context, q CacheQuerierConn, arg IsBlockedParams) (*
 	}
 
 	var is_blocked *bool
-	err := q.GetCache().GetWithTtl(qctx, arg.CacheKey(), &is_blocked, dbRead, false, false)
+	err := q.GetCache().GetWithTtl(qctx, "blacklist:IsBlocked:"+hashIfLong(fmt.Sprintf("%+v", peerID)), &is_blocked, dbRead, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +176,7 @@ func _IsBlocked(ctx context.Context, q CacheQuerierConn, arg IsBlockedParams) (*
 }
 
 const listBlacklist = `-- name: ListBlacklist :many
-SELECT id, peer_id, ip, reason, created_at, expires_at FROM blacklist
+SELECT peer_id, violation_count, created_at, updated_at, expires_at FROM blacklist
 WHERE expires_at IS NULL OR expires_at > NOW()
 ORDER BY created_at DESC
 LIMIT COALESCE($2::int, 100)
@@ -206,11 +210,10 @@ func _ListBlacklist(ctx context.Context, q CacheQuerierConn, arg ListBlacklistPa
 	for rows.Next() {
 		var i *Blacklist = new(Blacklist)
 		if err := rows.Scan(
-			&i.ID,
 			&i.PeerID,
-			&i.Ip,
-			&i.Reason,
+			&i.ViolationCount,
 			&i.CreatedAt,
+			&i.UpdatedAt,
 			&i.ExpiresAt,
 		); err != nil {
 			return nil, err
@@ -224,38 +227,17 @@ func _ListBlacklist(ctx context.Context, q CacheQuerierConn, arg ListBlacklistPa
 	return items, err
 }
 
-const refreshIDSerial = `-- name: RefreshIDSerial :exec
-SELECT setval(pg_get_serial_sequence('blacklist', 'id'), (SELECT MAX(id) FROM blacklist)+1, false)
-`
-
-// -- timeout: 300ms
-func (q *Queries) RefreshIDSerial(ctx context.Context) error {
-	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*300)
-	defer cancel()
-	_, err := q.db.WExec(qctx, "blacklist.RefreshIDSerial", refreshIDSerial)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 const unblockNode = `-- name: UnblockNode :exec
 DELETE FROM blacklist 
-WHERE peer_id = $1 AND ip = $2
+WHERE peer_id = $1
 `
-
-type UnblockNodeParams struct {
-	PeerID string `json:"peer_id"`
-	Ip     string `json:"ip"`
-}
 
 // -- timeout: 500ms
 // -- invalidate: IsBlocked
-func (q *Queries) UnblockNode(ctx context.Context, arg UnblockNodeParams, isBlocked *IsBlockedParams) error {
+func (q *Queries) UnblockNode(ctx context.Context, peerID string, isBlocked *string) error {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
-	_, err := q.db.WExec(qctx, "blacklist.UnblockNode", unblockNode, arg.PeerID, arg.Ip)
+	_, err := q.db.WExec(qctx, "blacklist.UnblockNode", unblockNode, peerID)
 	if err != nil {
 		return err
 	}
@@ -267,7 +249,7 @@ func (q *Queries) UnblockNode(ctx context.Context, arg UnblockNodeParams, isBloc
 		go func() {
 			defer wg.Done()
 			if isBlocked != nil {
-				key := (*isBlocked).CacheKey()
+				key := "blacklist:IsBlocked:" + hashIfLong(fmt.Sprintf("%+v", (*isBlocked)))
 				err = q.cache.Invalidate(ctx, key)
 				if err != nil {
 					log.Ctx(ctx).Error().Err(err).Msgf(
@@ -286,7 +268,7 @@ func (q *Queries) UnblockNode(ctx context.Context, arg UnblockNodeParams, isBloc
 //// auto generated functions
 
 func (q *Queries) Dump(ctx context.Context, beforeDump ...BeforeDump) ([]byte, error) {
-	sql := "SELECT id,peer_id,ip,reason,created_at,expires_at FROM \"blacklist\" ORDER BY id,peer_id,ip,reason,created_at,expires_at ASC;"
+	sql := "SELECT peer_id,violation_count,created_at,updated_at,expires_at FROM \"blacklist\" ORDER BY peer_id,violation_count,created_at,updated_at,expires_at ASC;"
 	rows, err := q.db.WQuery(ctx, "blacklist.Dump", sql)
 	if err != nil {
 		return nil, err
@@ -295,7 +277,7 @@ func (q *Queries) Dump(ctx context.Context, beforeDump ...BeforeDump) ([]byte, e
 	var items []Blacklist
 	for rows.Next() {
 		var v Blacklist
-		if err := rows.Scan(&v.ID, &v.PeerID, &v.Ip, &v.Reason, &v.CreatedAt, &v.ExpiresAt); err != nil {
+		if err := rows.Scan(&v.PeerID, &v.ViolationCount, &v.CreatedAt, &v.UpdatedAt, &v.ExpiresAt); err != nil {
 			return nil, err
 		}
 		for _, applyBeforeDump := range beforeDump {
@@ -314,14 +296,14 @@ func (q *Queries) Dump(ctx context.Context, beforeDump ...BeforeDump) ([]byte, e
 }
 
 func (q *Queries) Load(ctx context.Context, data []byte) error {
-	sql := "INSERT INTO \"blacklist\" (id,peer_id,ip,reason,created_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6);"
+	sql := "INSERT INTO \"blacklist\" (peer_id,violation_count,created_at,updated_at,expires_at) VALUES ($1,$2,$3,$4,$5);"
 	rows := make([]Blacklist, 0)
 	err := json.Unmarshal(data, &rows)
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
-		_, err := q.db.WExec(ctx, "blacklist.Load", sql, row.ID, row.PeerID, row.Ip, row.Reason, row.CreatedAt, row.ExpiresAt)
+		_, err := q.db.WExec(ctx, "blacklist.Load", sql, row.PeerID, row.ViolationCount, row.CreatedAt, row.UpdatedAt, row.ExpiresAt)
 		if err != nil {
 			return err
 		}

@@ -110,14 +110,14 @@
       },
       {
         "internalType": "address",
-        "name": "_signingKey",
+        "name": "_p2pKey",
         "type": "address",
         "indexed": true
       },
       {
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256",
+        "internalType": "address",
+        "name": "_signingKey",
+        "type": "address",
         "indexed": false
       },
       {
