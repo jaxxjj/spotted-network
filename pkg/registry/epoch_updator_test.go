@@ -26,7 +26,6 @@ func (s *RegistryTestSuite) SetupEpochTest() {
 	// 初始化 mock 组件
 	s.mockMainnet = &MockMainnetClient{}
 	s.mockTxManager = &MockTxManager{}
-	s.mockOpQuerier = NewMockOperatorsQuerier()
 	s.mockStateSync = &MockStateSyncNotifier{}
 
 	// 清理数据库

@@ -31,7 +31,7 @@ start-monitoring: start-prometheus start-otel
 
 # Start registry node
 start-registry: 
-	@docker compose up -d registry --build
+	@docker compose up -d registry 
 
 
 # Start operator nodes
@@ -132,7 +132,7 @@ mine-15:
 
 # Get final task
 get-final-response-taskId:
-	@curl -X GET "http://localhost:8001/api/v1/consensus/tasks/ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6"
+	@curl -X GET "http://localhost:8001/api/v1/consensus/tasks/fb562be126cced839de0da912247c4eaf591a594726e6e7672d4555df68d49ce"
 
 # Build both binaries
 build:

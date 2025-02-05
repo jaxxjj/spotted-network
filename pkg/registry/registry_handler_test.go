@@ -86,9 +86,6 @@ func (s *RegistryTestSuite) TestHandleRegister() {
 
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			// 清理数据库状态
-			_, err := s.GetPool().WConn().WExec(s.ctx, "operators.truncate", "TRUNCATE TABLE operators")
-			s.Require().NoError(err)
 
 			// 加载初始数据
 			serde := &OperatorsTableSerde{opQuerier: s.opQuerier}

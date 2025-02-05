@@ -41,6 +41,70 @@ func (m *MockHost) Network() network.Network {
 	return args.Get(0).(network.Network)
 }
 
+// 添加必要的 mock 实现
+type MockPubSub struct {
+	mock.Mock
+}
+
+func (m *MockPubSub) Join(topic string, opts ...pubsub.TopicOpt) (*pubsub.Topic, error) {
+	args := m.Called(topic)
+	return args.Get(0).(*pubsub.Topic), args.Error(1)
+}
+
+func (m *MockPubSub) BlacklistPeer(p peer.ID) {
+	m.Called(p)
+}
+
+// 需要添加新的mock实现
+type MockChainManager struct {
+	mock.Mock
+}
+
+func (m *MockChainManager) GetChainID() (uint64, error) {
+	args := m.Called()
+	return args.Get(0).(uint64), args.Error(1)
+}
+
+func (m *MockChainManager) GetClientByChainId(chainId uint32) (*ethereum.ChainClient, error) {
+	args := m.Called(chainId)
+	return args.Get(0).(*ethereum.ChainClient), args.Error(1)
+}
+
+func (m *MockChainManager) GetMainnetClient() (*ethereum.ChainClient, error) {
+	args := m.Called()
+	return args.Get(0).(*ethereum.ChainClient), args.Error(1)
+}
+
+// MockChainClient mocks ethereum.ChainClient
+type MockChainClient struct {
+	mock.Mock
+}
+
+func (m *MockChainClient) GetMinimumWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*big.Int), args.Error(1)
+}
+
+func (m *MockChainClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*big.Int), args.Error(1)
+}
+
+func (m *MockChainClient) GetThresholdWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*big.Int), args.Error(1)
+}
+
+
 // TimePointSet 用于模板中的时间点
 type TimePointSet struct {
 	Now  time.Time
@@ -246,68 +310,6 @@ func NewOperatorTestSuite() *OperatorTestSuite {
 	return s
 }
 
-// 添加必要的 mock 实现
-type MockPubSub struct {
-	mock.Mock
-}
-
-func (m *MockPubSub) Join(topic string, opts ...pubsub.TopicOpt) (*pubsub.Topic, error) {
-	args := m.Called(topic)
-	return args.Get(0).(*pubsub.Topic), args.Error(1)
-}
-
-func (m *MockPubSub) BlacklistPeer(p peer.ID) {
-	m.Called(p)
-}
-
-// 需要添加新的mock实现
-type MockChainManager struct {
-	mock.Mock
-}
-
-func (m *MockChainManager) GetChainID() (uint64, error) {
-	args := m.Called()
-	return args.Get(0).(uint64), args.Error(1)
-}
-
-func (m *MockChainManager) GetClientByChainId(chainId uint32) (*ethereum.ChainClient, error) {
-	args := m.Called(chainId)
-	return args.Get(0).(*ethereum.ChainClient), args.Error(1)
-}
-
-func (m *MockChainManager) GetMainnetClient() (*ethereum.ChainClient, error) {
-	args := m.Called()
-	return args.Get(0).(*ethereum.ChainClient), args.Error(1)
-}
-
-// MockChainClient mocks ethereum.ChainClient
-type MockChainClient struct {
-	mock.Mock
-}
-
-func (m *MockChainClient) GetMinimumWeight(ctx context.Context) (*big.Int, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*big.Int), args.Error(1)
-}
-
-func (m *MockChainClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*big.Int), args.Error(1)
-}
-
-func (m *MockChainClient) GetThresholdWeight(ctx context.Context) (*big.Int, error) {
-	args := m.Called(ctx)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*big.Int), args.Error(1)
-}
 
 
 
