@@ -1,650 +1,787 @@
 [
   {
-    "type": "constructor",
     "inputs": [
       {
+        "internalType": "address",
         "name": "_delegationManager",
-        "type": "address",
-        "internalType": "address"
+        "type": "address"
       },
       {
+        "internalType": "address",
         "name": "_epochManager",
-        "type": "address",
-        "internalType": "address"
+        "type": "address"
       },
       {
+        "internalType": "address",
         "name": "_serviceManager",
-        "type": "address",
-        "internalType": "address"
+        "type": "address"
       }
     ],
-    "stateMutability": "nonpayable"
+    "stateMutability": "nonpayable",
+    "type": "constructor"
   },
+  { "inputs": [], "type": "error", "name": "InsufficientSignedStake" },
+  { "inputs": [], "type": "error", "name": "InsufficientWeight" },
+  { "inputs": [], "type": "error", "name": "InvalidEpoch" },
+  { "inputs": [], "type": "error", "name": "InvalidEpoch" },
+  { "inputs": [], "type": "error", "name": "InvalidLength" },
+  { "inputs": [], "type": "error", "name": "InvalidQuorum" },
+  { "inputs": [], "type": "error", "name": "InvalidReferenceBlock" },
+  { "inputs": [], "type": "error", "name": "InvalidReferenceEpoch" },
+  { "inputs": [], "type": "error", "name": "InvalidSignature" },
+  { "inputs": [], "type": "error", "name": "InvalidSignedWeight" },
+  { "inputs": [], "type": "error", "name": "InvalidThreshold" },
+  { "inputs": [], "type": "error", "name": "LengthMismatch" },
+  { "inputs": [], "type": "error", "name": "MustUpdateAllOperators" },
+  { "inputs": [], "type": "error", "name": "NotSorted" },
+  { "inputs": [], "type": "error", "name": "OperatorAlreadyRegistered" },
+  { "inputs": [], "type": "error", "name": "OperatorNotRegistered" },
+  { "inputs": [], "type": "error", "name": "SigningKeyAlreadyExists" },
   {
-    "type": "function",
-    "name": "deregisterOperator",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "getLastCheckpointOperatorWeight",
-    "inputs": [
-      { "name": "_operator", "type": "address", "internalType": "address" }
-    ],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getLastCheckpointThresholdWeight",
-    "inputs": [],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getLastCheckpointThresholdWeightAtEpoch",
-    "inputs": [
-      { "name": "_epochNumber", "type": "uint32", "internalType": "uint32" }
-    ],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getLastCheckpointTotalWeight",
-    "inputs": [],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getLastestOperatorSigningKey",
-    "inputs": [
-      { "name": "_operator", "type": "address", "internalType": "address" }
-    ],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getOperatorSigningKeyAtEpoch",
-    "inputs": [
-      { "name": "_operator", "type": "address", "internalType": "address" },
-      { "name": "_epochNumber", "type": "uint32", "internalType": "uint32" }
-    ],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getOperatorWeight",
-    "inputs": [
-      { "name": "_operator", "type": "address", "internalType": "address" }
-    ],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getOperatorWeightAtEpoch",
-    "inputs": [
-      { "name": "_operator", "type": "address", "internalType": "address" },
-      { "name": "_epochNumber", "type": "uint32", "internalType": "uint32" }
-    ],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getTotalWeightAtEpoch",
-    "inputs": [
-      { "name": "_epochNumber", "type": "uint32", "internalType": "uint32" }
-    ],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "getThresholdWeightAtEpoch",
-    "inputs": [
-      { "name": "_epochNumber", "type": "uint32", "internalType": "uint32" }
-    ],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "initialize",
     "inputs": [
       {
-        "name": "_thresholdWeight",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "_quorum",
-        "type": "tuple",
-        "internalType": "struct Quorum",
-        "components": [
-          {
-            "name": "strategies",
-            "type": "tuple[]",
-            "internalType": "struct StrategyParams[]",
-            "components": [
-              {
-                "name": "strategy",
-                "type": "address",
-                "internalType": "contract IStrategy"
-              },
-              {
-                "name": "multiplier",
-                "type": "uint96",
-                "internalType": "uint96"
-              }
-            ]
-          }
-        ]
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "isValidSignature",
-    "inputs": [
-      { "name": "_dataHash", "type": "bytes32", "internalType": "bytes32" },
-      { "name": "_signatureData", "type": "bytes", "internalType": "bytes" }
-    ],
-    "outputs": [{ "name": "", "type": "bytes4", "internalType": "bytes4" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "minimumWeight",
-    "inputs": [],
-    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "operatorRegistered",
-    "inputs": [
-      { "name": "_operator", "type": "address", "internalType": "address" }
-    ],
-    "outputs": [{ "name": "", "type": "bool", "internalType": "bool" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "owner",
-    "inputs": [],
-    "outputs": [{ "name": "", "type": "address", "internalType": "address" }],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "quorum",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "tuple",
-        "internalType": "struct Quorum",
-        "components": [
-          {
-            "name": "strategies",
-            "type": "tuple[]",
-            "internalType": "struct StrategyParams[]",
-            "components": [
-              {
-                "name": "strategy",
-                "type": "address",
-                "internalType": "contract IStrategy"
-              },
-              {
-                "name": "multiplier",
-                "type": "uint96",
-                "internalType": "uint96"
-              }
-            ]
-          }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "registerOperatorWithSignature",
-    "inputs": [
-      {
-        "name": "_operatorSignature",
-        "type": "tuple",
-        "internalType": "struct ISignatureUtils.SignatureWithSaltAndExpiry",
-        "components": [
-          { "name": "signature", "type": "bytes", "internalType": "bytes" },
-          { "name": "salt", "type": "bytes32", "internalType": "bytes32" },
-          { "name": "expiry", "type": "uint256", "internalType": "uint256" }
-        ]
-      },
-      { "name": "_signingKey", "type": "address", "internalType": "address" }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "renounceOwnership",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "transferOwnership",
-    "inputs": [
-      { "name": "newOwner", "type": "address", "internalType": "address" }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "updateMinimumWeight",
-    "inputs": [
-      {
-        "name": "_newMinimumWeight",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "_operators",
-        "type": "address[]",
-        "internalType": "address[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "updateOperatorSigningKey",
-    "inputs": [
-      {
-        "name": "_newSigningKey",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "updateOperators",
-    "inputs": [
-      {
-        "name": "_operators",
-        "type": "address[]",
-        "internalType": "address[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "updateOperatorsForQuorum",
-    "inputs": [
-      {
-        "name": "operatorsPerQuorum",
-        "type": "address[][]",
-        "internalType": "address[][]"
-      },
-      { "name": "", "type": "bytes", "internalType": "bytes" }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "updateQuorumConfig",
-    "inputs": [
-      {
-        "name": "_quorum",
-        "type": "tuple",
-        "internalType": "struct Quorum",
-        "components": [
-          {
-            "name": "strategies",
-            "type": "tuple[]",
-            "internalType": "struct StrategyParams[]",
-            "components": [
-              {
-                "name": "strategy",
-                "type": "address",
-                "internalType": "contract IStrategy"
-              },
-              {
-                "name": "multiplier",
-                "type": "uint96",
-                "internalType": "uint96"
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "name": "_operators",
-        "type": "address[]",
-        "internalType": "address[]"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "updateStakeThreshold",
-    "inputs": [
-      {
-        "name": "_thresholdWeight",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "event",
-    "name": "Initialized",
-    "inputs": [
-      {
+        "internalType": "uint8",
         "name": "version",
         "type": "uint8",
-        "indexed": false,
-        "internalType": "uint8"
+        "indexed": false
       }
     ],
+    "type": "event",
+    "name": "Initialized",
     "anonymous": false
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_old",
+        "type": "uint256",
+        "indexed": false
+      },
+      {
+        "internalType": "uint256",
+        "name": "_new",
+        "type": "uint256",
+        "indexed": false
+      }
+    ],
     "type": "event",
     "name": "MinimumWeightUpdated",
-    "inputs": [
-      {
-        "name": "_old",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "_new",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
     "anonymous": false
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "internalType": "uint256",
+        "name": "blockNumber",
+        "type": "uint256",
+        "indexed": true
+      },
+      {
+        "internalType": "address",
+        "name": "_avs",
+        "type": "address",
+        "indexed": true
+      }
+    ],
     "type": "event",
     "name": "OperatorDeregistered",
-    "inputs": [
-      {
-        "name": "_operator",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "blockNumber",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "_avs",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
     "anonymous": false
   },
   {
-    "type": "event",
-    "name": "OperatorRegistered",
     "inputs": [
       {
+        "internalType": "address",
         "name": "_operator",
         "type": "address",
-        "indexed": true,
-        "internalType": "address"
+        "indexed": true
       },
       {
+        "internalType": "uint256",
         "name": "blockNumber",
         "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
+        "indexed": true
       },
       {
+        "internalType": "address",
         "name": "_signingKey",
         "type": "address",
-        "indexed": true,
-        "internalType": "address"
+        "indexed": true
       },
       {
+        "internalType": "uint256",
         "name": "timestamp",
         "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "indexed": false
       },
       {
+        "internalType": "address",
         "name": "_avs",
         "type": "address",
-        "indexed": false,
-        "internalType": "address"
+        "indexed": false
       }
     ],
+    "type": "event",
+    "name": "OperatorRegistered",
     "anonymous": false
   },
   {
-    "type": "event",
-    "name": "OperatorWeightUpdated",
     "inputs": [
       {
+        "internalType": "address",
         "name": "_operator",
         "type": "address",
-        "indexed": true,
-        "internalType": "address"
+        "indexed": true
       },
       {
+        "internalType": "uint256",
         "name": "oldWeight",
         "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "indexed": false
       },
       {
+        "internalType": "uint256",
         "name": "newWeight",
         "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "indexed": false
       }
     ],
+    "type": "event",
+    "name": "OperatorWeightUpdated",
     "anonymous": false
   },
   {
-    "type": "event",
-    "name": "OwnershipTransferred",
     "inputs": [
       {
+        "internalType": "address",
         "name": "previousOwner",
         "type": "address",
-        "indexed": true,
-        "internalType": "address"
+        "indexed": true
       },
       {
+        "internalType": "address",
         "name": "newOwner",
         "type": "address",
-        "indexed": true,
-        "internalType": "address"
+        "indexed": true
       }
     ],
+    "type": "event",
+    "name": "OwnershipTransferred",
     "anonymous": false
   },
   {
-    "type": "event",
-    "name": "QuorumUpdated",
     "inputs": [
       {
-        "name": "_old",
-        "type": "tuple",
-        "indexed": false,
-        "internalType": "struct Quorum",
-        "components": [
-          {
-            "name": "strategies",
-            "type": "tuple[]",
-            "internalType": "struct StrategyParams[]",
-            "components": [
-              {
-                "name": "strategy",
-                "type": "address",
-                "internalType": "contract IStrategy"
-              },
-              {
-                "name": "multiplier",
-                "type": "uint96",
-                "internalType": "uint96"
-              }
-            ]
-          }
-        ]
-      },
-      {
-        "name": "_new",
-        "type": "tuple",
-        "indexed": false,
-        "internalType": "struct Quorum",
-        "components": [
-          {
-            "name": "strategies",
-            "type": "tuple[]",
-            "internalType": "struct StrategyParams[]",
-            "components": [
-              {
-                "name": "strategy",
-                "type": "address",
-                "internalType": "contract IStrategy"
-              },
-              {
-                "name": "multiplier",
-                "type": "uint96",
-                "internalType": "uint96"
-              }
-            ]
-          }
-        ]
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "SigningKeyUpdate",
-    "inputs": [
-      {
+        "internalType": "address",
         "name": "operator",
         "type": "address",
-        "indexed": true,
-        "internalType": "address"
+        "indexed": true
       },
       {
+        "internalType": "address",
+        "name": "newP2PKey",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "internalType": "address",
+        "name": "oldP2PKey",
+        "type": "address",
+        "indexed": false
+      }
+    ],
+    "type": "event",
+    "name": "P2PKeyUpdate",
+    "anonymous": false
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "struct Quorum",
+        "name": "_old",
+        "type": "tuple",
+        "components": [
+          {
+            "internalType": "struct StrategyParams[]",
+            "name": "strategies",
+            "type": "tuple[]",
+            "components": [
+              {
+                "internalType": "contract IStrategy",
+                "name": "strategy",
+                "type": "address"
+              },
+              {
+                "internalType": "uint96",
+                "name": "multiplier",
+                "type": "uint96"
+              }
+            ]
+          }
+        ],
+        "indexed": false
+      },
+      {
+        "internalType": "struct Quorum",
+        "name": "_new",
+        "type": "tuple",
+        "components": [
+          {
+            "internalType": "struct StrategyParams[]",
+            "name": "strategies",
+            "type": "tuple[]",
+            "components": [
+              {
+                "internalType": "contract IStrategy",
+                "name": "strategy",
+                "type": "address"
+              },
+              {
+                "internalType": "uint96",
+                "name": "multiplier",
+                "type": "uint96"
+              }
+            ]
+          }
+        ],
+        "indexed": false
+      }
+    ],
+    "type": "event",
+    "name": "QuorumUpdated",
+    "anonymous": false
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "operator",
+        "type": "address",
+        "indexed": true
+      },
+      {
+        "internalType": "address",
         "name": "newSigningKey",
         "type": "address",
-        "indexed": true,
-        "internalType": "address"
+        "indexed": true
       },
       {
+        "internalType": "address",
         "name": "oldSigningKey",
         "type": "address",
-        "indexed": false,
-        "internalType": "address"
+        "indexed": false
       }
     ],
+    "type": "event",
+    "name": "SigningKeyUpdate",
     "anonymous": false
   },
   {
-    "type": "event",
-    "name": "ThresholdWeightUpdated",
     "inputs": [
       {
+        "internalType": "uint256",
         "name": "_thresholdWeight",
         "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "indexed": false
       }
     ],
+    "type": "event",
+    "name": "ThresholdWeightUpdated",
     "anonymous": false
   },
   {
-    "type": "event",
-    "name": "TotalWeightUpdated",
     "inputs": [
       {
+        "internalType": "uint256",
         "name": "oldTotalWeight",
         "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "indexed": false
       },
       {
+        "internalType": "uint256",
         "name": "newTotalWeight",
         "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "indexed": false
       }
     ],
+    "type": "event",
+    "name": "TotalWeightUpdated",
     "anonymous": false
   },
   {
-    "type": "event",
-    "name": "UpdateMinimumWeight",
     "inputs": [
       {
+        "internalType": "uint256",
         "name": "oldMinimumWeight",
         "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "indexed": false
       },
       {
+        "internalType": "uint256",
         "name": "newMinimumWeight",
         "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "indexed": false
       }
     ],
+    "type": "event",
+    "name": "UpdateMinimumWeight",
     "anonymous": false
   },
-  { "type": "error", "name": "InsufficientSignedStake", "inputs": [] },
-  { "type": "error", "name": "InsufficientWeight", "inputs": [] },
-  { "type": "error", "name": "InvalidEpoch", "inputs": [] },
-  { "type": "error", "name": "InvalidEpoch", "inputs": [] },
-  { "type": "error", "name": "InvalidLength", "inputs": [] },
-  { "type": "error", "name": "InvalidQuorum", "inputs": [] },
-  { "type": "error", "name": "InvalidReferenceBlock", "inputs": [] },
-  { "type": "error", "name": "InvalidReferenceEpoch", "inputs": [] },
-  { "type": "error", "name": "InvalidSignature", "inputs": [] },
-  { "type": "error", "name": "InvalidSignedWeight", "inputs": [] },
-  { "type": "error", "name": "InvalidThreshold", "inputs": [] },
-  { "type": "error", "name": "LengthMismatch", "inputs": [] },
-  { "type": "error", "name": "MustUpdateAllOperators", "inputs": [] },
-  { "type": "error", "name": "NotSorted", "inputs": [] },
-  { "type": "error", "name": "OperatorAlreadyRegistered", "inputs": [] },
-  { "type": "error", "name": "OperatorNotRegistered", "inputs": [] }
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "deregisterOperator"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getLastCheckpointOperatorWeight",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ]
+  },
+  {
+    "inputs": [],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getLastCheckpointThresholdWeight",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ]
+  },
+  {
+    "inputs": [],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getLastCheckpointTotalWeight",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getLastestOperatorP2PKey",
+    "outputs": [
+      { "internalType": "address", "name": "", "type": "address" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getLastestOperatorSigningKey",
+    "outputs": [
+      { "internalType": "address", "name": "", "type": "address" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      },
+      {
+        "internalType": "uint32",
+        "name": "_epochNumber",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getOperatorSigningKeyAtEpoch",
+    "outputs": [
+      { "internalType": "address", "name": "", "type": "address" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getOperatorWeight",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      },
+      {
+        "internalType": "uint32",
+        "name": "_epochNumber",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getOperatorWeightAtEpoch",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "_referenceEpoch",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getThresholdStake",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "_epochNumber",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getThresholdWeightAtEpoch",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "_epochNumber",
+        "type": "uint32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "getTotalWeightAtEpoch",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_thresholdWeight",
+        "type": "uint256"
+      },
+      {
+        "internalType": "struct Quorum",
+        "name": "quorumParams",
+        "type": "tuple",
+        "components": [
+          {
+            "internalType": "struct StrategyParams[]",
+            "name": "strategies",
+            "type": "tuple[]",
+            "components": [
+              {
+                "internalType": "contract IStrategy",
+                "name": "strategy",
+                "type": "address"
+              },
+              {
+                "internalType": "uint96",
+                "name": "multiplier",
+                "type": "uint96"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "initialize"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_dataHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_signatureData",
+        "type": "bytes"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "isValidSignature",
+    "outputs": [
+      { "internalType": "bytes4", "name": "", "type": "bytes4" }
+    ]
+  },
+  {
+    "inputs": [],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "minimumWeight",
+    "outputs": [
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_operator",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "operatorRegistered",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }]
+  },
+  {
+    "inputs": [],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "owner",
+    "outputs": [
+      { "internalType": "address", "name": "", "type": "address" }
+    ]
+  },
+  {
+    "inputs": [],
+    "stateMutability": "view",
+    "type": "function",
+    "name": "quorum",
+    "outputs": [
+      {
+        "internalType": "struct Quorum",
+        "name": "",
+        "type": "tuple",
+        "components": [
+          {
+            "internalType": "struct StrategyParams[]",
+            "name": "strategies",
+            "type": "tuple[]",
+            "components": [
+              {
+                "internalType": "contract IStrategy",
+                "name": "strategy",
+                "type": "address"
+              },
+              {
+                "internalType": "uint96",
+                "name": "multiplier",
+                "type": "uint96"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "struct ISignatureUtils.SignatureWithSaltAndExpiry",
+        "name": "_operatorSignature",
+        "type": "tuple",
+        "components": [
+          {
+            "internalType": "bytes",
+            "name": "signature",
+            "type": "bytes"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "salt",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "expiry",
+            "type": "uint256"
+          }
+        ]
+      },
+      {
+        "internalType": "address",
+        "name": "_signingKey",
+        "type": "address"
+      },
+      { "internalType": "address", "name": "_p2pKey", "type": "address" }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "registerOperatorWithSignature"
+  },
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "renounceOwnership"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "newOwner", "type": "address" }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "transferOwnership"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_newMinimumWeight",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address[]",
+        "name": "_operators",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "updateMinimumWeight"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_newP2PKey",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "updateOperatorP2PKey"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_newSigningKey",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "updateOperatorSigningKey"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[]",
+        "name": "_operators",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "updateOperators"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address[][]",
+        "name": "operatorsPerQuorum",
+        "type": "address[][]"
+      },
+      { "internalType": "bytes", "name": "", "type": "bytes" }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "updateOperatorsForQuorum"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "struct Quorum",
+        "name": "newQuorumConfig",
+        "type": "tuple",
+        "components": [
+          {
+            "internalType": "struct StrategyParams[]",
+            "name": "strategies",
+            "type": "tuple[]",
+            "components": [
+              {
+                "internalType": "contract IStrategy",
+                "name": "strategy",
+                "type": "address"
+              },
+              {
+                "internalType": "uint96",
+                "name": "multiplier",
+                "type": "uint96"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "internalType": "address[]",
+        "name": "_operators",
+        "type": "address[]"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "updateQuorumConfig"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_thresholdWeight",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function",
+    "name": "updateStakeThreshold"
+  }
 ]
