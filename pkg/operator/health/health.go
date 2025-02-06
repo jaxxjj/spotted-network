@@ -15,13 +15,19 @@ type PingService interface {
 	Ping(ctx context.Context, p peer.ID) <-chan ping.Result
 }
 
+type Node interface {
+	DisconnectPeer(peer.ID) error
+	GetConnectedPeers() []peer.ID
+	PrintConnectedPeers()
+}
+
 type HealthChecker struct {
-	node           *Node
+	node           Node
 	pingService    PingService
 }
 
 // NewHealthChecker creates and starts a new health checker
-func newHealthChecker(ctx context.Context, node *Node, pingService PingService) (*HealthChecker, error) {
+func NewHealthChecker(ctx context.Context, node Node, pingService PingService) (*HealthChecker, error) {
 	if node == nil {
 		log.Fatal("node is nil")
 	}
@@ -50,29 +56,25 @@ func (hc *HealthChecker) start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			hc.checkOperators(ctx)
-			hc.printConnectedPeers()
+			hc.checkPeers(ctx)
+			hc.node.PrintConnectedPeers()
 		}
 	}
 }
 
-// checkOperators checks the health of all connected operators
-func (hc *HealthChecker) checkOperators(ctx context.Context) {
-	operators := hc.node.getActivePeerIDs()
-	for _, id := range operators {
-		if id == hc.node.host.ID() {
-			continue
-		}
-		if err := hc.pingOperator(ctx, id); err != nil {
-			log.Printf("[Health] Operator %s failed health check: %v", id, err)
-			hc.node.disconnectPeer(id)
-			hc.node.sp.verifyStateWithRegistry(ctx)
+// checkPeers checks the health of all connected peers
+func (hc *HealthChecker) checkPeers(ctx context.Context) {
+	peers := hc.node.GetConnectedPeers()
+	for _, peerId := range peers {
+		if err := hc.pingPeer(ctx, peerId); err != nil {
+			log.Printf("[Health] Peer %s failed health check: %v", peerId, err)
+			hc.node.DisconnectPeer(peerId)
 		}
 	}
 }
 
-// pingOperator pings a specific operator
-func (hc *HealthChecker) pingOperator(ctx context.Context, p peer.ID) error {
+// pingPeer pings a specific peer
+func (hc *HealthChecker) pingPeer(ctx context.Context, p peer.ID) error {
 	// Add ping timeout
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -82,15 +84,7 @@ func (hc *HealthChecker) pingOperator(ctx context.Context, p peer.ID) error {
 		return result.Error
 	}
 
-	log.Printf("[Health] Successfully pinged operator %s (RTT: %v)", p, result.RTT)
+	log.Printf("[Health] Successfully pinged peer %s (RTT: %v)", p, result.RTT)
 	return nil
 }
 
-func (hc *HealthChecker) printConnectedPeers() {
-	peers := hc.node.host.Network().Peers()
-	log.Printf("[Node] Connected to %d peers:", len(peers))
-	for _, peer := range peers {
-		addrs := hc.node.host.Network().Peerstore().Addrs(peer)
-		log.Printf("[Node] - Peer %s at %v", peer.String(), addrs)
-	}
-}

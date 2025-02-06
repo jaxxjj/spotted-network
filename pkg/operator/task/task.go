@@ -139,3 +139,47 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 
 	return nil
 }
+
+// getStateWithRetries attempts to get state with retries
+func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, chainClient ChainClient, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
+	maxRetries := 3
+	retryDelay := time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		// Get latest block for validation
+		latestBlock, err := chainClient.BlockNumber(ctx)
+		if err != nil {
+			log.Printf("[StateCheck] Failed to get latest block: %v", err)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		// Validate block number
+		if blockNumber > latestBlock {
+			return nil, fmt.Errorf("block number %d is in the future (latest: %d)", blockNumber, latestBlock)
+		}
+
+		// Attempt to get state
+		state, err := chainClient.GetStateAtBlock(ctx, target, key, blockNumber)
+		if err != nil {
+			// Check for specific contract errors
+			if strings.Contains(err.Error(), "0x7c44ec9a") { // StateManager__BlockNotFound
+				return nil, fmt.Errorf("block %d not found in state history", blockNumber)
+			}
+			if strings.Contains(err.Error(), "StateManager__KeyNotFound") {
+				return nil, fmt.Errorf("key %s not found for address %s", key.String(), target.Hex())
+			}
+			if strings.Contains(err.Error(), "StateManager__NoHistoryFound") {
+				return nil, fmt.Errorf("no state history found for block %d and key %s", blockNumber, key.String())
+			}
+
+			log.Printf("[StateCheck] Attempt %d failed: %v", i+1, err)
+			time.Sleep(retryDelay)
+			continue
+		}
+
+		return state, nil
+	}
+
+	return nil, fmt.Errorf("failed to get state after %d retries", maxRetries)
+}

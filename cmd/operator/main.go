@@ -16,6 +16,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/operator"
+	"github.com/galxe/spotted-network/pkg/operator/api"
 	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
@@ -136,7 +137,8 @@ func main() {
 		metric.RecordError("node_start_failed")
 		log.Fatal("Failed to start operator node:", err)
 	}
-
+	// Create API handler and server
+	apiHandler := api.NewHandler(tasksQuerier, consensusResponseQuerier, taskProcessor, cfg)
 	metric.RecordRequest("operator", "startup_complete")
 	log.Printf("Operator node started successfully")
 

@@ -11,7 +11,6 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
@@ -26,6 +25,20 @@ import (
 	"github.com/libp2p/go-libp2p"
 )
 
+type Network interface {
+	Peers() []peer.ID
+	Peerstore() Peerstore
+	Connect(ctx context.Context, pi peer.AddrInfo) error
+	ClosePeer(peer.ID) error
+	Connectedness(peer.ID) network.Connectedness
+}
+
+type Peerstore interface {
+	Addrs(peer.ID) []multiaddr.Multiaddr
+	RemovePeer(peer.ID)
+	ClearAddrs(peer.ID)
+}
+
 // P2PHost defines the minimal interface required for p2p functionality
 type P2PHost interface {
 	ID() peer.ID
@@ -34,8 +47,7 @@ type P2PHost interface {
 	NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error)
 	SetStreamHandler(peerId protocol.ID, handler network.StreamHandler)
 	RemoveStreamHandler(peerId protocol.ID)
-	Network() network.Network
-	Peerstore() peerstore.Peerstore
+	Network() Network
 	Close() error
 }
 
@@ -65,7 +77,6 @@ type ActivePeerStates struct {
 
 // NodeConfig contains all the dependencies needed by Node
 type NodeConfig struct {
-	ChainManager    ChainManager
 	Signer          signer.Signer
 	TasksQuerier     *tasks.Queries
 	TaskResponseQuerier *task_responses.Queries
@@ -80,7 +91,6 @@ type Node struct {
 	host           P2PHost
 
 	signer         OperatorSigner
-	chainManager   ChainManager
 	apiServer      APIServer
 	tasksQuerier   TasksQuerier
 	taskResponseQuerier TaskResponseQuerier
@@ -101,10 +111,6 @@ type Node struct {
 
 // NewNode creates a new operator node with the given dependencies
 func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
-	// Validate required dependencies
-	if cfg.ChainManager == nil {
-		return nil, fmt.Errorf("chain manager is required")
-	}
 	if cfg.Signer == nil {
 		return nil, fmt.Errorf("signer is required")
 	}
@@ -144,7 +150,6 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 		registryID:     addrInfo.ID,
 		registryAddress:   cfg.RegistryAddress,
 		signer:         cfg.Signer,
-		chainManager:   cfg.ChainManager,
 		tasksQuerier:   cfg.TasksQuerier,
 		taskResponseQuerier: cfg.TaskResponseQuerier,
 		consensusResponseQuerier: cfg.ConsensusResponseQuerier,
@@ -187,7 +192,6 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 		TaskResponse:      cfg.TaskResponseQuerier,
 		ConsensusResponse: cfg.ConsensusResponseQuerier,
 		EpochState:        cfg.EpochStateQuerier,
-		ChainManager:      cfg.ChainManager,
 		PubSub:            pubsub,
 	})
 	if err != nil {
@@ -211,8 +215,7 @@ func NewNode(ctx context.Context, cfg *NodeConfig) (*Node, error) {
 	}
 	node.rh = NewRegistryHandler(node, cfg.Signer, registryId)
 
-	// Create API handler and server
-	apiHandler := api.NewHandler(cfg.TasksQuerier, cfg.ChainManager, cfg.ConsensusResponseQuerier, taskProcessor, cfg.Config)
+
 	node.apiServer = api.NewServer(apiHandler, cfg.Config.HTTP.Port)
 
 	// Start API server
@@ -238,9 +241,6 @@ func (n *Node) Start(ctx context.Context) error {
 	}
 	if n.tp == nil {
 		log.Fatal("[Node] task processor not initialized")
-	}
-	if n.chainManager == nil {
-		log.Fatal("[Node] chain manager not initialized")
 	}
 	if n.epochStateQuerier == nil {
 		log.Fatal("[Node] epoch state querier not initialized")
@@ -286,67 +286,13 @@ func (n *Node) Stop(ctx context.Context) error {
 	return n.host.Close()
 }
 
-func (n *Node) createStreamToRegistry(ctx context.Context, peerId protocol.ID) (network.Stream, error) {
-	return n.host.NewStream(ctx, n.registryID, peerId)
-}
-
-func (n *Node) connectToRegistry(ctx context.Context) error {
-	log.Printf("[Node] Attempting to connect to Registry Node at address: %s\n", n.registryAddress)
-
-	// Create multiaddr from the provided address
-	addr, err := multiaddr.NewMultiaddr(n.registryAddress)
-	if err != nil {
-		return fmt.Errorf("[Node] invalid registry address: %s", n.registryAddress)
-	}
-
-	// Parse peer info from multiaddr
-	peerInfo, err := peer.AddrInfoFromP2pAddr(addr)
-	if err != nil {
-		return fmt.Errorf("[Node] failed to parse peer info from address: %v", err)
-	}
-
-	// Connect to registry
-	if err := n.host.Connect(ctx, *peerInfo); err != nil {
-		return fmt.Errorf("[Node] failed to connect to registry: %v", err)
-	}
-
-	// Save the registry ID
-	n.registryID = peerInfo.ID
-
-	log.Printf("[Node] Successfully connected to Registry Node with ID: %s\n", n.registryID)
-	return nil
-}
 
 func (n *Node) getHostID() peer.ID {
 	return n.host.ID()
 }
 
-// GetOperatorState returns the current operator state
-func (n *Node) GetOperatorState(peerID peer.ID) *OperatorState {
-	n.activeOperators.mu.RLock()
-	defer n.activeOperators.mu.RUnlock()
-	return n.activeOperators.active[peerID]
-}
 
-// RemoveOperator removes an operator from the active set
-func (n *Node) RemoveOperator(id peer.ID) {
-	n.activeOperators.mu.Lock()
-	defer n.activeOperators.mu.Unlock()
-	delete(n.activeOperators.active, id)
-}
 
-func (n *Node) currentEpoch() (uint32, error) {
-	mainnetClient, err := n.chainManager.GetMainnetClient()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get mainnet client: %w", err)
-	}
-	blockNumber, err := mainnetClient.BlockNumber(context.Background())
-	if err != nil {
-		return 0, fmt.Errorf("failed to get block number: %w", err)
-	}
-	currentEpoch := (blockNumber - GenesisBlock) / EpochPeriod
-	return uint32(currentEpoch), nil
-}
 
 
 
