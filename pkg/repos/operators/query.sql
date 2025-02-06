@@ -4,6 +4,18 @@
 SELECT * FROM operators
 WHERE address = $1;
 
+-- name: GetOperatorBySigningKey :one
+-- -- cache: 168h
+-- -- timeout: 500ms
+SELECT * FROM operators
+WHERE signing_key = $1;
+
+-- name: GetOperatorByP2PKey :one
+-- -- cache: 168h
+-- -- timeout: 500ms
+SELECT * FROM operators
+WHERE p2p_key = $1; 
+
 -- name: ListActiveOperators :many
 -- -- timeout: 1s
 SELECT * FROM operators
@@ -14,9 +26,7 @@ WHERE is_active = true;
 SELECT * FROM operators;
 
 -- name: UpdateOperatorState :one
--- -- invalidate: GetOperatorByAddress
--- -- invalidate: GetOperatorBySigningKey
--- -- invalidate: GetOperatorByP2PKey
+-- -- invalidate: [GetOperatorByAddress, GetOperatorBySigningKey, GetOperatorByP2PKey]
 -- -- timeout: 500ms
 UPDATE operators
 SET is_active = $2,
@@ -28,9 +38,7 @@ WHERE address = $1
 RETURNING *;
 
 -- name: UpdateOperatorExitEpoch :one
--- -- invalidate: GetOperatorByAddress
--- -- invalidate: GetOperatorBySigningKey
--- -- invalidate: GetOperatorByP2PKey
+-- -- invalidate: [GetOperatorByAddress, GetOperatorBySigningKey, GetOperatorByP2PKey]
 -- -- timeout: 500ms
 UPDATE operators
 SET exit_epoch = $2,
@@ -39,9 +47,7 @@ WHERE address = $1
 RETURNING *;
 
 -- name: UpsertOperator :one
--- -- invalidate: GetOperatorByAddress
--- -- invalidate: GetOperatorBySigningKey
--- -- invalidate: GetOperatorByP2PKey
+-- -- invalidate: [GetOperatorByAddress, GetOperatorBySigningKey, GetOperatorByP2PKey]
 -- -- timeout: 500ms
 INSERT INTO operators (
     address,
@@ -68,16 +74,4 @@ SET
     weight = EXCLUDED.weight,
     updated_at = NOW()
 RETURNING *;
-
--- name: GetOperatorBySigningKey :one
--- -- cache: 168h
--- -- timeout: 500ms
-SELECT * FROM operators
-WHERE signing_key = $1;
-
--- name: GetOperatorByP2PKey :one
--- -- cache: 168h
--- -- timeout: 500ms
-SELECT * FROM operators
-WHERE p2p_key = $1; 
 

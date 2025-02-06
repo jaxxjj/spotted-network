@@ -1,4 +1,4 @@
-package registry
+package operator
 
 import (
 	"log"

@@ -166,6 +166,25 @@ func (c *ChainClient) IsOperatorRegistered(ctx context.Context, operator common.
 	return registered, nil
 }
 
+// GetOperatorSigningKey gets the signing key for an operator at a specific epoch
+func (c *ChainClient) GetOperatorSigningKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
+	opts := &bind.CallOpts{Context: ctx}
+	signingKey, err := c.registry.GetOperatorSigningKeyAtEpoch(opts, operator, epoch)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("[ChainClient] failed to get operator signing key at epoch %d: %w", epoch, err)
+	}
+	return signingKey, nil
+}
+
+func (c *ChainClient) GetOperatorP2PKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
+	opts := &bind.CallOpts{Context: ctx}
+	p2pKey, err := c.registry.GetOperatorP2pKeyAtEpoch(opts, operator, epoch)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("[ChainClient] failed to get operator P2P key at epoch %d: %w", epoch, err)
+	}
+	return p2pKey, nil
+}
+
 // BlockNumber returns the latest block number
 func (c *ChainClient) BlockNumber(ctx context.Context) (uint64, error) {
 	return c.client.BlockNumber(ctx)
@@ -269,12 +288,3 @@ func (c *ChainClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sin
 	return sub, nil
 }
 
-// GetOperatorSigningKey gets the signing key for an operator at a specific epoch
-func (c *ChainClient) GetOperatorSigningKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
-	opts := &bind.CallOpts{Context: ctx}
-	signingKey, err := c.registry.GetOperatorSigningKeyAtEpoch(opts, operator, epoch)
-	if err != nil {
-		return common.Address{}, fmt.Errorf("[ChainClient] failed to get operator signing key at epoch %d: %w", epoch, err)
-	}
-	return signingKey, nil
-}

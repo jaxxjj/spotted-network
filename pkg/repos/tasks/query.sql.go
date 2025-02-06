@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	types "github.com/galxe/spotted-network/pkg/common/types"
+	constants "github.com/galxe/spotted-network/pkg/operator/constants"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/rs/zerolog/log"
@@ -45,28 +45,26 @@ INSERT INTO tasks (
     target_address,
     chain_id,
     block_number,
-    timestamp,
     epoch,
     key,
     value,
     status,
     required_confirmations
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
+    $1, $2, $3, $4, $5, $6, $7, $8, $9
+) RETURNING task_id, chain_id, target_address, key, block_number, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
 `
 
 type CreateTaskParams struct {
-	TaskID                string           `json:"task_id"`
-	TargetAddress         string           `json:"target_address"`
-	ChainID               uint32           `json:"chain_id"`
-	BlockNumber           uint64           `json:"block_number"`
-	Timestamp             uint64           `json:"timestamp"`
-	Epoch                 uint32           `json:"epoch"`
-	Key                   pgtype.Numeric   `json:"key"`
-	Value                 pgtype.Numeric   `json:"value"`
-	Status                types.TaskStatus `json:"status"`
-	RequiredConfirmations uint16           `json:"required_confirmations"`
+	TaskID                string               `json:"task_id"`
+	TargetAddress         string               `json:"target_address"`
+	ChainID               uint32               `json:"chain_id"`
+	BlockNumber           uint64               `json:"block_number"`
+	Epoch                 uint32               `json:"epoch"`
+	Key                   pgtype.Numeric       `json:"key"`
+	Value                 pgtype.Numeric       `json:"value"`
+	Status                constants.TaskStatus `json:"status"`
+	RequiredConfirmations uint16               `json:"required_confirmations"`
 }
 
 // -- timeout: 500ms
@@ -82,7 +80,6 @@ func _CreateTask(ctx context.Context, q CacheQuerierConn, arg CreateTaskParams) 
 		arg.TargetAddress,
 		arg.ChainID,
 		arg.BlockNumber,
-		arg.Timestamp,
 		arg.Epoch,
 		arg.Key,
 		arg.Value,
@@ -95,7 +92,6 @@ func _CreateTask(ctx context.Context, q CacheQuerierConn, arg CreateTaskParams) 
 		&i.TargetAddress,
 		&i.Key,
 		&i.BlockNumber,
-		&i.Timestamp,
 		&i.Value,
 		&i.Epoch,
 		&i.Status,
@@ -114,7 +110,6 @@ func _CreateTask(ctx context.Context, q CacheQuerierConn, arg CreateTaskParams) 
 }
 
 const deleteTaskByID = `-- name: DeleteTaskByID :exec
-
 DELETE FROM tasks
 WHERE task_id = $1
 `
@@ -132,7 +127,7 @@ func (q *Queries) DeleteTaskByID(ctx context.Context, taskID string) error {
 }
 
 const getTaskByID = `-- name: GetTaskByID :one
-SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks
+SELECT task_id, chain_id, target_address, key, block_number, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks
 WHERE task_id = $1
 `
 
@@ -157,7 +152,6 @@ func _GetTaskByID(ctx context.Context, q CacheQuerierConn, taskID string) (*Task
 		&i.TargetAddress,
 		&i.Key,
 		&i.BlockNumber,
-		&i.Timestamp,
 		&i.Value,
 		&i.Epoch,
 		&i.Status,
@@ -176,13 +170,11 @@ func _GetTaskByID(ctx context.Context, q CacheQuerierConn, taskID string) (*Task
 }
 
 const incrementRetryCount = `-- name: IncrementRetryCount :one
-
-
 UPDATE tasks
 SET retry_count = retry_count + 1,
     updated_at = NOW()
 WHERE task_id = $1
-RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
+RETURNING task_id, chain_id, target_address, key, block_number, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
 `
 
 // -- timeout: 500ms
@@ -201,7 +193,6 @@ func _IncrementRetryCount(ctx context.Context, q CacheQuerierConn, taskID string
 		&i.TargetAddress,
 		&i.Key,
 		&i.BlockNumber,
-		&i.Timestamp,
 		&i.Value,
 		&i.Epoch,
 		&i.Status,
@@ -220,7 +211,8 @@ func _IncrementRetryCount(ctx context.Context, q CacheQuerierConn, taskID string
 }
 
 const listAllTasks = `-- name: ListAllTasks :many
-SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks ORDER BY created_at DESC
+SELECT task_id, chain_id, target_address, key, block_number, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks 
+ORDER BY created_at DESC
 `
 
 // -- timeout: 500ms
@@ -250,7 +242,6 @@ func _ListAllTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, error) {
 			&i.TargetAddress,
 			&i.Key,
 			&i.BlockNumber,
-			&i.Timestamp,
 			&i.Value,
 			&i.Epoch,
 			&i.Status,
@@ -271,7 +262,7 @@ func _ListAllTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, error) {
 }
 
 const listConfirmingTasks = `-- name: ListConfirmingTasks :many
-SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks 
+SELECT task_id, chain_id, target_address, key, block_number, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks 
 WHERE status = 'confirming'
 ORDER BY created_at DESC
 `
@@ -303,7 +294,6 @@ func _ListConfirmingTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, err
 			&i.TargetAddress,
 			&i.Key,
 			&i.BlockNumber,
-			&i.Timestamp,
 			&i.Value,
 			&i.Epoch,
 			&i.Status,
@@ -324,7 +314,7 @@ func _ListConfirmingTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, err
 }
 
 const listPendingTasks = `-- name: ListPendingTasks :many
-SELECT task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks
+SELECT task_id, chain_id, target_address, key, block_number, value, epoch, status, required_confirmations, retry_count, created_at, updated_at FROM tasks
 WHERE status = 'pending'
 ORDER BY created_at ASC
 `
@@ -356,7 +346,6 @@ func _ListPendingTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, error)
 			&i.TargetAddress,
 			&i.Key,
 			&i.BlockNumber,
-			&i.Timestamp,
 			&i.Value,
 			&i.Epoch,
 			&i.Status,
@@ -376,9 +365,7 @@ func _ListPendingTasks(ctx context.Context, q CacheQuerierConn) ([]Tasks, error)
 	return items, err
 }
 
-const updateTaskCompleted = `-- name: UpdateTaskCompleted :exec
-
-
+const updateTaskToCompleted = `-- name: UpdateTaskToCompleted :exec
 UPDATE tasks
 SET status = 'completed',
     updated_at = NOW()
@@ -386,10 +373,10 @@ WHERE task_id = $1
 `
 
 // -- timeout: 500ms
-func (q *Queries) UpdateTaskCompleted(ctx context.Context, taskID string) error {
+func (q *Queries) UpdateTaskToCompleted(ctx context.Context, taskID string) error {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
-	_, err := q.db.WExec(qctx, "tasks.UpdateTaskCompleted", updateTaskCompleted, taskID)
+	_, err := q.db.WExec(qctx, "tasks.UpdateTaskToCompleted", updateTaskToCompleted, taskID)
 	if err != nil {
 		return err
 	}
@@ -397,57 +384,7 @@ func (q *Queries) UpdateTaskCompleted(ctx context.Context, taskID string) error 
 	return nil
 }
 
-const updateTaskStatus = `-- name: UpdateTaskStatus :one
-
-UPDATE tasks
-SET status = $2,
-    updated_at = NOW()
-WHERE task_id = $1
-RETURNING task_id, chain_id, target_address, key, block_number, timestamp, value, epoch, status, required_confirmations, retry_count, created_at, updated_at
-`
-
-type UpdateTaskStatusParams struct {
-	TaskID string           `json:"task_id"`
-	Status types.TaskStatus `json:"status"`
-}
-
-// -- timeout: 500ms
-func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusParams) (*Tasks, error) {
-	return _UpdateTaskStatus(ctx, q.AsReadOnly(), arg)
-}
-
-func _UpdateTaskStatus(ctx context.Context, q CacheQuerierConn, arg UpdateTaskStatusParams) (*Tasks, error) {
-	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
-	defer cancel()
-	row := q.GetConn().WQueryRow(qctx, "tasks.UpdateTaskStatus", updateTaskStatus, arg.TaskID, arg.Status)
-	var i *Tasks = new(Tasks)
-	err := row.Scan(
-		&i.TaskID,
-		&i.ChainID,
-		&i.TargetAddress,
-		&i.Key,
-		&i.BlockNumber,
-		&i.Timestamp,
-		&i.Value,
-		&i.Epoch,
-		&i.Status,
-		&i.RequiredConfirmations,
-		&i.RetryCount,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	if err == pgx.ErrNoRows {
-		return (*Tasks)(nil), nil
-	} else if err != nil {
-		return nil, err
-	}
-
-	return i, err
-}
-
 const updateTaskToPending = `-- name: UpdateTaskToPending :exec
-
-
 UPDATE tasks 
 SET status = 'pending', 
     updated_at = NOW()
@@ -469,7 +406,7 @@ func (q *Queries) UpdateTaskToPending(ctx context.Context, taskID string) error 
 //// auto generated functions
 
 func (q *Queries) Dump(ctx context.Context, beforeDump ...BeforeDump) ([]byte, error) {
-	sql := "SELECT task_id,chain_id,target_address,key,block_number,timestamp,value,epoch,status,required_confirmations,retry_count,created_at,updated_at FROM \"tasks\" ORDER BY task_id,target_address,created_at,updated_at ASC;"
+	sql := "SELECT task_id,chain_id,target_address,key,block_number,value,epoch,status,required_confirmations,retry_count,created_at,updated_at FROM \"tasks\" ORDER BY task_id,target_address,created_at,updated_at ASC;"
 	rows, err := q.db.WQuery(ctx, "tasks.Dump", sql)
 	if err != nil {
 		return nil, err
@@ -478,7 +415,7 @@ func (q *Queries) Dump(ctx context.Context, beforeDump ...BeforeDump) ([]byte, e
 	var items []Tasks
 	for rows.Next() {
 		var v Tasks
-		if err := rows.Scan(&v.TaskID, &v.ChainID, &v.TargetAddress, &v.Key, &v.BlockNumber, &v.Timestamp, &v.Value, &v.Epoch, &v.Status, &v.RequiredConfirmations, &v.RetryCount, &v.CreatedAt, &v.UpdatedAt); err != nil {
+		if err := rows.Scan(&v.TaskID, &v.ChainID, &v.TargetAddress, &v.Key, &v.BlockNumber, &v.Value, &v.Epoch, &v.Status, &v.RequiredConfirmations, &v.RetryCount, &v.CreatedAt, &v.UpdatedAt); err != nil {
 			return nil, err
 		}
 		for _, applyBeforeDump := range beforeDump {
@@ -497,14 +434,14 @@ func (q *Queries) Dump(ctx context.Context, beforeDump ...BeforeDump) ([]byte, e
 }
 
 func (q *Queries) Load(ctx context.Context, data []byte) error {
-	sql := "INSERT INTO \"tasks\" (task_id,chain_id,target_address,key,block_number,timestamp,value,epoch,status,required_confirmations,retry_count,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13);"
+	sql := "INSERT INTO \"tasks\" (task_id,chain_id,target_address,key,block_number,value,epoch,status,required_confirmations,retry_count,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12);"
 	rows := make([]Tasks, 0)
 	err := json.Unmarshal(data, &rows)
 	if err != nil {
 		return err
 	}
 	for _, row := range rows {
-		_, err := q.db.WExec(ctx, "tasks.Load", sql, row.TaskID, row.ChainID, row.TargetAddress, row.Key, row.BlockNumber, row.Timestamp, row.Value, row.Epoch, row.Status, row.RequiredConfirmations, row.RetryCount, row.CreatedAt, row.UpdatedAt)
+		_, err := q.db.WExec(ctx, "tasks.Load", sql, row.TaskID, row.ChainID, row.TargetAddress, row.Key, row.BlockNumber, row.Value, row.Epoch, row.Status, row.RequiredConfirmations, row.RetryCount, row.CreatedAt, row.UpdatedAt)
 		if err != nil {
 			return err
 		}

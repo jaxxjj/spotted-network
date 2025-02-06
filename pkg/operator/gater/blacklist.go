@@ -1,4 +1,4 @@
-package registry
+package gater
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/rs/zerolog/log"
 
-	"github.com/galxe/spotted-network/pkg/repos/registry/blacklist"
+	"github.com/galxe/spotted-network/pkg/repos/blacklist"
 )
 
 type BlacklistQuerier interface {

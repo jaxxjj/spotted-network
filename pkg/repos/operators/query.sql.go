@@ -291,15 +291,13 @@ type UpdateOperatorExitEpochParams struct {
 	ExitEpoch uint32 `json:"exit_epoch"`
 }
 
-// -- invalidate: GetOperatorByAddress
-// -- invalidate: GetOperatorBySigningKey
-// -- invalidate: GetOperatorByP2PKey
+// -- invalidate: [GetOperatorByAddress, GetOperatorBySigningKey, GetOperatorByP2PKey]
 // -- timeout: 500ms
-func (q *Queries) UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams, getOperatorByP2PKey *string) (*Operators, error) {
-	return _UpdateOperatorExitEpoch(ctx, q, arg, getOperatorByP2PKey)
+func (q *Queries) UpdateOperatorExitEpoch(ctx context.Context, arg UpdateOperatorExitEpochParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*Operators, error) {
+	return _UpdateOperatorExitEpoch(ctx, q, arg, getOperatorByAddress, getOperatorBySigningKey, getOperatorByP2PKey)
 }
 
-func _UpdateOperatorExitEpoch(ctx context.Context, q CacheWGConn, arg UpdateOperatorExitEpochParams, getOperatorByP2PKey *string) (*Operators, error) {
+func _UpdateOperatorExitEpoch(ctx context.Context, q CacheWGConn, arg UpdateOperatorExitEpochParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*Operators, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	row := q.GetConn().WQueryRow(qctx, "operators.UpdateOperatorExitEpoch", updateOperatorExitEpoch, arg.Address, arg.ExitEpoch)
@@ -324,9 +322,33 @@ func _UpdateOperatorExitEpoch(ctx context.Context, q CacheWGConn, arg UpdateOper
 
 	// invalidate
 	_ = q.GetConn().PostExec(func() error {
-		anyErr := make(chan error, 1)
+		anyErr := make(chan error, 3)
 		var wg sync.WaitGroup
-		wg.Add(1)
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			if getOperatorByAddress != nil {
+				key := "operators:GetOperatorByAddress:" + hashIfLong(fmt.Sprintf("%+v", (*getOperatorByAddress)))
+				err = q.GetCache().Invalidate(ctx, key)
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msgf(
+						"Failed to invalidate: %s", key)
+					anyErr <- err
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if getOperatorBySigningKey != nil {
+				key := "operators:GetOperatorBySigningKey:" + hashIfLong(fmt.Sprintf("%+v", (*getOperatorBySigningKey)))
+				err = q.GetCache().Invalidate(ctx, key)
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msgf(
+						"Failed to invalidate: %s", key)
+					anyErr <- err
+				}
+			}
+		}()
 		go func() {
 			defer wg.Done()
 			if getOperatorByP2PKey != nil {
@@ -365,15 +387,13 @@ type UpdateOperatorStateParams struct {
 	P2pKey     string         `json:"p2p_key"`
 }
 
-// -- invalidate: GetOperatorByAddress
-// -- invalidate: GetOperatorBySigningKey
-// -- invalidate: GetOperatorByP2PKey
+// -- invalidate: [GetOperatorByAddress, GetOperatorBySigningKey, GetOperatorByP2PKey]
 // -- timeout: 500ms
-func (q *Queries) UpdateOperatorState(ctx context.Context, arg UpdateOperatorStateParams, getOperatorByP2PKey *string) (*Operators, error) {
-	return _UpdateOperatorState(ctx, q, arg, getOperatorByP2PKey)
+func (q *Queries) UpdateOperatorState(ctx context.Context, arg UpdateOperatorStateParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*Operators, error) {
+	return _UpdateOperatorState(ctx, q, arg, getOperatorByAddress, getOperatorBySigningKey, getOperatorByP2PKey)
 }
 
-func _UpdateOperatorState(ctx context.Context, q CacheWGConn, arg UpdateOperatorStateParams, getOperatorByP2PKey *string) (*Operators, error) {
+func _UpdateOperatorState(ctx context.Context, q CacheWGConn, arg UpdateOperatorStateParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*Operators, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	row := q.GetConn().WQueryRow(qctx, "operators.UpdateOperatorState", updateOperatorState,
@@ -403,9 +423,33 @@ func _UpdateOperatorState(ctx context.Context, q CacheWGConn, arg UpdateOperator
 
 	// invalidate
 	_ = q.GetConn().PostExec(func() error {
-		anyErr := make(chan error, 1)
+		anyErr := make(chan error, 3)
 		var wg sync.WaitGroup
-		wg.Add(1)
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			if getOperatorByAddress != nil {
+				key := "operators:GetOperatorByAddress:" + hashIfLong(fmt.Sprintf("%+v", (*getOperatorByAddress)))
+				err = q.GetCache().Invalidate(ctx, key)
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msgf(
+						"Failed to invalidate: %s", key)
+					anyErr <- err
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if getOperatorBySigningKey != nil {
+				key := "operators:GetOperatorBySigningKey:" + hashIfLong(fmt.Sprintf("%+v", (*getOperatorBySigningKey)))
+				err = q.GetCache().Invalidate(ctx, key)
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msgf(
+						"Failed to invalidate: %s", key)
+					anyErr <- err
+				}
+			}
+		}()
 		go func() {
 			defer wg.Done()
 			if getOperatorByP2PKey != nil {
@@ -464,15 +508,13 @@ type UpsertOperatorParams struct {
 	Weight                  pgtype.Numeric `json:"weight"`
 }
 
-// -- invalidate: GetOperatorByAddress
-// -- invalidate: GetOperatorBySigningKey
-// -- invalidate: GetOperatorByP2PKey
+// -- invalidate: [GetOperatorByAddress, GetOperatorBySigningKey, GetOperatorByP2PKey]
 // -- timeout: 500ms
-func (q *Queries) UpsertOperator(ctx context.Context, arg UpsertOperatorParams, getOperatorByP2PKey *string) (*Operators, error) {
-	return _UpsertOperator(ctx, q, arg, getOperatorByP2PKey)
+func (q *Queries) UpsertOperator(ctx context.Context, arg UpsertOperatorParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*Operators, error) {
+	return _UpsertOperator(ctx, q, arg, getOperatorByAddress, getOperatorBySigningKey, getOperatorByP2PKey)
 }
 
-func _UpsertOperator(ctx context.Context, q CacheWGConn, arg UpsertOperatorParams, getOperatorByP2PKey *string) (*Operators, error) {
+func _UpsertOperator(ctx context.Context, q CacheWGConn, arg UpsertOperatorParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*Operators, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	row := q.GetConn().WQueryRow(qctx, "operators.UpsertOperator", upsertOperator,
@@ -505,9 +547,33 @@ func _UpsertOperator(ctx context.Context, q CacheWGConn, arg UpsertOperatorParam
 
 	// invalidate
 	_ = q.GetConn().PostExec(func() error {
-		anyErr := make(chan error, 1)
+		anyErr := make(chan error, 3)
 		var wg sync.WaitGroup
-		wg.Add(1)
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			if getOperatorByAddress != nil {
+				key := "operators:GetOperatorByAddress:" + hashIfLong(fmt.Sprintf("%+v", (*getOperatorByAddress)))
+				err = q.GetCache().Invalidate(ctx, key)
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msgf(
+						"Failed to invalidate: %s", key)
+					anyErr <- err
+				}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if getOperatorBySigningKey != nil {
+				key := "operators:GetOperatorBySigningKey:" + hashIfLong(fmt.Sprintf("%+v", (*getOperatorBySigningKey)))
+				err = q.GetCache().Invalidate(ctx, key)
+				if err != nil {
+					log.Ctx(ctx).Error().Err(err).Msgf(
+						"Failed to invalidate: %s", key)
+					anyErr <- err
+				}
+			}
+		}()
 		go func() {
 			defer wg.Done()
 			if getOperatorByP2PKey != nil {

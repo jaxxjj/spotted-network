@@ -1,4 +1,4 @@
-package operator
+package task_processor
 
 import (
 	"context"
@@ -9,12 +9,22 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
+	"github.com/galxe/spotted-network/pkg/repos/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	"github.com/galxe/spotted-network/pkg/repos/operators"
+	"github.com/galxe/spotted-network/pkg/repos/tasks"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+
+type OperatorRepo interface {
+	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
+	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
+	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
+	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
+	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
+}
+
 
 type EpochStateQuerier interface {
     GetLatestEpochState(ctx context.Context) (*epoch_states.EpochState, error)

@@ -19,6 +19,7 @@ import (
 const (
 	GenesisBlock = 0
 	EpochPeriod = 12
+	GracePeriod = 3
 )
 
 // ChainClient defines the interface for getting blocks that the helper functions need
@@ -268,8 +269,25 @@ func ValidateBlockNumberAndTimestamp(ctx context.Context, client ChainClient, ch
 	return resultBlockNumber, resultTimestamp, nil
 }
 
-func CalculateEpochNumber(blockNumber uint64) uint32 {
+func CalculateCurrentEpochNumber(blockNumber uint64) uint32 {
 	return uint32((blockNumber - GenesisBlock) / EpochPeriod)
+}
+
+func GetEffectiveEpochByBlockNumber(currentBlockNumber uint64) uint32 {
+
+    blocksSinceGenesis := currentBlockNumber - GenesisBlock
+
+    absoluteEpoch := uint32(blocksSinceGenesis / EpochPeriod)
+
+    epochStartBlock := GenesisBlock + (uint64(absoluteEpoch) * EpochPeriod)
+    epochEndBlock := epochStartBlock + EpochPeriod
+
+    isGracePeriod := currentBlockNumber >= (epochEndBlock - GracePeriod)
+
+    if isGracePeriod {
+        return absoluteEpoch + 2
+    }
+    return absoluteEpoch + 1
 }
 
 // writeLengthPrefix writes a 4-byte length prefix to the stream
