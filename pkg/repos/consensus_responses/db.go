@@ -100,7 +100,8 @@ CREATE TABLE IF NOT EXISTS consensus_responses (
     block_number BIGINT NOT NULL,        
     key NUMERIC NOT NULL,                        
     value NUMERIC NOT NULL,                                                                                        
-    aggregated_signatures BYTEA,                                        
+    aggregated_signatures BYTEA[] NOT NULL,
+    operator_addresses VARCHAR(42)[] NOT NULL,                                        
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     

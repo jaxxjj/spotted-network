@@ -18,10 +18,10 @@ import (
 
 	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
-	commonTypes "github.com/galxe/spotted-network/pkg/common/types"
 	"github.com/galxe/spotted-network/pkg/config"
-	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	"github.com/galxe/spotted-network/pkg/operator/constants"
+	"github.com/galxe/spotted-network/pkg/repos/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/tasks"
 )
 
 // chain client interface
@@ -29,8 +29,8 @@ type ChainClient interface {
 	BlockNumber(ctx context.Context) (uint64, error)
 	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
 	GetStateAtBlock(ctx context.Context, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error)
-	Close()
 	GetCurrentEpoch(ctx context.Context) (uint32, error)
+	Close() error
 }
 
 type TaskProcessor interface {
@@ -46,24 +46,24 @@ type ChainManager interface {
 }
 
 // TaskQuerier defines the interface for task database operations needed by the handler
-type TasksQuerier interface {
-	CreateTask(ctx context.Context, arg tasks.CreateTaskParams) (*tasks.Tasks, error) 
+type TaskRepo interface {
+	CreateTask(ctx context.Context, arg tasks.CreateTaskParams) (*tasks.Tasks, error)
 	GetTaskByID(ctx context.Context, taskID string) (*tasks.Tasks, error)
 }
 
 // ConsensusResponseQuerier defines the interface for consensus response database operations
-type ConsensusResponseQuerier interface {
+type ConsensusResponseRepo interface {
 	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (*consensus_responses.ConsensusResponse, error)
 	GetConsensusResponseByRequest(ctx context.Context, arg consensus_responses.GetConsensusResponseByRequestParams) (*consensus_responses.ConsensusResponse, error)
 }
 
 // Handler handles HTTP requests
 type Handler struct {
-	tasks    TasksQuerier
-	chainManager   ChainManager
-	consensusResponses    ConsensusResponseQuerier
-	taskProcessor  TaskProcessor
-	config        *config.Config
+	chainManager          ChainManager
+	taskRepo              TaskRepo
+	consensusResponseRepo ConsensusResponseRepo
+	taskProcessor         TaskProcessor
+	config                *config.Config
 }
 
 // user send request params
@@ -78,48 +78,48 @@ type SendRequestParams struct {
 
 // send request response
 type SendRequestResponse struct {
-	TaskID               string `json:"task_id"`
-	Status               string `json:"status"`
+	TaskID                string `json:"task_id"`
+	Status                string `json:"status"`
 	RequiredConfirmations uint16 `json:"required_confirmations,omitempty"`
-	Message              string `json:"message,omitempty"`
-	Error               string `json:"error,omitempty"`
+	Message               string `json:"message,omitempty"`
+	Error                 string `json:"error,omitempty"`
 }
 
 // consensus response wrapper
 type ConsensusResponseWrapper struct {
 	Data    *consensus_responses.ConsensusResponse `json:"data,omitempty"`
-	Message string                                `json:"message,omitempty"`
-	Error   string                                `json:"error,omitempty"`
+	Message string                                 `json:"message,omitempty"`
+	Error   string                                 `json:"error,omitempty"`
 }
 
 // NewHandler creates a new handler
 func NewHandler(
-	tasks TasksQuerier,
+	taskRepo TaskRepo,
 	chainManager ChainManager,
-	consensusResponses ConsensusResponseQuerier,
+	consensusResponseRepo ConsensusResponseRepo,
 	taskProcessor TaskProcessor,
 	config *config.Config,
-) *Handler {
+) (*Handler, error) {
 	if taskProcessor == nil {
-		log.Fatal("[API] Task processor not initialized")
+		return nil, fmt.Errorf("[API] Task processor not initialized")
 	}
 	if chainManager == nil {
-		log.Fatal("[API] Chain manager not initialized")
+		return nil, fmt.Errorf("[API] Chain manager not initialized")
 	}
 
-	if tasks == nil {
-		log.Fatal("[API] Tasks querier not initialized")
+	if taskRepo == nil {
+		return nil, fmt.Errorf("[API] Task repo not initialized")
 	}
-	if consensusResponses == nil {
-		log.Fatal("[API] Consensus responses querier not initialized")
+	if consensusResponseRepo == nil {
+		return nil, fmt.Errorf("[API] Consensus response repo not initialized")
 	}
 	return &Handler{
-		tasks:   tasks,
-		chainManager:  chainManager,
-		consensusResponses:   consensusResponses,
-		taskProcessor: taskProcessor,
-		config:       config,
-	}
+		taskRepo:              taskRepo,
+		chainManager:          chainManager,
+		consensusResponseRepo: consensusResponseRepo,
+		taskProcessor:         taskProcessor,
+		config:                config,
+	}, nil
 }
 
 // send request handler
@@ -155,10 +155,15 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stateClient, err := h.chainManager.GetClientByChainId(params.ChainID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("Failed to get state client for chain %d: %v", params.ChainID, err))
-		return
+	var stateClient ChainClient
+	if params.ChainID == 1 {
+		stateClient = mainnetClient
+	} else {
+		stateClient, err = h.chainManager.GetClientByChainId(params.ChainID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("Failed to get state client for chain %d: %v", params.ChainID, err))
+			return
+		}
 	}
 	if stateClient == nil {
 		log.Printf("[API] State client is nil for chain %d", params.ChainID)
@@ -167,7 +172,6 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var blockNumber uint64
-	var timestamp uint64
 	targetAddress := ethcommon.HexToAddress(params.TargetAddress)
 	if params.Timestamp != 0 {
 		blockNumber, err = utils.TimestampToBlockNumber(r.Context(), stateClient, params.ChainID, params.Timestamp)
@@ -175,16 +179,8 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to convert timestamp to block number: %v", err))
 			return
 		}
-		params.BlockNumber = blockNumber
-		timestamp = params.Timestamp
-		params.Timestamp = 0
 	} else {
 		blockNumber = params.BlockNumber
-		timestamp, err = utils.BlockNumberToTimestamp(r.Context(), stateClient, params.ChainID, blockNumber)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to convert block number to timestamp: %v", err))
-			return
-		}
 	}
 
 	keyBig := utils.StringToBigInt(params.Key)
@@ -197,26 +193,26 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	taskID := h.generateTaskID(&params, value.String())
 
 	// check consensus reached
-	consensus, err := h.consensusResponses.GetConsensusResponseByTaskId(r.Context(), taskID)
+	consensus, err := h.consensusResponseRepo.GetConsensusResponseByTaskId(r.Context(), taskID)
 	if err != nil {
 		log.Printf("[API] Failed to query consensus: %v", err)
 		writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
-	
+
 	if consensus != nil {
-		writeSuccess(w, 
+		writeSuccess(w,
 			taskID,
-			string(commonTypes.TaskStatusCompleted),
-			0, 
-			fmt.Sprintf("Task already completed with consensus reached at %s", 
-				consensus.ConsensusReachedAt.Format(time.RFC3339)),
+			string(constants.TaskStatusCompleted),
+			0,
+			fmt.Sprintf("Task already completed with consensus reached at %s",
+				consensus.CreatedAt.Format(time.RFC3339)),
 		)
 		return
 	}
 
 	// check task exists
-	existingTask, err := h.tasks.GetTaskByID(r.Context(), taskID)
+	existingTask, err := h.taskRepo.GetTaskByID(r.Context(), taskID)
 	if err != nil {
 		log.Printf("[API] Failed to query task: %v", err)
 		writeError(w, http.StatusInternalServerError, "Internal server error")
@@ -225,7 +221,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 
 	if existingTask != nil {
 		// task exists
-		writeSuccess(w, 
+		writeSuccess(w,
 			existingTask.TaskID,
 			string(existingTask.Status),
 			uint16(existingTask.RequiredConfirmations),
@@ -242,33 +238,28 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status := commonTypes.TaskStatusPending
+	status := constants.TaskStatusPending
 	var statusMessage string
-	if params.BlockNumber != 0 {
-		if latestBlock < params.BlockNumber+uint64(requiredConfirmations) {
-			status = commonTypes.TaskStatusConfirming
-			statusMessage = fmt.Sprintf("Waiting for %d block confirmations", requiredConfirmations)
-			log.Printf("[API] Task requires %d confirmations, waiting for block %d (current: %d)",
-				requiredConfirmations, params.BlockNumber+uint64(requiredConfirmations), latestBlock)
-		} else {
-			statusMessage = "Task has sufficient confirmations"
-			log.Printf("[API] Task already has sufficient confirmations (target: %d, current: %d)",
-				params.BlockNumber+uint64(requiredConfirmations), latestBlock)
-		}
+	if latestBlock < blockNumber+uint64(requiredConfirmations) {
+		status = constants.TaskStatusConfirming
+		statusMessage = fmt.Sprintf("Waiting for %d block confirmations", requiredConfirmations)
+		log.Printf("[API] Task requires %d confirmations, waiting for block %d (current: %d)",
+			requiredConfirmations, blockNumber+uint64(requiredConfirmations), latestBlock)
 	} else {
-		statusMessage = "Task is pending processing"
+		statusMessage = "Task has sufficient confirmations"
+		log.Printf("[API] Task already has sufficient confirmations (target: %d, current: %d)",
+			blockNumber+uint64(requiredConfirmations), latestBlock)
 	}
 
-	task, err := h.tasks.CreateTask(r.Context(), tasks.CreateTaskParams{
-		TaskID:               taskID,
-		TargetAddress:        params.TargetAddress,
-		ChainID:             params.ChainID,
-		BlockNumber:         blockNumber,
-		Timestamp:           timestamp,
-		Epoch:               currentEpoch,
-		Key:                 utils.BigIntToNumeric(keyBig),
-		Value:               utils.BigIntToNumeric(value),
-		Status:              status,
+	task, err := h.taskRepo.CreateTask(r.Context(), tasks.CreateTaskParams{
+		TaskID:                taskID,
+		TargetAddress:         params.TargetAddress,
+		ChainID:               params.ChainID,
+		BlockNumber:           blockNumber,
+		Epoch:                 currentEpoch,
+		Key:                   utils.BigIntToNumeric(keyBig),
+		Value:                 utils.BigIntToNumeric(value),
+		Status:                status,
 		RequiredConfirmations: requiredConfirmations,
 	})
 	if err != nil {
@@ -283,9 +274,9 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[API] Created new task %s with status %s", task.TaskID, task.Status)
-	if task.Status == commonTypes.TaskStatusConfirming {
+	if task.Status == constants.TaskStatusConfirming {
 		log.Printf("[API] Task %s requires %d block confirmations", task.TaskID, requiredConfirmations)
-	} else if task.Status == commonTypes.TaskStatusPending {
+	} else if task.Status == constants.TaskStatusPending {
 		log.Printf("[API] Task %s is pending, processing immediately", task.TaskID)
 		if err := h.taskProcessor.ProcessTask(r.Context(), task); err != nil {
 			log.Printf("[API] Failed to process pending task %s: %v", task.TaskID, err)
@@ -294,7 +285,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeSuccess(w, 
+	writeSuccess(w,
 		task.TaskID,
 		string(task.Status),
 		task.RequiredConfirmations,
@@ -380,8 +371,8 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 // GetTaskConsensusByTaskID returns the consensus result for a task
 func (h *Handler) GetTaskConsensusByTaskID(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskID")
-	
-	consensus, err := h.consensusResponses.GetConsensusResponseByTaskId(r.Context(), taskID)
+
+	consensus, err := h.consensusResponseRepo.GetConsensusResponseByTaskId(r.Context(), taskID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get consensus: %v", err))
 		return
@@ -395,7 +386,7 @@ func (h *Handler) GetTaskConsensusByTaskID(w http.ResponseWriter, r *http.Reques
 		Data:    consensus,
 		Message: "Consensus found successfully",
 	}
-	
+
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -430,11 +421,11 @@ func (h *Handler) GetConsensusResponseByRequest(w http.ResponseWriter, r *http.R
 	}
 
 	// Get consensus response
-	consensus, err := h.consensusResponses.GetConsensusResponseByRequest(r.Context(), consensus_responses.GetConsensusResponseByRequestParams{
+	consensus, err := h.consensusResponseRepo.GetConsensusResponseByRequest(r.Context(), consensus_responses.GetConsensusResponseByRequestParams{
 		TargetAddress: targetAddress,
-		ChainID:      uint32(chainID),
-		BlockNumber:  blockNumber,
-		Key:         keyNum,
+		ChainID:       uint32(chainID),
+		BlockNumber:   blockNumber,
+		Key:           keyNum,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get consensus: %v", err))
@@ -449,8 +440,6 @@ func (h *Handler) GetConsensusResponseByRequest(w http.ResponseWriter, r *http.R
 		Data:    consensus,
 		Message: "Consensus found successfully",
 	}
-	
+
 	writeJSON(w, http.StatusOK, response)
 }
-
-

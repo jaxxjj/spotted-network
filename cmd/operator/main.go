@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -15,12 +16,10 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/config"
-	"github.com/galxe/spotted-network/pkg/operator"
 	"github.com/galxe/spotted-network/pkg/operator/api"
-	"github.com/galxe/spotted-network/pkg/repos/operator/consensus_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operator/epoch_states"
-	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	"github.com/galxe/spotted-network/pkg/repos/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/tasks"
+	"github.com/libp2p/go-libp2p"
 )
 
 func main() {
@@ -63,7 +62,7 @@ func main() {
 	// Get config path from environment variable
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
-		configPath = "config/operator.yaml"  // default value
+		configPath = "config/operator.yaml" // default value
 	}
 
 	// Load config
@@ -114,17 +113,27 @@ func main() {
 	taskResponseQuerier := task_responses.New(db.WConn(), dCache)
 	consensusResponseQuerier := consensus_responses.New(db.WConn(), dCache)
 	epochStatesQuerier := epoch_states.New(db.WConn(), dCache)
-
+	// Create gate
+	// Use gater to create host
+	host, err := libp2p.New(
+		libp2p.ListenAddrStrings(
+			fmt.Sprintf("/ip4/%s/tcp/%d", cfg.Config.P2P.ExternalIP, cfg.Config.P2P.Port),
+		),
+		libp2p.ConnectionGater(gater),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create host: %w", err)
+	}
 	// Start operator node
 	node, err := operator.NewNode(ctx, &operator.NodeConfig{
-		ChainManager:    chainManager,
-		Signer:          signer,
-		TasksQuerier:     tasksQuerier,
-		TaskResponseQuerier: taskResponseQuerier,
+		ChainManager:             chainManager,
+		Signer:                   signer,
+		TasksQuerier:             tasksQuerier,
+		TaskResponseQuerier:      taskResponseQuerier,
 		ConsensusResponseQuerier: consensusResponseQuerier,
-		EpochStateQuerier: epochStatesQuerier,
-		RegistryAddress: *registryAddress,
-		Config:          cfg,
+		EpochStateQuerier:        epochStatesQuerier,
+		RegistryAddress:          *registryAddress,
+		Config:                   cfg,
 	})
 	defer node.Stop(ctx)
 	if err != nil {
@@ -142,7 +151,13 @@ func main() {
 	metric.RecordRequest("operator", "startup_complete")
 	log.Printf("Operator node started successfully")
 
+	// Start API server
+	go func() {
+		if err := node.apiServer.Start(); err != nil && err != http.ErrServerClosed {
+			log.Printf("API server error: %v", err)
+		}
+	}()
+
 	// Wait forever
 	select {}
 }
-

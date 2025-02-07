@@ -1,20 +1,30 @@
-package operator
+package task
 
 import (
 	"context"
 	"math/big"
 	"time"
 
-	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
+	"github.com/galxe/spotted-network/pkg/repos/tasks"
 	"github.com/rs/zerolog/log"
 )
 
 const (
-	maxRetryCount = 3
-	pendingTaskCheckInterval = 30 * time.Second
+	maxRetryCount             = 3
+	pendingTaskCheckInterval  = 30 * time.Second
 	confirmationCheckInterval = 10 * time.Second
-	cleanupInterval = 1 * time.Hour
+	cleanupInterval           = 1 * time.Hour
 )
+
+type TaskRepo interface {
+	GetTaskByID(ctx context.Context, taskID string) (*tasks.Tasks, error)
+	UpdateTaskToCompleted(ctx context.Context, taskID string) error
+	ListPendingTasks(ctx context.Context) ([]tasks.Tasks, error)
+	IncrementRetryCount(ctx context.Context, taskID string) (*tasks.Tasks, error)
+	DeleteTaskByID(ctx context.Context, taskID string) error
+	ListConfirmingTasks(ctx context.Context) ([]tasks.Tasks, error)
+	UpdateTaskToPending(ctx context.Context, taskID string) error
+}
 
 // checkTimeouts periodically checks for pending tasks and retries them
 func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
@@ -26,111 +36,43 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			log.Info().
-				Str("component", "timeout").
-				Msg("Starting pending tasks check...")
-			
+			log.Printf("[INFO] [timeout] Starting pending tasks check...")
+
 			// Get all pending tasks
-			tasks, err := tp.tasks.ListPendingTasks(ctx)
+			tasks, err := tp.taskRepo.ListPendingTasks(ctx)
 			if err != nil {
-				log.Error().
-					Str("component", "timeout").
-					Err(err).
-					Msg("Failed to list pending tasks")
+				log.Printf("[ERROR] [timeout] Failed to list pending tasks: error=%v", err)
 				continue
 			}
 
 			for _, task := range tasks {
-				// Add nil check for task
-				if task.TaskID == "" {
-					log.Warn().
-						Str("component", "timeout").
-						Msg("Invalid task with empty ID")
-					continue
-				}
 
-				log.Info().
-					Str("component", "timeout").
-					Str("task_id", task.TaskID).
-					Uint16("retry_count", task.RetryCount).
-					Msg("Processing pending task")
-				
-				// Clean up memory maps before retrying
-				tp.responsesMutex.Lock()
-				delete(tp.responses, task.TaskID)
-				tp.responsesMutex.Unlock()
+				log.Printf("[INFO] [timeout] Processing pending task: task_id=%s retry_count=%d", task.TaskID, task.RetryCount)
 
-				tp.weightsMutex.Lock()
-				delete(tp.taskWeights, task.TaskID)
-				tp.weightsMutex.Unlock()
-
-				// Increment retry count before processing
-				newRetryCount, err := tp.tasks.IncrementRetryCount(ctx, task.TaskID)
+				// Clean up task
+				tp.cleanupTask(task.TaskID)
+				newRetryCount, err := tp.taskRepo.IncrementRetryCount(ctx, task.TaskID)
 				if err != nil {
-					log.Error().
-						Str("component", "timeout").
-						Str("task_id", task.TaskID).
-						Err(err).
-						Msg("Failed to increment retry count")
+					log.Printf("[ERROR] [timeout] Failed to increment retry count: task_id=%s error=%v", task.TaskID, err)
 					continue
 				}
-				log.Info().
-					Str("component", "timeout").
-					Str("task_id", task.TaskID).
-					Uint16("new_retry_count", newRetryCount.RetryCount).
-					Msg("Incremented retry count for task")
-
-				// If retry count reaches max, delete the task
+				log.Printf("[INFO] [timeout] Incremented retry count after failed processing: task_id=%s new_retry_count=%d",
+					task.TaskID, newRetryCount.RetryCount)
+				// Check if already at max retries before processing
 				if newRetryCount.RetryCount >= maxRetryCount {
-					log.Info().
-						Str("component", "timeout").
-						Str("task_id", task.TaskID).
-						Msg("Task reached max retries, deleting")
-					if err := tp.tasks.DeleteTaskByID(ctx, task.TaskID); err != nil {
-						log.Error().
-							Str("component", "timeout").
-							Str("task_id", task.TaskID).
-							Err(err).
-							Msg("Failed to delete task")
+					log.Printf("[INFO] [timeout] Task reached max retries, deleting task_id=%s", task.TaskID)
+					if err := tp.taskRepo.DeleteTaskByID(ctx, task.TaskID); err != nil {
+						log.Printf("[ERROR] [timeout] Failed to delete task: task_id=%s error=%v", task.TaskID, err)
 					}
-
 					// Clean up memory
-					tp.responsesMutex.Lock()
-					delete(tp.responses, task.TaskID)
-					tp.responsesMutex.Unlock()
-
-					tp.weightsMutex.Lock()
-					delete(tp.taskWeights, task.TaskID)
-					tp.weightsMutex.Unlock()
-
+					tp.cleanupTask(task.TaskID)
 					continue
 				}
-				
+
 				// Try to process the task
-				err = tp.ProcessTask(ctx, &task)
-				if err != nil {
-					log.Error().
-						Str("component", "timeout").
-						Str("task_id", task.TaskID).
-						Err(err).
-						Msg("Failed to process task")
-				} else {
-					// Check if task was already processed
-					_, err := tp.taskResponse.GetTaskResponse(ctx, task_responses.GetTaskResponseParams{
-						TaskID: task.TaskID,
-						OperatorAddress: tp.signer.GetOperatorAddress().Hex(),
-					})
-					if err == nil {
-						log.Info().
-							Str("component", "timeout").
-							Str("task_id", task.TaskID).
-							Msg("Task was already processed, skipping")
-					} else {
-						log.Info().
-							Str("component", "timeout").
-							Str("task_id", task.TaskID).
-							Msg("Successfully processed pending task")
-					}
+				if err := tp.ProcessTask(ctx, &task); err != nil {
+					log.Printf("[ERROR] [timeout] Failed to process task: task_id=%s error=%v", task.TaskID, err)
+					continue
 				}
 			}
 		}
@@ -147,121 +89,65 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			log.Info().
-				Str("component", "confirmation").
-				Msg("Starting confirmation check...")
-			
+			log.Printf("[INFO] [confirmation] Starting confirmation check...")
+
 			// Get all tasks in confirming status
-			tasks, err := tp.tasks.ListConfirmingTasks(ctx)
+			tasks, err := tp.taskRepo.ListConfirmingTasks(ctx)
 			if err != nil {
-				log.Error().
-					Str("component", "confirmation").
-					Err(err).
-					Msg("Failed to list confirming tasks")
+				log.Printf("[ERROR] [confirmation] Failed to list confirming tasks: error=%v", err)
 				continue
 			}
-			log.Info().
-				Str("component", "confirmation").
-				Int("task_count", len(tasks)).
-				Msg("Found tasks in confirming status")
+			log.Printf("[INFO] [confirmation] Found tasks in confirming status: task_count=%d", len(tasks))
 
 			for _, task := range tasks {
-				log.Info().
-					Str("component", "confirmation").
-					Str("task_id", task.TaskID).
-					Msg("Processing task")
-				
+				log.Printf("[INFO] [confirmation] Processing task: task_id=%s", task.TaskID)
+
 				// Get state client for the chain
-				stateClient, err := tp.chainManager.GetClientByChainId(task.ChainID)
+				chainClient, err := tp.chainManager.GetClientByChainId(task.ChainID)
 				if err != nil {
-					log.Error().
-						Str("component", "confirmation").
-						Str("task_id", task.TaskID).
-						Uint32("chain_id", task.ChainID).
-						Err(err).
-						Msg("Failed to get state client for chain")
+					log.Printf("[ERROR] [confirmation] Failed to get state client for chain: task_id=%s chain_id=%d error=%v", task.TaskID, task.ChainID, err)
 					continue
 				}
 
 				// Get latest block number
-				latestBlock, err := stateClient.BlockNumber(ctx)
+				latestBlock, err := chainClient.BlockNumber(ctx)
 				if err != nil {
-					log.Error().
-						Str("component", "confirmation").
-						Str("task_id", task.TaskID).
-						Err(err).
-						Msg("Failed to get latest block number")
+					log.Printf("[ERROR] [confirmation] Failed to get latest block number: task_id=%s error=%v", task.TaskID, err)
 					continue
 				}
-				log.Info().
-					Str("component", "confirmation").
-					Uint64("latest_block", latestBlock).
-					Msg("Latest block")
+				log.Printf("[INFO] [confirmation] Latest block: latest_block=%d", latestBlock)
 
 				// Get target block number
 				if task.BlockNumber == 0 {
-					log.Warn().
-						Str("component", "confirmation").
-						Str("task_id", task.TaskID).
-						Msg("Invalid block number for task")
+					log.Printf("[WARN] [confirmation] Invalid block number for task: task_id=%s", task.TaskID)
 					continue
 				}
-				log.Debug().
-					Str("component", "confirmation").
-					Uint64("block_number", task.BlockNumber).
-					Msg("Raw block number from task")
-				
+				log.Printf("[DEBUG] [confirmation] Raw block number from task: block_number=%d", task.BlockNumber)
+
 				// Convert block number properly considering exponent
 				targetBlock := task.BlockNumber + uint64(task.RequiredConfirmations)
 
-				log.Info().
-					Str("component", "confirmation").
-					Uint64("target_block", targetBlock).
-					Msg("Target block (from user request)")
+				log.Printf("[INFO] [confirmation] Target block (from user request): target_block=%d", targetBlock)
 
 				if latestBlock >= targetBlock {
-					log.Info().
-						Str("component", "confirmation").
-						Str("task_id", task.TaskID).
-						Uint64("latest_block", latestBlock).
-						Uint64("target_block", targetBlock).
-						Msg("Task has reached required confirmations, changing status to pending")
-					
+					log.Printf("[INFO] [confirmation] Task has reached required confirmations: task_id=%s latest_block=%d target_block=%d", task.TaskID, latestBlock, targetBlock)
+
 					// Change task status to pending
-					err = tp.tasks.UpdateTaskToPending(ctx, task.TaskID)
+					err = tp.taskRepo.UpdateTaskToPending(ctx, task.TaskID)
 					if err != nil {
-						log.Error().
-							Str("component", "confirmation").
-							Str("task_id", task.TaskID).
-							Err(err).
-							Msg("Failed to update task status to pending")
+						log.Printf("[ERROR] [confirmation] Failed to update task status to pending: task_id=%s error=%v", task.TaskID, err)
 						continue
 					}
-					log.Info().
-						Str("component", "confirmation").
-						Str("task_id", task.TaskID).
-						Msg("Successfully changed task status to pending")
+					log.Printf("[INFO] [confirmation] Successfully changed task status to pending: task_id=%s", task.TaskID)
 
 					// Process task immediately
 					if err := tp.ProcessTask(ctx, &task); err != nil {
-						log.Error().
-							Str("component", "confirmation").
-							Str("task_id", task.TaskID).
-							Err(err).
-							Msg("Failed to process task immediately")
+						log.Printf("[ERROR] [confirmation] Failed to process task immediately: task_id=%s error=%v", task.TaskID, err)
 						continue
 					}
-					log.Info().
-						Str("component", "confirmation").
-						Str("task_id", task.TaskID).
-						Msg("Successfully processed task immediately")
+					log.Printf("[INFO] [confirmation] Successfully processed task immediately: task_id=%s", task.TaskID)
 				} else {
-					log.Info().
-						Str("component", "confirmation").
-						Str("task_id", task.TaskID).
-						Uint64("latest_block", latestBlock).
-						Uint64("target_block", targetBlock).
-						Msg("Task needs more confirmations")
+					log.Printf("[INFO] [confirmation] Task needs more confirmations: task_id=%s latest_block=%d target_block=%d", task.TaskID, latestBlock, targetBlock)
 				}
 			}
 		}
@@ -278,9 +164,7 @@ func (tp *TaskProcessor) periodicCleanup(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			log.Info().
-				Str("component", "task_processor").
-				Msg("Starting periodic cleanup...")
+			log.Printf("[INFO] [task_processor] Starting periodic cleanup...")
 			tp.cleanupAllTasks()
 		}
 	}
@@ -289,17 +173,10 @@ func (tp *TaskProcessor) periodicCleanup(ctx context.Context) {
 // cleanupAllTasks removes all task data from local maps
 func (tp *TaskProcessor) cleanupAllTasks() {
 	// Clean up responses map
-	tp.responsesMutex.Lock()
-	tp.responses = make(map[string]map[string]*task_responses.TaskResponses)
-	tp.responsesMutex.Unlock()
+	tp.taskResponseTrack.mu.Lock()
+	tp.taskResponseTrack.responses = make(map[string]map[string]taskResponse)
+	tp.taskResponseTrack.weights = make(map[string]map[string]*big.Int)
+	tp.taskResponseTrack.mu.Unlock()
 
-	// Clean up weights map
-	tp.weightsMutex.Lock()
-	tp.taskWeights = make(map[string]map[string]*big.Int)
-	tp.weightsMutex.Unlock()
-
-	log.Info().
-		Str("component", "task_processor").
-		Msg("Cleaned up all local task maps")
+	log.Printf("[INFO] [task_processor] Cleaned up all local task maps")
 }
-

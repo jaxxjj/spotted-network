@@ -29,10 +29,10 @@ type TxManager interface {
 	Transact(ctx context.Context, txOptions pgx.TxOptions, f func(context.Context, *wpgx.WTx) (any, error)) (any, error)
 }
 
-type OperatorsRepo interface {
-	ListAllOperators(ctx context.Context) ([]operators.Operators, error) 
-	WithTx(tx *wpgx.WTx) OperatorsRepo
-	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
+type OperatorRepo interface {
+	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
+	WithTx(tx *wpgx.WTx) OperatorRepo
+	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string, isActiveOperator *string) (*operators.Operators, error)
 }
 
 type MainnetClient interface {
@@ -43,25 +43,26 @@ type MainnetClient interface {
 	GetMinimumWeight(ctx context.Context) (*big.Int, error)
 	GetTotalWeight(ctx context.Context) (*big.Int, error)
 	GetThresholdWeight(ctx context.Context) (*big.Int, error)
+	Close()
 }
 
 type EpochState struct {
-	EpochNumber uint32
-	MinimumWeight *big.Int
-	TotalWeight *big.Int
+	EpochNumber     uint32
+	MinimumWeight   *big.Int
+	TotalWeight     *big.Int
 	ThresholdWeight *big.Int
 }
 
-type EpochUpdatorConfig struct {
-	operatorRepo OperatorsRepo
+type Config struct {
+	operatorRepo  OperatorRepo
 	mainnetClient MainnetClient
-	txManager TxManager 
+	txManager     TxManager
 }
 
 type EpochUpdator struct {
-	operatorRepo OperatorsRepo
-	mainnetClient MainnetClient
-	txManager TxManager 
+	operatorRepo      OperatorRepo
+	mainnetClient     MainnetClient
+	txManager         TxManager
 	currentEpochState EpochState
 
 	lastProcessedEpoch uint32
@@ -70,7 +71,10 @@ type EpochUpdator struct {
 	wg     sync.WaitGroup
 }
 
-func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdator, error) {
+func NewEpochUpdator(ctx context.Context, cfg *Config) (*EpochUpdator, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
+	}
 	if cfg.operatorRepo == nil {
 		return nil, fmt.Errorf("operatorRepo is nil")
 	}
@@ -81,24 +85,24 @@ func NewEpochUpdator(ctx context.Context, cfg *EpochUpdatorConfig) (*EpochUpdato
 		return nil, fmt.Errorf("txManager is nil")
 	}
 	e := &EpochUpdator{
-		operatorRepo: cfg.operatorRepo,
+		operatorRepo:  cfg.operatorRepo,
 		mainnetClient: cfg.mainnetClient,
-		txManager: cfg.txManager, 
+		txManager:     cfg.txManager,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 	e.wg.Add(1)
-	
+
 	go func() {
 		defer e.wg.Done()
 		if err := e.start(ctx); err != nil {
 			log.Printf("[Epoch] Epoch monitoring failed: %v", err)
 		}
 	}()
-	
+
 	log.Printf("[Epoch] Epoch monitoring started")
-	
+
 	return e, nil
 }
 
@@ -123,9 +127,9 @@ func (e *EpochUpdator) start(ctx context.Context) error {
 		case <-ticker.C:
 			// add timeout control for each update
 			updateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			
+
 			func() {
-				defer cancel() 
+				defer cancel()
 
 				// Get latest block number
 				blockNumber, err := e.mainnetClient.BlockNumber(updateCtx)
@@ -139,15 +143,15 @@ func (e *EpochUpdator) start(ctx context.Context) error {
 
 				// If we're in a new epoch, update operator states
 				if currentEpoch > e.lastProcessedEpoch {
-					log.Printf("[Epoch] Starting update for epoch %d (current: %d)", 
+					log.Printf("[Epoch] Starting update for epoch %d (current: %d)",
 						currentEpoch, e.lastProcessedEpoch)
 
 					if err := e.handleEpochUpdate(updateCtx, currentEpoch); err != nil {
-						log.Printf("[Epoch] Failed to update operator states for epoch %d: %v", 
+						log.Printf("[Epoch] Failed to update operator states for epoch %d: %v",
 							currentEpoch, err)
 						return
 					}
-			
+
 					e.lastProcessedEpoch = currentEpoch
 					log.Printf("[Epoch] Successfully updated operator states for epoch %d", currentEpoch)
 				}
@@ -180,14 +184,14 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 		for _, operator := range allOperators {
 			activeEpoch := operator.ActiveEpoch
 			exitEpoch := operator.ExitEpoch
-			
+
 			isActive := isOperatorActive(currentBlock, activeEpoch, exitEpoch)
 			currentWeight, err := e.mainnetClient.GetOperatorWeight(ctx, ethcommon.HexToAddress(operator.Address))
 			if err != nil {
 				log.Printf("[Epoch] Failed to get weight for operator %s: %v", operator.Address, err)
 				return nil, fmt.Errorf("failed to get weight for operator %s: %w", operator.Address, err)
 			}
-				
+
 			currentSigningKey, err := e.mainnetClient.GetOperatorSigningKey(ctx, ethcommon.HexToAddress(operator.Address), currentEpoch)
 			if err != nil {
 				log.Printf("[Epoch] Failed to get signing key for operator %s: %v", operator.Address, err)
@@ -202,13 +206,13 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 
 			weightNum := utils.BigIntToNumeric(currentWeight)
 			params := operators.UpdateOperatorStateParams{
-				Address: operator.Address,
-				IsActive: isActive,
-				Weight:  weightNum,
+				Address:    operator.Address,
+				IsActive:   isActive,
+				Weight:     weightNum,
 				SigningKey: currentSigningKey.String(),
-				P2pKey: currentP2PKey.String(),
+				P2pKey:     currentP2PKey.String(),
 			}
-			_, err = txQuerier.UpdateOperatorState(ctx, params, &operator.Address, &operator.SigningKey, &operator.P2pKey)	
+			_, err = txQuerier.UpdateOperatorState(ctx, params, &operator.Address, &operator.SigningKey, &operator.P2pKey, &operator.P2pKey)
 
 			if err != nil {
 				log.Printf("[Epoch] Failed to update operator %s state: %v", operator.Address, err)
@@ -230,21 +234,21 @@ func (e *EpochUpdator) UpdateEpochState(ctx context.Context, currentEpoch uint32
 	if err != nil {
 		return fmt.Errorf("failed to get minimum stake: %w", err)
 	}
-	
+
 	totalWeight, err := e.mainnetClient.GetTotalWeight(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get total stake: %w", err)
 	}
-	
+
 	thresholdWeight, err := e.mainnetClient.GetThresholdWeight(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get threshold weight: %w", err)
 	}
-	
+
 	e.currentEpochState = EpochState{
-		EpochNumber: currentEpoch,
-		MinimumWeight: minimumStake,
-		TotalWeight: totalWeight,
+		EpochNumber:     currentEpoch,
+		MinimumWeight:   minimumStake,
+		TotalWeight:     totalWeight,
 		ThresholdWeight: thresholdWeight,
 	}
 
@@ -252,7 +256,8 @@ func (e *EpochUpdator) UpdateEpochState(ctx context.Context, currentEpoch uint32
 }
 
 func (e *EpochUpdator) Stop() {
+	e.mainnetClient.Close()
 	e.cancel()
 	e.wg.Wait()
 	log.Printf("[Epoch] Epoch monitoring stopped")
-}	
+}

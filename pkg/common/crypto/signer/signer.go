@@ -23,10 +23,8 @@ type TaskSignParams struct {
 
 // Signer interface defines methods for signing messages
 type Signer interface {
-	// Sign signs the message with the private key
+	// Sign signs the message with the signing key
 	Sign(message []byte) ([]byte, error)
-	// GetOperatorAddress returns the operator's address (from operator key)
-	GetOperatorAddress() ethcommon.Address
 	// GetSigningAddress returns the address derived from signing key
 	GetSigningAddress() ethcommon.Address
 	// SignTaskResponse signs a task response
@@ -39,23 +37,11 @@ type Signer interface {
 
 // LocalSigner implements Signer interface using a local keystore file
 type LocalSigner struct {
-	operatorKey *ecdsa.PrivateKey  // Used for operator registration and join
 	signingKey  *ecdsa.PrivateKey  // Used for signing task responses
-	address     ethcommon.Address  // Operator's address (from operatorKey)
 }
 
 // NewLocalSigner creates a new local signer
-func NewLocalSigner(operatorKeyPath string, signingKeyPath string, password string) (*LocalSigner, error) {
-	// Load operator key
-	operatorKeyJson, err := os.ReadFile(operatorKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read operator key file: %w", err)
-	}
-	operatorKey, err := keystore.DecryptKey(operatorKeyJson, password)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt operator key: %w", err)
-	}
-
+func NewLocalSigner(signingKeyPath string, password string) (*LocalSigner, error) {
 	// Load signing key
 	signingKeyJson, err := os.ReadFile(signingKeyPath)
 	if err != nil {
@@ -66,17 +52,9 @@ func NewLocalSigner(operatorKeyPath string, signingKeyPath string, password stri
 		return nil, fmt.Errorf("failed to decrypt signing key: %w", err)
 	}
 
-	// Create signer with both keys
 	return &LocalSigner{
-		operatorKey: operatorKey.PrivateKey,
-		signingKey:  signingKey.PrivateKey,
-		address:     crypto.PubkeyToAddress(operatorKey.PrivateKey.PublicKey),
+		signingKey: signingKey.PrivateKey,
 	}, nil
-}
-
-// GetOperatorAddress returns the operator's address (from operator key)
-func (s *LocalSigner) GetOperatorAddress() ethcommon.Address {
-	return s.address
 }
 
 // GetSigningAddress returns the address derived from signing key
@@ -84,18 +62,13 @@ func (s *LocalSigner) GetSigningAddress() ethcommon.Address {
 	return crypto.PubkeyToAddress(s.signingKey.PublicKey)
 }
 
-// GetSigningPublicKey implements Signer interface
-func (s *LocalSigner) GetSigningPublicKey() *ecdsa.PublicKey {
-	return &s.signingKey.PublicKey
-}
-
 // Sign implements Signer interface
 func (s *LocalSigner) Sign(message []byte) ([]byte, error) {
 	// Hash the message
 	hash := crypto.Keccak256Hash(message)
 	
-	// Sign the hash
-	signature, err := crypto.Sign(hash.Bytes(), s.operatorKey)
+	// Sign the hash with signing key instead of operator key
+	signature, err := crypto.Sign(hash.Bytes(), s.signingKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message: %v", err)
 	}

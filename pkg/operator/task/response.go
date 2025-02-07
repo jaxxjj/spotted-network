@@ -1,4 +1,4 @@
-package operator
+package task
 
 import (
 	"context"
@@ -6,37 +6,35 @@ import (
 	"log"
 	"math/big"
 	"runtime/debug"
-	"strings"
 	"time"
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
-	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	"github.com/galxe/spotted-network/pkg/repos/blacklist"
+	"github.com/galxe/spotted-network/pkg/repos/tasks"
 	pb "github.com/galxe/spotted-network/proto"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/protobuf/proto"
 )
 
-
-type TaskResponseQuerier interface {
-	CreateTaskResponse(ctx context.Context, arg task_responses.CreateTaskResponseParams) (*task_responses.TaskResponses, error)
-	GetTaskResponse(ctx context.Context, arg task_responses.GetTaskResponseParams) (*task_responses.TaskResponses, error)
+type BlacklistRepo interface {
+	IncrementViolationCount(ctx context.Context, arg blacklist.IncrementViolationCountParams, isBlocked *string) (*blacklist.Blacklist, error)
 }
 
 // handleResponses handles incoming task responses (backpressure pattern)
 func (tp *TaskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscription) {
 	const (
-		maxConcurrent = 10
+		maxConcurrent  = 10
 		processTimeout = 30 * time.Second
 	)
-	
+
 	// Create semaphore for backpressure
 	semaphore := make(chan struct{}, maxConcurrent)
-	
+
 	log.Printf("[Response] Starting response handler with max concurrent: %d", maxConcurrent)
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -61,13 +59,13 @@ func (tp *TaskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscr
 				log.Printf("[Response] System overloaded, dropping message")
 				continue
 			}
-			
+
 			// Start processing goroutine
 			go func(msg *pubsub.Message) {
 				defer func() {
 					<-semaphore // Release semaphore
 				}()
-				
+
 				// Add recover for panics
 				defer func() {
 					if r := recover(); r != nil {
@@ -95,231 +93,142 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 		return fmt.Errorf("failed to unmarshal message: %w", err)
 	}
 
+	response := convertProtoToResponse(&pbMsg)
 	// Get and verify operator
 	peerID := msg.ReceivedFrom
-	operatorState := tp.node.GetOperatorState(peerID)
-	if operatorState == nil {
-		return fmt.Errorf("peer %s not found in active operators", peerID)
+	currentEpochNumber := tp.epochStateQuerier.GetCurrentEpochNumber()
+	if response.epoch != currentEpochNumber {
+		return nil // Not an error, just skip
 	}
 
-	// Verify operator address
-	if !strings.EqualFold(operatorState.Address, pbMsg.OperatorAddress) {
-		return fmt.Errorf("operator address mismatch for peer %s", peerID)
+	p2pKey, err := utils.PeerIDToP2PKey(peerID)
+	if err != nil {
+		return tp.incrementPeerViolation(ctx, peerID, fmt.Errorf("failed to convert peer ID to P2P key: %w", err))
+	}
+	operator, err := tp.operatorRepo.GetOperatorByP2PKey(ctx, p2pKey)
+	if err != nil {
+		return tp.incrementPeerViolation(ctx, peerID, fmt.Errorf("failed to get operator state: %w", err))
+	}
+	if operator == nil || !operator.IsActive {
+		return tp.incrementPeerViolation(ctx, peerID, fmt.Errorf("operator not exist or not active: %w", err))
 	}
 
+	signingKey := operator.SigningKey
 	// Check if already processed
-	if tp.alreadyProcessed(pbMsg.TaskId, pbMsg.OperatorAddress) {
+	if tp.alreadyProcessed(pbMsg.TaskId, signingKey) {
 		return nil // Not an error, just skip
 	}
 
 	// Check existing consensus
-	consensus, err := tp.consensusResponse.GetConsensusResponseByTaskId(ctx, pbMsg.TaskId)
+	consensus, err := tp.consensusRepo.GetConsensusResponseByTaskId(ctx, pbMsg.TaskId)
 	if err == nil && consensus != nil {
 		return nil // Not an error, just skip
 	}
 
-	// Convert and verify response
-	response, err := convertToTaskResponse(&pbMsg)
-	if err != nil || response == nil {
-		return fmt.Errorf("invalid response: %w", err)
-	}
-
-	// Get and verify operator weight
-	weight, err := tp.node.getOperatorWeight(peerID)
-	if err != nil {
-		return fmt.Errorf("invalid operator weight: %w", err)
-	}
-
 	// Verify response signature
-	if err := tp.verifyResponse(response); err != nil {
-		return fmt.Errorf("invalid response signature: %w", err)
+	if err := tp.verifyResponse(response, signingKey); err != nil {
+		return tp.incrementPeerViolation(ctx, peerID, fmt.Errorf("failed to convert peer ID to P2P key: %w", err))
 	}
 
+	weight, err := utils.NumericToBigInt(operator.Weight)
+	if err != nil {
+		return fmt.Errorf("failed to convert operator weight to big int: %w", err)
+	}
 	// Store response and weight
-	tp.storeResponseAndWeight(response, weight)
+	tp.storeResponseAndWeight(response, signingKey, weight)
 
 	// Check if we need to process this task
-	if err := tp.maybeProcessTask(ctx, response); err != nil {
-		return fmt.Errorf("failed to process task: %w", err)
+	tp.taskResponseTrack.mu.RLock()
+	_, processed := tp.taskResponseTrack.responses[response.taskID][tp.signer.GetSigningAddress().Hex()]
+	tp.taskResponseTrack.mu.RUnlock()
+
+	if !processed {
+		return tp.ProcessTask(ctx, &tasks.Tasks{
+			TaskID:        response.taskID,
+			Value:         utils.StringToNumeric(response.value),
+			BlockNumber:   response.blockNumber,
+			ChainID:       response.chainID,
+			TargetAddress: response.targetAddress,
+			Key:           utils.StringToNumeric(response.key),
+			Epoch:         response.epoch,
+		})
 	}
 
 	// Check consensus
-	if err := tp.checkConsensus(response.TaskID); err != nil {
+	if err := tp.checkConsensus(ctx, response); err != nil {
 		return fmt.Errorf("failed to check consensus: %w", err)
 	}
 
 	return nil
 }
 
-// maybeProcessTask processes the task if not already processed
-func (tp *TaskProcessor) maybeProcessTask(ctx context.Context, response *task_responses.TaskResponses) error {
-	tp.responsesMutex.RLock()
-	processed := tp.responses[response.TaskID][tp.signer.GetOperatorAddress().Hex()] != nil
-	tp.responsesMutex.RUnlock()
-
-	if !processed {
-		return tp.ProcessTask(ctx, &tasks.Tasks{
-			TaskID:        response.TaskID,
-			Value:         response.Value,
-			BlockNumber:   response.BlockNumber,
-			ChainID:       response.ChainID,
-			TargetAddress: response.TargetAddress,
-			Key:          response.Key,
-			Epoch:        response.Epoch,
-			Timestamp:    response.Timestamp,
-		})
-	}
-	return nil
-}
-
 // helper function to store response and weight
-func (tp *TaskProcessor) storeResponseAndWeight(response *task_responses.TaskResponses, weight *big.Int) {
-	// Store response
-	tp.responsesMutex.Lock()
-	if _, exists := tp.responses[response.TaskID]; !exists {
-		tp.responses[response.TaskID] = make(map[string]*task_responses.TaskResponses)
-	}
-	tp.responses[response.TaskID][response.OperatorAddress] = response
-	tp.responsesMutex.Unlock()
-
-	// Store weight
-	tp.weightsMutex.Lock()
-	if _, exists := tp.taskWeights[response.TaskID]; !exists {
-		tp.taskWeights[response.TaskID] = make(map[string]*big.Int)
-	}
-	tp.taskWeights[response.TaskID][response.OperatorAddress] = weight
-	tp.weightsMutex.Unlock()
+func (tp *TaskProcessor) storeResponseAndWeight(response taskResponse, signingKey string, weight *big.Int) {
+	// Store in local map
+	tp.taskResponseTrack.mu.Lock()
+	tp.taskResponseTrack.responses[response.taskID] = make(map[string]taskResponse)
+	tp.taskResponseTrack.responses[response.taskID][signingKey] = response
+	tp.taskResponseTrack.weights[response.taskID] = make(map[string]*big.Int)
+	tp.taskResponseTrack.weights[response.taskID][signingKey] = weight
+	tp.taskResponseTrack.mu.Unlock()
 }
 
-// broadcastResponse broadcasts a task response to other operators
-func (tp *TaskProcessor) broadcastResponse(response *task_responses.TaskResponses) error {
-	log.Printf("[Response] Starting to broadcast response for task %s", response.TaskID)
-	
-	// Create protobuf message
-	msg := &pb.TaskResponseMessage{
-		TaskId:        response.TaskID,
-		OperatorAddress:  response.OperatorAddress,
-		SigningKey:    tp.signer.GetSigningAddress().Hex(),
-		Signature:     response.Signature,
-		Value:         utils.NumericToString(response.Value),
-		BlockNumber:   response.BlockNumber,
-		ChainId:       response.ChainID,
-		TargetAddress: response.TargetAddress,
-		Key:          utils.NumericToString(response.Key),
-		Epoch:        response.Epoch,
-		Timestamp:    response.Timestamp,
-	}
-
-	// Marshal message
-	data, err := proto.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal response: %w", err)
-	}
-	log.Printf("[Broadcast] Marshaled response message for task %s", response.TaskID)
-
-	// Publish to topic
-	if err := tp.responseTopic.Publish(context.Background(), data); err != nil {
-		log.Printf("[Response] Failed to publish response: %v", err)
-		return err
-	}
-	log.Printf("[Response] Successfully published response for task %s to topic %s", response.TaskID, tp.responseTopic.String())
-
-	return nil
-}
-
-// convertToTaskResponse converts a protobuf task response to a TaskResponse
-func convertToTaskResponse(msg *pb.TaskResponseMessage) (*task_responses.TaskResponses, error) {
-	if msg == nil {
-		return nil, fmt.Errorf("message is nil")
-	}
-
-	return &task_responses.TaskResponses{
-		TaskID:        msg.TaskId,
-		OperatorAddress:  msg.OperatorAddress,
-		SigningKey:    msg.SigningKey,
-		Signature:     msg.Signature,
-		Value:         utils.StringToNumeric(msg.Value),
-		BlockNumber:   msg.BlockNumber,
-		ChainID:       msg.ChainId,
-		TargetAddress: msg.TargetAddress,
-		Key:          utils.StringToNumeric(msg.Key),
-		Epoch:        msg.Epoch,
-		Timestamp:    msg.Timestamp,
-		SubmittedAt:    time.Now(),
-	}, nil
-}
-
-// storeResponse stores a task response in the database
-func (tp *TaskProcessor) storeResponse(ctx context.Context, response *task_responses.TaskResponses) error {
-	if response == nil {
-		return fmt.Errorf("response is nil")
-	}
-
-	if tp.taskResponse == nil {
-		return fmt.Errorf("task response querier not initialized")
-	}
-
-	params := task_responses.CreateTaskResponseParams{
-		TaskID:         response.TaskID,
-		OperatorAddress: response.OperatorAddress,
-		SigningKey:     response.SigningKey,
-		Signature:      response.Signature,
-		Epoch:         response.Epoch,
-		ChainID:       response.ChainID,
-		TargetAddress: response.TargetAddress,
-		Key:           response.Key,
-		Value:         response.Value,
-		BlockNumber:   response.BlockNumber,
-		Timestamp:     response.Timestamp,
-	}
-
-	_, err := tp.taskResponse.CreateTaskResponse(ctx, params)
-	return err
-}
 // verifyResponse verifies a task response signature
-func (tp *TaskProcessor) verifyResponse(response *task_responses.TaskResponses) error {
-	// basic check
-	if response == nil {
-		return fmt.Errorf("[Response] response is nil")
-	}
-	if response.BlockNumber == 0 {
-		return fmt.Errorf("[Response] block number is nil")
-	}
-	if response.Timestamp == 0 {
-		return fmt.Errorf("[Response] timestamp is nil")
-	}
-
-	key, err := utils.NumericToBigInt(response.Key)
-	if err != nil {
-		return fmt.Errorf("[Response] failed to convert key to big int: %w", err)
-	}
-	value, err := utils.NumericToBigInt(response.Value)
-	if err != nil {
-		return fmt.Errorf("[Response] failed to convert value to big int: %w", err)
-	}
+func (tp *TaskProcessor) verifyResponse(response taskResponse, signingKey string) error {
+	key := utils.StringToBigInt(response.key)
+	value := utils.StringToBigInt(response.value)
 
 	params := signer.TaskSignParams{
-		User:        ethcommon.HexToAddress(response.TargetAddress),
-		ChainID:     response.ChainID,
-		BlockNumber: response.BlockNumber,
+		User:        ethcommon.HexToAddress(response.targetAddress),
+		ChainID:     response.chainID,
+		BlockNumber: response.blockNumber,
 		Key:         key,
 		Value:       value,
 	}
 
 	// signature verification
-	return tp.signer.VerifyTaskResponse(params, response.Signature, response.SigningKey)
+	return tp.signer.VerifyTaskResponse(params, response.signature, signingKey)
 }
 
-func (tp *TaskProcessor) alreadyProcessed(taskId string, operatorAddress string) bool {
+func (tp *TaskProcessor) alreadyProcessed(taskId string, signingKey string) bool {
 	// check if processed in memory
-	tp.responsesMutex.RLock()
-	_, processed := tp.responses[taskId][operatorAddress]
-	tp.responsesMutex.RUnlock()
-	
+	tp.taskResponseTrack.mu.RLock()
+	_, processed := tp.taskResponseTrack.responses[taskId][signingKey]
+	tp.taskResponseTrack.mu.RUnlock()
+
 	if processed {
-		log.Printf("[Response] Task %s from operator %s already processed in memory", taskId, operatorAddress)
+		log.Printf("[Response] Task %s from operator %s already processed in memory", taskId, signingKey)
 		return true
 	}
-	
+
 	return false
+}
+
+// incrementPeerViolation adds a violation record for the peer and returns the original error
+func (tp *TaskProcessor) incrementPeerViolation(ctx context.Context, peerID peer.ID, originalErr error) error {
+	peerIDStr := peerID.String()
+
+	_, err := tp.blacklistRepo.IncrementViolationCount(ctx, blacklist.IncrementViolationCountParams{
+		PeerID:         peerIDStr,
+		ViolationCount: 1,
+	}, &peerIDStr)
+	if err != nil {
+		log.Printf("[Response] failed to increment violation count: %v", err)
+	}
+
+	return fmt.Errorf("%v: %w", originalErr, err)
+}
+
+// newTaskResponseFromProto creates a taskResponse from a protobuf message
+func convertProtoToResponse(pbMsg *pb.TaskResponseMessage) taskResponse {
+	return taskResponse{
+		taskID:        pbMsg.TaskId,
+		signature:     pbMsg.Signature,
+		epoch:         pbMsg.Epoch,
+		chainID:       pbMsg.ChainId,
+		targetAddress: pbMsg.TargetAddress,
+		key:           pbMsg.Key,
+		value:         pbMsg.Value,
+		blockNumber:   pbMsg.BlockNumber,
+	}
 }

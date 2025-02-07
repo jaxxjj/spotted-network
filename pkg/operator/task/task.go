@@ -1,4 +1,4 @@
-package operator
+package task
 
 import (
 	"context"
@@ -10,15 +10,34 @@ import (
 
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	utils "github.com/galxe/spotted-network/pkg/common"
+	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
-	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operator/tasks"
+	"github.com/galxe/spotted-network/pkg/repos/operators"
+	"github.com/galxe/spotted-network/pkg/repos/tasks"
+	pb "github.com/galxe/spotted-network/proto"
+	"google.golang.org/protobuf/proto"
 )
-type OperatorSigner interface{
+
+type OperatorRepo interface {
+	GetOperatorBySigningKey(ctx context.Context, signingKey string) (*operators.Operators, error)
+	GetOperatorByP2PKey(ctx context.Context, p2pKey string) (*operators.Operators, error)
+}
+
+type ChainClient interface {
+	GetStateAtBlock(ctx context.Context, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error)
+	BlockNumber(ctx context.Context) (uint64, error)
+}
+type ChainManager interface {
+	// GetMainnetClient returns the mainnet client
+	GetMainnetClient() (*ethereum.ChainClient, error)
+	// GetClientByChainId returns the appropriate client for a given chain ID
+	GetClientByChainId(chainID uint32) (*ethereum.ChainClient, error)
+	Close() error
+}
+type OperatorSigner interface {
 	SignTaskResponse(params signer.TaskSignParams) ([]byte, error)
 	VerifyTaskResponse(params signer.TaskSignParams, signature []byte, signerAddr string) error
 	AggregateSignatures(sigs map[string][]byte) []byte
-	GetOperatorAddress() ethcommon.Address
 	GetSigningAddress() ethcommon.Address
 	Sign(message []byte) ([]byte, error)
 }
@@ -38,7 +57,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	log.Printf("[Task] Processing task for block number: %d", blockNumber)
 
 	// Get state client for chain
-	stateClient, err := tp.chainManager.GetClientByChainId(task.ChainID)
+	chainClient, err := tp.chainManager.GetClientByChainId(task.ChainID)
 	if err != nil {
 		return fmt.Errorf("failed to get state client: %v", err)
 	}
@@ -48,9 +67,9 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 		return fmt.Errorf("failed to convert key to big.Int: %v", err)
 	}
 	// Get state from chain
-	value, err := tp.getStateWithRetries(
+	value, err := getStateWithRetries(
 		ctx,
-		stateClient,
+		chainClient,
 		ethcommon.HexToAddress(task.TargetAddress),
 		KeyBig,
 		blockNumber,
@@ -77,59 +96,45 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 		Key:         KeyBig,
 		Value:       value,
 	}
-	
+
 	signature, err := tp.signer.SignTaskResponse(signParams)
 	if err != nil {
 		return fmt.Errorf("failed to sign response: %w", err)
 	}
+
 	log.Printf("[Task] Signed task response")
 
 	// Create response
-	response := &task_responses.TaskResponses{
-		TaskID:        task.TaskID,
-		OperatorAddress:  tp.signer.GetOperatorAddress().Hex(),
-		SigningKey:    tp.signer.GetSigningAddress().Hex(),
-		Signature:     signature,
-		Value:         utils.BigIntToNumeric(value),
-		BlockNumber:   task.BlockNumber,
-		ChainID:       task.ChainID,
-		TargetAddress: task.TargetAddress,
-		Key:          task.Key,
-		Epoch:        task.Epoch,
-		Timestamp:    task.Timestamp,
-		SubmittedAt:  time.Now(),
+	response := taskResponse{
+		taskID:        task.TaskID,
+		signature:     signature,
+		value:         value.String(),
+		blockNumber:   task.BlockNumber,
+		chainID:       task.ChainID,
+		targetAddress: task.TargetAddress,
+		key:           utils.NumericToString(task.Key),
+		epoch:         task.Epoch,
 	}
 
-	// Store response in database
-	if err := tp.storeResponse(ctx, response); err != nil {
-		if strings.Contains(err.Error(), "duplicate key value") {
-			log.Printf("[Task] Task %s already processed (duplicate key)", task.TaskID)
-			return nil
-		}
-		return fmt.Errorf("failed to store response: %w", err)
-	}
-	log.Printf("[Task] Stored response in database")
-
-	// Store in local map
-	tp.responsesMutex.Lock()
-	if _, exists := tp.responses[task.TaskID]; !exists {
-		tp.responses[task.TaskID] = make(map[string]*task_responses.TaskResponses)
-	}
-	tp.responses[task.TaskID][tp.signer.GetOperatorAddress().Hex()] = response
-	tp.responsesMutex.Unlock()
-
+	operatorSigningKey := tp.signer.GetSigningAddress()
 	// Get and store our own weight
-	weight, err := tp.node.getOperatorWeight(tp.node.getHostID())
+	operator, err := tp.operatorRepo.GetOperatorBySigningKey(ctx, operatorSigningKey.Hex())
 	if err != nil {
-		return fmt.Errorf("failed to get own weight: %w", err)
+		return fmt.Errorf("failed to get operator: %w", err)
 	}
-	tp.weightsMutex.Lock()
-	if _, exists := tp.taskWeights[task.TaskID]; !exists {
-		tp.taskWeights[task.TaskID] = make(map[string]*big.Int)
+
+	weight, err := utils.NumericToBigInt(operator.Weight)
+	if err != nil {
+		return fmt.Errorf("failed to convert operator weight to big int: %w", err)
 	}
-	tp.taskWeights[task.TaskID][tp.signer.GetOperatorAddress().Hex()] = weight
-	tp.weightsMutex.Unlock()
-	log.Printf("[Task] Stored own weight %s for task %s", weight.String(), task.TaskID)
+	// Store in local map
+	tp.taskResponseTrack.mu.Lock()
+	tp.taskResponseTrack.responses[task.TaskID] = make(map[string]taskResponse)
+	tp.taskResponseTrack.responses[task.TaskID][tp.signer.GetSigningAddress().Hex()] = response
+	tp.taskResponseTrack.weights[task.TaskID] = make(map[string]*big.Int)
+	tp.taskResponseTrack.weights[task.TaskID][operator.Address] = weight
+	tp.taskResponseTrack.mu.Unlock()
+	log.Printf("[Task] Stored own weight %s for task %s", weight, task.TaskID)
 
 	// Broadcast response
 	if err := tp.broadcastResponse(response); err != nil {
@@ -140,10 +145,43 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	return nil
 }
 
-// getStateWithRetries attempts to get state with retries
-func (tp *TaskProcessor) getStateWithRetries(ctx context.Context, chainClient ChainClient, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
+// broadcastResponse broadcasts a task response to other operators
+func (tp *TaskProcessor) broadcastResponse(response taskResponse) error {
+	log.Printf("[Response] Starting to broadcast response for task %s", response.taskID)
+
+	// Create protobuf message
+	msg := &pb.TaskResponseMessage{
+		TaskId:        response.taskID,
+		Signature:     response.signature,
+		Value:         response.value,
+		BlockNumber:   response.blockNumber,
+		ChainId:       response.chainID,
+		TargetAddress: response.targetAddress,
+		Key:           response.key,
+		Epoch:         response.epoch,
+	}
+
+	// Marshal message
+	data, err := proto.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal response: %w", err)
+	}
+	log.Printf("[Broadcast] Marshaled response message for task %s", response.taskID)
+
+	// Publish to topic
+	if err := tp.responseTopic.Publish(context.Background(), data); err != nil {
+		log.Printf("[Response] Failed to publish response: %v", err)
+		return err
+	}
+	log.Printf("[Response] Successfully published response for task %s to topic %s", response.taskID, tp.responseTopic.String())
+
+	return nil
+}
+
+// getStateWithRetries attempts to get chain state with retries
+func getStateWithRetries(ctx context.Context, chainClient ChainClient, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
 	maxRetries := 3
-	retryDelay := time.Second
+	retryDelay := 100 * time.Millisecond
 
 	for i := 0; i < maxRetries; i++ {
 		// Get latest block for validation

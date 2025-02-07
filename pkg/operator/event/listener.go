@@ -18,29 +18,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-
 type ChainClient interface {
 	GetOperatorWeight(ctx context.Context, address ethcommon.Address) (*big.Int, error)
 	WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error)
-	WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error) 
+	WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error)
+	Close() error
 }
 
 type OperatorRepo interface {
-	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
-	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
+	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string, isActiveOperator *string) (*operators.Operators, error)
 	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
-	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
+	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string, isActiveOperator *string) (*operators.Operators, error)
 }
 
 type Config struct {
 	mainnetClient ChainClient
-	operatorRepo OperatorRepo
+	operatorRepo  OperatorRepo
 }
 
 type EventListener struct {
 	mainnetClient ChainClient
-	operatorRepo OperatorRepo
-	
+	operatorRepo  OperatorRepo
+
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
@@ -54,13 +53,13 @@ func NewEventListener(ctx context.Context, cfg *Config) *EventListener {
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	
+
 	el := &EventListener{
 		mainnetClient: cfg.mainnetClient,
-		operatorRepo:     cfg.operatorRepo,
+		operatorRepo:  cfg.operatorRepo,
 		cancel:        cancel,
 	}
-	
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -72,7 +71,7 @@ func NewEventListener(ctx context.Context, cfg *Config) *EventListener {
 			log.Printf("[EventListener] Event listener stopped with error: %v", err)
 		}
 	}()
-	
+
 	log.Printf("[EventListener] Event listener started")
 	return el
 }
@@ -170,21 +169,21 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *et
 
 	// Create or update operator record
 	params := operators.UpsertOperatorParams{
-		Address:     event.Operator.Hex(),
-		SigningKey:  event.SigningKey.Hex(),
-		P2pKey:      event.P2PKey.Hex(),
+		Address:                 event.Operator.Hex(),
+		SigningKey:              event.SigningKey.Hex(),
+		P2pKey:                  event.P2PKey.Hex(),
 		RegisteredAtBlockNumber: blockNumber,
-		ActiveEpoch: activeEpoch,
+		ActiveEpoch:             activeEpoch,
 		Weight: pgtype.Numeric{
-			Int:    big.NewInt(0),
-			Exp:    0,
-			Valid:  true,
+			Int:   big.NewInt(0),
+			Exp:   0,
+			Valid: true,
 		},
 		ExitEpoch: 4294967295,
 	}
 
 	// Update operator in database
-	_, err := el.operatorRepo.UpsertOperator(ctx, params, &params.Address, &params.SigningKey, &params.P2pKey)
+	_, err := el.operatorRepo.UpsertOperator(ctx, params, &params.Address, &params.SigningKey, &params.P2pKey, &params.P2pKey)
 	if err != nil {
 		return fmt.Errorf("failed to upsert operator: %w", err)
 	}
@@ -193,7 +192,6 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *et
 
 	return nil
 }
-
 
 // handleOperatorDeregistered handles operator deregistration events
 func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *ethereum.OperatorDeregisteredEvent) error {
@@ -214,7 +212,7 @@ func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *
 	_, err = el.operatorRepo.UpdateOperatorExitEpoch(ctx, operators.UpdateOperatorExitEpochParams{
 		Address:   operatorAddress,
 		ExitEpoch: exitEpoch,
-	}, &operatorAddress, &operatorSigningKey, &operatorP2PKey)
+	}, &operatorAddress, &operatorSigningKey, &operatorP2PKey, &operatorP2PKey)
 	if err != nil {
 		return fmt.Errorf("failed to update operator exit epoch: %w", err)
 	}
@@ -225,12 +223,12 @@ func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *
 
 func (el *EventListener) Stop() {
 	log.Printf("[EventListener] Stopping event listener...")
-	
+	el.mainnetClient.Close()
 	// Cancel context
 	el.cancel()
-	
+
 	// Wait for goroutines
 	el.wg.Wait()
-	
+
 	log.Printf("[EventListener] Event listener stopped")
 }

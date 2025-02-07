@@ -1,55 +1,38 @@
-package task_processor
+package task
 
 import (
 	"context"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
-	"time"
+	"sort"
 
+	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/galxe/spotted-network/pkg/repos/consensus_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operator/task_responses"
-	"github.com/galxe/spotted-network/pkg/repos/operators"
-	"github.com/galxe/spotted-network/pkg/repos/tasks"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
-
-type OperatorRepo interface {
-	UpdateOperatorExitEpoch(ctx context.Context, arg operators.UpdateOperatorExitEpochParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
-	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
-	GetOperatorByAddress(ctx context.Context, address string) (*operators.Operators, error)
-	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
-	UpsertOperator(ctx context.Context, arg operators.UpsertOperatorParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string) (*operators.Operators, error)
-}
-
-
 type EpochStateQuerier interface {
-    GetLatestEpochState(ctx context.Context) (*epoch_states.EpochState, error)
-	UpsertEpochState(ctx context.Context, arg epoch_states.UpsertEpochStateParams) (*epoch_states.EpochState, error)
+	GetThresholdWeight() *big.Int
+	GetCurrentEpochNumber() uint32
 }
 
-type ConsensusResponseQuerier interface {
+type ConsensusResponseRepo interface {
 	CreateConsensusResponse(ctx context.Context, arg consensus_responses.CreateConsensusResponseParams) (*consensus_responses.ConsensusResponse, error)
 	GetConsensusResponseByTaskId(ctx context.Context, taskID string) (*consensus_responses.ConsensusResponse, error)
 }
 
 // checkConsensus checks if consensus has been reached for a task
-func (tp *TaskProcessor) checkConsensus(taskID string) error {
+func (tp *TaskProcessor) checkConsensus(ctx context.Context, response taskResponse) error {
+	taskID := response.taskID
 	log.Printf("[Consensus] Starting consensus check for task %s", taskID)
-	
+
 	// Get responses and weights from memory maps
-	tp.responsesMutex.RLock()
-	responses := tp.responses[taskID]
-	tp.responsesMutex.RUnlock()
+	tp.taskResponseTrack.mu.RLock()
+	responses := tp.taskResponseTrack.responses[taskID]
+	weights := tp.taskResponseTrack.weights[taskID]
+	tp.taskResponseTrack.mu.RUnlock()
 
-	tp.weightsMutex.RLock()
-	weights := tp.taskWeights[taskID]
-	tp.weightsMutex.RUnlock()
-
-	log.Printf("[Consensus] Found %d responses and %d weights for task %s", 
+	log.Printf("[Consensus] Found %d responses and %d weights for task %s",
 		len(responses), len(weights), taskID)
 
 	if len(responses) == 0 {
@@ -57,162 +40,126 @@ func (tp *TaskProcessor) checkConsensus(taskID string) error {
 		return nil
 	}
 
-	// Calculate total weight and collect signatures
-	totalWeight := new(big.Int)
-	operatorSigs := make(map[string]map[string]interface{})
-	signatures := make(map[string][]byte) // For signature aggregation
-	
-	for addr, resp := range responses {
-		weight := weights[addr]
-		if weight == nil {
-			log.Printf("[Consensus] No weight found for operator %s", addr)
-			continue
-		}
+	// Calculate total weight first
+	totalWeight := tp.calculateTotalWeight(weights)
 
-		totalWeight.Add(totalWeight, weight)
-		operatorSigs[addr] = map[string]interface{}{
-			"signature": hex.EncodeToString(resp.Signature),
-			"weight":   weight.String(),
-		}
-		// Collect signature for aggregation
-		signatures[addr] = resp.Signature
-		log.Printf("[Consensus] Added operator %s weight %s, total weight now %s", 
-			addr, weight.String(), totalWeight.String())
-	}
-
-	// Check if threshold is reached
-	threshold, err := tp.getConsensusThreshold(context.Background())
-	if err != nil {
-		log.Printf("[Consensus] Failed to get consensus threshold: %v", err)
-		return err
-	}
-
-	log.Printf("[Consensus] Checking threshold - total weight: %s, threshold: %s", 
-		totalWeight.String(), threshold.String())
-
+	// Check threshold
+	threshold := tp.epochStateQuerier.GetThresholdWeight()
 	if totalWeight.Cmp(threshold) < 0 {
-		log.Printf("[Consensus] Threshold not reached for task %s - total weight: %s, threshold: %s",
-			taskID, totalWeight.String(), threshold.String())
+		log.Printf("[Consensus] Threshold not reached - total weight: %s, threshold: %s",
+			totalWeight.String(), threshold.String())
 		return nil
 	}
 
 	log.Printf("[Consensus] Threshold reached for task %s! Creating consensus response", taskID)
 
-	// Get a sample response for task details
-	var sampleResp *task_responses.TaskResponses
-	for _, resp := range responses {
-		if resp == nil {
-			continue
-		}
-		sampleResp = resp
-		break
-	}
-	
-	if sampleResp == nil {
-		return fmt.Errorf("no valid response found for task %s", taskID)
-	}
-
-	// Convert operator signatures to JSONB
-	operatorSigsJSON, err := json.Marshal(operatorSigs)
+	// Only collect signatures and addresses if threshold is reached
+	signatures, addresses, err := tp.collectSignaturesAndAddresses(context.Background(), responses)
 	if err != nil {
-		return fmt.Errorf("failed to marshal operator signatures: %w", err)
+		return fmt.Errorf("failed to collect signatures and addresses: %w", err)
 	}
 
-	// Aggregate signatures using signer package
-	aggregatedSigs := tp.signer.AggregateSignatures(signatures)
-	if aggregatedSigs == nil {
-		return fmt.Errorf("failed to aggregate signatures")
-	}
-
-	log.Printf("[Consensus] Aggregated %d signatures for task %s", 
+	log.Printf("[Consensus] Aggregated %d signatures for task %s",
 		len(signatures), taskID)
 
-	now := time.Now()
 	// Create consensus response
 	consensus := consensus_responses.CreateConsensusResponseParams{
-		TaskID:              taskID,
-		Epoch:              sampleResp.Epoch,
-		Value:              sampleResp.Value,
-		BlockNumber:      sampleResp.BlockNumber,
-		ChainID:           sampleResp.ChainID,
-		TargetAddress:     sampleResp.TargetAddress,
-		Key:             sampleResp.Key,
-		AggregatedSignatures: aggregatedSigs,
-		OperatorSignatures:  operatorSigsJSON,
-		TotalWeight:        pgtype.Numeric{Int: totalWeight, Exp: 0, Valid: true},
-		ConsensusReachedAt:  &now,
+		TaskID:               taskID,
+		Epoch:                response.epoch,
+		Value:                utils.StringToNumeric(response.value),
+		BlockNumber:          response.blockNumber,
+		ChainID:              response.chainID,
+		TargetAddress:        response.targetAddress,
+		Key:                  utils.StringToNumeric(response.key),
+		AggregatedSignatures: signatures,
+		OperatorAddresses:    addresses,
 	}
 
-	// Store consensus in database
-	if err = tp.storeConsensus(context.Background(), consensus); err != nil {
-		log.Printf("[Consensus] Failed to store consensus for task %s: %v", taskID, err)
-		return fmt.Errorf("failed to store consensus: %w", err)
+	_, err = tp.consensusRepo.CreateConsensusResponse(ctx, consensus)
+	if err != nil {
+		return fmt.Errorf("failed to create consensus response: %w", err)
 	}
 
 	log.Printf("[Consensus] Successfully stored consensus response for task %s", taskID)
 
-	// If we have the task locally, mark it as completed
-	_, err = tp.tasks.GetTaskByID(context.Background(), taskID)
-	if err == nil {
-		if _, err = tp.tasks.UpdateTaskStatus(context.Background(), tasks.UpdateTaskStatusParams{
-			TaskID: taskID,
-			Status: "completed",
-		}); err != nil {
-			log.Printf("[Consensus] Failed to update task %s status: %v", taskID, err)
-		} else {
-			log.Printf("[Consensus] Updated task %s status to completed", taskID)
-		}
+	if err := tp.markTaskAsCompleted(ctx, taskID); err != nil {
+		return fmt.Errorf("failed to mark task as completed: %w", err)
 	}
 
 	// Clean up local maps
 	tp.cleanupTask(taskID)
 	log.Printf("[Consensus] Cleaned up local maps for task %s", taskID)
-
-	return nil
-}
-
-// getConsensusThreshold returns the threshold weight for consensus from the latest epoch state
-func (tp *TaskProcessor) getConsensusThreshold(ctx context.Context) (*big.Int, error) {
-	if tp.epochState == nil {
-		return nil, fmt.Errorf("epoch state querier not initialized")
-	}
-
-	latestEpoch, err := tp.epochState.GetLatestEpochState(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get latest epoch state: %w", err)
-	}
-	
-	if latestEpoch == nil {
-		return nil, fmt.Errorf("latest epoch state is nil")
-	}
-	
-	if !latestEpoch.ThresholdWeight.Valid || latestEpoch.ThresholdWeight.Int == nil {
-		return nil, fmt.Errorf("invalid threshold weight in epoch state")
-	}
-	
-	return latestEpoch.ThresholdWeight.Int, nil
-}
-
-// storeConsensus stores a consensus response in the database
-func (tp *TaskProcessor) storeConsensus(ctx context.Context, consensus consensus_responses.CreateConsensusResponseParams) error {
-
-	response, err := tp.consensusResponse.CreateConsensusResponse(ctx, consensus)
-	if err != nil {
-		return fmt.Errorf("failed to create consensus response: %w", err)
-	}
-	if response == nil {
-		return fmt.Errorf("created consensus response is nil")
-	}
 	return nil
 }
 
 // cleanupTask removes task data from local maps
 func (tp *TaskProcessor) cleanupTask(taskID string) {
-	tp.responsesMutex.Lock()
-	delete(tp.responses, taskID)
-	tp.responsesMutex.Unlock()
+	tp.taskResponseTrack.mu.Lock()
+	delete(tp.taskResponseTrack.responses, taskID)
+	delete(tp.taskResponseTrack.weights, taskID)
+	tp.taskResponseTrack.mu.Unlock()
 
-	tp.weightsMutex.Lock()
-	delete(tp.taskWeights, taskID)
-	tp.weightsMutex.Unlock()
+}
+
+// calculateTotalWeight sums up all weights
+func (tp *TaskProcessor) calculateTotalWeight(weights map[string]*big.Int) *big.Int {
+	totalWeight := new(big.Int)
+	for _, weight := range weights {
+		totalWeight.Add(totalWeight, weight)
+	}
+	return totalWeight
+}
+
+func (tp *TaskProcessor) markTaskAsCompleted(ctx context.Context, taskID string) error {
+	// If we have the task locally, mark it as completed
+	_, err := tp.taskRepo.GetTaskByID(ctx, taskID)
+	if err != nil {
+		log.Printf("[Consensus] Failed to get task %s: %v", taskID, err)
+		return fmt.Errorf("failed to get task %s: %w", taskID, err)
+	}
+	if err := tp.taskRepo.UpdateTaskToCompleted(ctx, taskID); err != nil {
+		log.Printf("[Consensus] Failed to update task %s status: %v", taskID, err)
+		return fmt.Errorf("failed to update task %s status: %w", taskID, err)
+	}
+	log.Printf("[Consensus] Updated task %s status to completed", taskID)
+
+	return nil
+}
+
+// collectSignaturesAndAddresses collects signatures and addresses ordered by signing keys
+func (tp *TaskProcessor) collectSignaturesAndAddresses(
+	ctx context.Context,
+	responses map[string]taskResponse,
+) ([][]byte, []string, error) {
+	// Get sorted signing keys
+	signingKeys := make([]string, 0, len(responses))
+	for key := range responses {
+		signingKeys = append(signingKeys, key)
+	}
+	sort.Strings(signingKeys)
+
+	// Initialize result
+	signatures := make([][]byte, 0, len(responses))
+	addresses := make([]string, 0, len(responses))
+
+	// Collect signatures and addresses in sorted order
+	for _, signingKey := range signingKeys {
+		response := responses[signingKey]
+
+		// Get operator address
+		operator, err := tp.operatorRepo.GetOperatorBySigningKey(ctx, signingKey)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get operator for signing key %s: %w", signingKey, err)
+		}
+		if operator == nil {
+			return nil, nil, fmt.Errorf("operator not found for signing key %s", signingKey)
+		}
+
+		signatures = append(signatures, response.signature)
+		addresses = append(addresses, operator.Address)
+
+		log.Printf("[Consensus] Added operator %s (address: %s)", signingKey, operator.Address)
+	}
+
+	return signatures, addresses, nil
 }

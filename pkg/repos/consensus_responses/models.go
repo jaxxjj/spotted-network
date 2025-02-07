@@ -18,7 +18,8 @@ type ConsensusResponse struct {
 	BlockNumber          uint64         `json:"block_number"`
 	Key                  pgtype.Numeric `json:"key"`
 	Value                pgtype.Numeric `json:"value"`
-	AggregatedSignatures []byte         `json:"aggregated_signatures"`
+	AggregatedSignatures [][]byte       `json:"aggregated_signatures"`
+	OperatorAddresses    []string       `json:"operator_addresses"`
 	CreatedAt            time.Time      `json:"created_at"`
 	UpdatedAt            time.Time      `json:"updated_at"`
 }

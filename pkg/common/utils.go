@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"math"
@@ -10,9 +11,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-msgio"
 	"github.com/multiformats/go-multiaddr"
+	"golang.org/x/crypto/sha3"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -290,6 +294,32 @@ func GetEffectiveEpochByBlockNumber(currentBlockNumber uint64) uint32 {
     return absoluteEpoch + 1
 }
 
+// PeerIDToP2PKey converts peer.ID to p2p key (similar to Ethereum address format)
+func PeerIDToP2PKey(peerID peer.ID) (string, error) {
+    // 1. extract public key from peerID
+    pubKey, err := peerID.ExtractPublicKey()
+    if err != nil {
+        return "", fmt.Errorf("failed to extract public key: %v", err)
+    }
+
+    // 2. get original public key bytes
+    pubKeyBytes, err := crypto.MarshalPublicKey(pubKey)
+    if err != nil {
+        return "", fmt.Errorf("failed to marshal public key: %v", err)
+    }
+
+    // 3. use keccak256 hash algorithm
+    hasher := sha3.NewLegacyKeccak256()
+    hasher.Write(pubKeyBytes)
+    hash := hasher.Sum(nil)
+
+    // 4. get last 20 bytes
+    address := hash[len(hash)-20:]
+
+    // 5. convert to hex string and add "0x" prefix
+    return "0x" + hex.EncodeToString(address), nil
+}
+
 // writeLengthPrefix writes a 4-byte length prefix to the stream
 func WriteLengthPrefix(stream network.Stream, length uint32) error {
     lengthBuf := make([]byte, 4)
@@ -370,3 +400,4 @@ func WriteStreamMessage(stream network.Stream, msg proto.Message) error {
 	writer := msgio.NewVarintWriter(stream)
 	return writer.WriteMsg(bytes)
 }
+
