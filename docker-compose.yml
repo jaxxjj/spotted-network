@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-
   postgres_operator1:
     image: postgres:14-alpine
     platform: linux/arm64

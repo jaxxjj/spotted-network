@@ -1,7 +1,8 @@
-package operator
+package health
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -31,10 +32,10 @@ type HealthChecker struct {
 // NewHealthChecker creates and starts a new health checker
 func NewHealthChecker(ctx context.Context, node Node, pingService PingService) (*HealthChecker, error) {
 	if node == nil {
-		log.Fatal("node is nil")
+		return nil, fmt.Errorf("node is nil")
 	}
 	if pingService == nil {
-		log.Fatal("pingService is nil")
+		return nil, fmt.Errorf("ping service is nil")
 	}
 	hc := &HealthChecker{
 		node:        node,

@@ -37,9 +37,7 @@ type ChainManager interface {
 type OperatorSigner interface {
 	SignTaskResponse(params signer.TaskSignParams) ([]byte, error)
 	VerifyTaskResponse(params signer.TaskSignParams, signature []byte, signerAddr string) error
-	AggregateSignatures(sigs map[string][]byte) []byte
 	GetSigningAddress() ethcommon.Address
-	Sign(message []byte) ([]byte, error)
 }
 
 // ProcessTask processes a new task and broadcasts response

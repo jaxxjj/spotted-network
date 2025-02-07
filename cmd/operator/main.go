@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -17,9 +16,19 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/operator/api"
+	"github.com/galxe/spotted-network/pkg/operator/epoch"
+	"github.com/galxe/spotted-network/pkg/operator/event"
+	"github.com/galxe/spotted-network/pkg/operator/gater"
+	"github.com/galxe/spotted-network/pkg/operator/health"
+	"github.com/galxe/spotted-network/pkg/operator/node"
+	"github.com/galxe/spotted-network/pkg/operator/task"
+	"github.com/galxe/spotted-network/pkg/repos/blacklist"
 	"github.com/galxe/spotted-network/pkg/repos/consensus_responses"
+	"github.com/galxe/spotted-network/pkg/repos/operators"
 	"github.com/galxe/spotted-network/pkg/repos/tasks"
 	"github.com/libp2p/go-libp2p"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 )
 
 func main() {
@@ -28,35 +37,16 @@ func main() {
 		metric.RecordRequestDuration("main", "startup", time.Since(startTime))
 	}()
 
-	registryAddress := flag.String("registry", "", "Registry node address")
-	operatorKeyPath := flag.String("operator-key", "", "Path to operator keystore file")
 	signingKeyPath := flag.String("signing-key", "", "Path to signing keystore file")
 	password := flag.String("password", "", "Password for keystore")
-	message := flag.String("message", "", "Message to sign")
 
 	flag.Parse()
 
 	// Create signer
-	signer, err := signer.NewLocalSigner(*operatorKeyPath, *signingKeyPath, *password)
+	signer, err := signer.NewLocalSigner(*signingKeyPath, *password)
 	if err != nil {
 		metric.RecordError("signer_creation_failed")
 		log.Fatal("Failed to create signer:", err)
-	}
-
-	if *message != "" {
-		// Sign message with signing key
-		sig, err := signer.Sign([]byte(*message))
-		if err != nil {
-			metric.RecordError("message_signing_failed")
-			log.Fatal("Failed to sign message:", err)
-		}
-		fmt.Print(hex.EncodeToString(sig))
-		return
-	}
-
-	if *registryAddress == "" {
-		metric.RecordError("missing_registry_address")
-		log.Fatal("Registry address is required")
 	}
 
 	// Get config path from environment variable
@@ -67,6 +57,7 @@ func main() {
 
 	// Load config
 	cfg, err := config.LoadConfig(configPath)
+
 	if err != nil {
 		metric.RecordError("config_load_failed")
 		log.Fatal("Failed to load config:", err)
@@ -109,31 +100,50 @@ func main() {
 	defer redisConn.Close()
 
 	// Initialize database queries
-	tasksQuerier := tasks.New(db.WConn(), dCache)
-	taskResponseQuerier := task_responses.New(db.WConn(), dCache)
-	consensusResponseQuerier := consensus_responses.New(db.WConn(), dCache)
-	epochStatesQuerier := epoch_states.New(db.WConn(), dCache)
+	operatorRepo := operators.New(db.WConn(), dCache)
+	tasksRepo := tasks.New(db.WConn(), dCache)
+	consensusResponseRepo := consensus_responses.New(db.WConn(), dCache)
+	blacklistRepo := blacklist.New(db.WConn(), dCache)
+
+	mainnetClient, err := chainManager.GetMainnetClient()
+	if err != nil {
+		metric.RecordError("mainnet_client_creation_failed")
+		log.Fatal("Failed to create mainnet client:", err)
+	}
+	_, err = event.NewEventListener(ctx, &event.Config{
+		MainnetClient: mainnetClient,
+		OperatorRepo:  operatorRepo,
+	})
+
+	if err != nil {
+		metric.RecordError("event_listener_creation_failed")
+		log.Fatal("Failed to create event listener:", err)
+	}
 	// Create gate
+	gater, err := gater.NewConnectionGater(&gater.Config{
+		BlacklistRepo: blacklistRepo,
+		OperatorRepo:  operatorRepo,
+	})
+	if err != nil {
+		metric.RecordError("gater_creation_failed")
+		log.Fatal("Failed to create gater:", err)
+	}
+
 	// Use gater to create host
 	host, err := libp2p.New(
 		libp2p.ListenAddrStrings(
-			fmt.Sprintf("/ip4/%s/tcp/%d", cfg.Config.P2P.ExternalIP, cfg.Config.P2P.Port),
+			fmt.Sprintf("/ip4/%s/tcp/%d", cfg.P2P.ExternalIP, cfg.P2P.Port),
 		),
 		libp2p.ConnectionGater(gater),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create host: %w", err)
+		metric.RecordError("host_creation_failed")
+		log.Fatal("Failed to create host:", err)
 	}
 	// Start operator node
-	node, err := operator.NewNode(ctx, &operator.NodeConfig{
-		ChainManager:             chainManager,
-		Signer:                   signer,
-		TasksQuerier:             tasksQuerier,
-		TaskResponseQuerier:      taskResponseQuerier,
-		ConsensusResponseQuerier: consensusResponseQuerier,
-		EpochStateQuerier:        epochStatesQuerier,
-		RegistryAddress:          *registryAddress,
-		Config:                   cfg,
+	node, err := node.NewNode(ctx, &node.Config{
+		Host:          host,
+		BlacklistRepo: blacklistRepo,
 	})
 	defer node.Stop(ctx)
 	if err != nil {
@@ -141,19 +151,67 @@ func main() {
 		log.Fatal("Failed to create operator node:", err)
 	}
 
-	// Start the node
-	if err := node.Start(ctx); err != nil {
-		metric.RecordError("node_start_failed")
-		log.Fatal("Failed to start operator node:", err)
+	epochUpdator, err := epoch.NewEpochUpdator(ctx, &epoch.Config{
+		OperatorRepo:  operatorRepo,
+		MainnetClient: mainnetClient,
+		TxManager:     db,
+	})
+	if err != nil {
+		metric.RecordError("epoch_updator_creation_failed")
+		log.Fatal("Failed to create epoch updator:", err)
+	}
+	pubsub, err := pubsub.NewGossipSub(ctx, host)
+	if err != nil {
+		metric.RecordError("pubsub_creation_failed")
+		log.Fatal("Failed to create pubsub:", err)
+	}
+
+	taskProcessor, err := task.NewTaskProcessor(&task.TaskProcessorConfig{
+		ChainManager:          chainManager,
+		Signer:                signer,
+		ConsensusResponseRepo: consensusResponseRepo,
+		EpochStateQuerier:     epochUpdator,
+		BlacklistRepo:         blacklistRepo,
+		TaskRepo:              tasksRepo,
+		OperatorRepo:          operatorRepo,
+		PubSub:                pubsub,
+	})
+
+	if err != nil {
+		metric.RecordError("task_processor_creation_failed")
+		log.Fatal("Failed to create task processor:", err)
+	}
+
+	pingService := ping.NewPingService(host)
+
+	_, err = health.NewHealthChecker(ctx, node, pingService)
+	if err != nil {
+		metric.RecordError("health_checker_creation_failed")
+		log.Fatal("Failed to create health checker:", err)
 	}
 	// Create API handler and server
-	apiHandler := api.NewHandler(tasksQuerier, consensusResponseQuerier, taskProcessor, cfg)
+	apiHandler, err := api.NewHandler(api.Config{
+		TaskRepo:              tasksRepo,
+		ChainManager:          chainManager,
+		ConsensusResponseRepo: consensusResponseRepo,
+		TaskProcessor:         taskProcessor,
+		Config:                cfg,
+	})
+	if err != nil {
+		metric.RecordError("api_handler_creation_failed")
+		log.Fatal("Failed to create API handler:", err)
+	}
+	apiServer := api.NewServer(apiHandler, cfg.HTTP.Port)
+	if err != nil {
+		metric.RecordError("api_server_creation_failed")
+		log.Fatal("Failed to create API server:", err)
+	}
 	metric.RecordRequest("operator", "startup_complete")
 	log.Printf("Operator node started successfully")
 
 	// Start API server
 	go func() {
-		if err := node.apiServer.Start(); err != nil && err != http.ErrServerClosed {
+		if err := apiServer.Start(); err != nil && err != http.ErrServerClosed {
 			log.Printf("API server error: %v", err)
 		}
 	}()

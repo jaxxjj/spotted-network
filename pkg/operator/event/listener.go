@@ -1,4 +1,4 @@
-package registry
+package event
 
 import (
 	"context"
@@ -32,8 +32,8 @@ type OperatorRepo interface {
 }
 
 type Config struct {
-	mainnetClient ChainClient
-	operatorRepo  OperatorRepo
+	MainnetClient ChainClient
+	OperatorRepo  OperatorRepo
 }
 
 type EventListener struct {
@@ -44,19 +44,22 @@ type EventListener struct {
 	wg     sync.WaitGroup
 }
 
-func NewEventListener(ctx context.Context, cfg *Config) *EventListener {
-	if cfg.mainnetClient == nil {
-		log.Fatal("[EventListener] mainnet client not initialized")
+func NewEventListener(ctx context.Context, cfg *Config) (*EventListener, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
 	}
-	if cfg.operatorRepo == nil {
-		log.Fatal("[EventListener] operator repo not initialized")
+	if cfg.MainnetClient == nil {
+		return nil, fmt.Errorf("mainnet client not initialized")
+	}
+	if cfg.OperatorRepo == nil {
+		return nil, fmt.Errorf("operator repo not initialized")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 
 	el := &EventListener{
-		mainnetClient: cfg.mainnetClient,
-		operatorRepo:  cfg.operatorRepo,
+		mainnetClient: cfg.MainnetClient,
+		operatorRepo:  cfg.OperatorRepo,
 		cancel:        cancel,
 	}
 
@@ -73,7 +76,7 @@ func NewEventListener(ctx context.Context, cfg *Config) *EventListener {
 	}()
 
 	log.Printf("[EventListener] Event listener started")
-	return el
+	return el, nil
 }
 
 // starts listening for operator events

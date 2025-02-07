@@ -20,10 +20,6 @@ const (
 	epochMonitorInterval = 5 * time.Second
 )
 
-type StateSyncNotifier interface {
-	NotifyEpochUpdate(ctx context.Context, epoch uint32) error
-}
-
 // TransactionManager abstracts database transaction operations
 type TxManager interface {
 	Transact(ctx context.Context, txOptions pgx.TxOptions, f func(context.Context, *wpgx.WTx) (any, error)) (any, error)
@@ -31,7 +27,7 @@ type TxManager interface {
 
 type OperatorRepo interface {
 	ListAllOperators(ctx context.Context) ([]operators.Operators, error)
-	WithTx(tx *wpgx.WTx) OperatorRepo
+	WithTx(tx *wpgx.WTx) *operators.Queries
 	UpdateOperatorState(ctx context.Context, arg operators.UpdateOperatorStateParams, getOperatorByAddress *string, getOperatorBySigningKey *string, getOperatorByP2PKey *string, isActiveOperator *string) (*operators.Operators, error)
 }
 
@@ -43,7 +39,7 @@ type MainnetClient interface {
 	GetMinimumWeight(ctx context.Context) (*big.Int, error)
 	GetTotalWeight(ctx context.Context) (*big.Int, error)
 	GetThresholdWeight(ctx context.Context) (*big.Int, error)
-	Close()
+	Close() error
 }
 
 type EpochState struct {
@@ -54,9 +50,9 @@ type EpochState struct {
 }
 
 type Config struct {
-	operatorRepo  OperatorRepo
-	mainnetClient MainnetClient
-	txManager     TxManager
+	OperatorRepo  OperatorRepo
+	MainnetClient MainnetClient
+	TxManager     TxManager
 }
 
 type EpochUpdator struct {
@@ -75,19 +71,19 @@ func NewEpochUpdator(ctx context.Context, cfg *Config) (*EpochUpdator, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
-	if cfg.operatorRepo == nil {
+	if cfg.OperatorRepo == nil {
 		return nil, fmt.Errorf("operatorRepo is nil")
 	}
-	if cfg.mainnetClient == nil {
+	if cfg.MainnetClient == nil {
 		return nil, fmt.Errorf("mainnetClient is nil")
 	}
-	if cfg.txManager == nil {
+	if cfg.TxManager == nil {
 		return nil, fmt.Errorf("txManager is nil")
 	}
 	e := &EpochUpdator{
-		operatorRepo:  cfg.operatorRepo,
-		mainnetClient: cfg.mainnetClient,
-		txManager:     cfg.txManager,
+		operatorRepo:  cfg.OperatorRepo,
+		mainnetClient: cfg.MainnetClient,
+		txManager:     cfg.TxManager,
 	}
 
 	ctx, cancel := context.WithCancel(ctx)

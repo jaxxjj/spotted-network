@@ -57,6 +57,14 @@ type ConsensusResponseRepo interface {
 	GetConsensusResponseByRequest(ctx context.Context, arg consensus_responses.GetConsensusResponseByRequestParams) (*consensus_responses.ConsensusResponse, error)
 }
 
+type Config struct {
+	ChainManager          ChainManager
+	TaskRepo              TaskRepo
+	ConsensusResponseRepo ConsensusResponseRepo
+	TaskProcessor         TaskProcessor
+	Config                *config.Config
+}
+
 // Handler handles HTTP requests
 type Handler struct {
 	chainManager          ChainManager
@@ -94,31 +102,27 @@ type ConsensusResponseWrapper struct {
 
 // NewHandler creates a new handler
 func NewHandler(
-	taskRepo TaskRepo,
-	chainManager ChainManager,
-	consensusResponseRepo ConsensusResponseRepo,
-	taskProcessor TaskProcessor,
-	config *config.Config,
+	cfg Config,
 ) (*Handler, error) {
-	if taskProcessor == nil {
+	if cfg.TaskProcessor == nil {
 		return nil, fmt.Errorf("[API] Task processor not initialized")
 	}
-	if chainManager == nil {
+	if cfg.ChainManager == nil {
 		return nil, fmt.Errorf("[API] Chain manager not initialized")
 	}
 
-	if taskRepo == nil {
+	if cfg.TaskRepo == nil {
 		return nil, fmt.Errorf("[API] Task repo not initialized")
 	}
-	if consensusResponseRepo == nil {
+	if cfg.ConsensusResponseRepo == nil {
 		return nil, fmt.Errorf("[API] Consensus response repo not initialized")
 	}
 	return &Handler{
-		taskRepo:              taskRepo,
-		chainManager:          chainManager,
-		consensusResponseRepo: consensusResponseRepo,
-		taskProcessor:         taskProcessor,
-		config:                config,
+		taskRepo:              cfg.TaskRepo,
+		chainManager:          cfg.ChainManager,
+		consensusResponseRepo: cfg.ConsensusResponseRepo,
+		taskProcessor:         cfg.TaskProcessor,
+		config:                cfg.Config,
 	}, nil
 }
 
@@ -135,7 +139,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.validateRequest(&params); err != nil {
+	if err := h.validateRequest(&params, r); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -293,7 +297,7 @@ func (h *Handler) SendRequest(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-func (h *Handler) validateRequest(params *SendRequestParams) error {
+func (h *Handler) validateRequest(params *SendRequestParams, r *http.Request) error {
 	// 1. Validate chain ID (must be positive integer and supported in config)
 	if params.ChainID <= 0 {
 		return fmt.Errorf("invalid chain ID: must be positive integer")
@@ -342,7 +346,7 @@ func (h *Handler) validateRequest(params *SendRequestParams) error {
 		}
 
 		// Get latest block number
-		latestBlock, err := chainClient.BlockNumber(context.Background())
+		latestBlock, err := chainClient.BlockNumber(r.Context())
 		if err != nil {
 			return fmt.Errorf("failed to get latest block: %w", err)
 		}

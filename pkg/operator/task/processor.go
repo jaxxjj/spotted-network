@@ -180,7 +180,6 @@ func (tp *TaskProcessor) Stop() {
 	// 2. Wait for all goroutines to finish
 	tp.wg.Wait()
 
-	tp.chainManager.Close()
 	// 3. Cancel subscription
 	if tp.subscription != nil {
 		tp.subscription.Cancel()

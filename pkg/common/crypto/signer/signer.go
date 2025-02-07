@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"sort"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -21,23 +20,9 @@ type TaskSignParams struct {
 	Value       *big.Int
 }
 
-// Signer interface defines methods for signing messages
-type Signer interface {
-	// Sign signs the message with the signing key
-	Sign(message []byte) ([]byte, error)
-	// GetSigningAddress returns the address derived from signing key
-	GetSigningAddress() ethcommon.Address
-	// SignTaskResponse signs a task response
-	SignTaskResponse(params TaskSignParams) ([]byte, error)
-	// VerifyTaskResponse verifies a task response signature
-	VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error
-	// AggregateSignatures combines multiple signatures into one
-	AggregateSignatures(sigs map[string][]byte) []byte
-}
-
 // LocalSigner implements Signer interface using a local keystore file
 type LocalSigner struct {
-	signingKey  *ecdsa.PrivateKey  // Used for signing task responses
+	signingKey *ecdsa.PrivateKey // Used for signing task responses
 }
 
 // NewLocalSigner creates a new local signer
@@ -60,36 +45,6 @@ func NewLocalSigner(signingKeyPath string, password string) (*LocalSigner, error
 // GetSigningAddress returns the address derived from signing key
 func (s *LocalSigner) GetSigningAddress() ethcommon.Address {
 	return crypto.PubkeyToAddress(s.signingKey.PublicKey)
-}
-
-// Sign implements Signer interface
-func (s *LocalSigner) Sign(message []byte) ([]byte, error) {
-	// Hash the message
-	hash := crypto.Keccak256Hash(message)
-	
-	// Sign the hash with signing key instead of operator key
-	signature, err := crypto.Sign(hash.Bytes(), s.signingKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign message: %v", err)
-	}
-
-	return signature, nil
-}
-
-// VerifySignature verifies if the signature was signed by the given address
-func VerifySignature(address ethcommon.Address, message []byte, signature []byte) bool {
-	// Hash the message
-	hash := crypto.Keccak256Hash(message)
-
-	// Get public key from signature
-	pubkey, err := crypto.SigToPub(hash.Bytes(), signature)
-	if err != nil {
-		return false
-	}
-
-	// Verify address matches
-	recoveredAddr := crypto.PubkeyToAddress(*pubkey)
-	return address == recoveredAddr
 }
 
 // SignTaskResponse signs a task response with all required fields
@@ -135,30 +90,4 @@ func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte
 	}
 
 	return nil
-}
-
-// AggregateSignatures combines multiple ECDSA signatures by concatenation
-// The signatures are sorted by signer address to ensure deterministic ordering
-func (s *LocalSigner) AggregateSignatures(sigs map[string][]byte) []byte {
-	// Convert map to sorted slice to ensure deterministic ordering
-	type sigPair struct {
-		address string
-		sig     []byte
-	}
-	pairs := make([]sigPair, 0, len(sigs))
-	for addr, sig := range sigs {
-		pairs = append(pairs, sigPair{addr, sig})
-	}
-	
-	// Sort by address
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].address < pairs[j].address
-	})
-	
-	// Concatenate all signatures
-	var aggregated []byte
-	for _, pair := range pairs {
-		aggregated = append(aggregated, pair.sig...)
-	}
-	return aggregated
 }

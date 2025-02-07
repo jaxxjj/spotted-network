@@ -9,23 +9,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 
-	"github.com/galxe/spotted-network/pkg/config"
 	"github.com/galxe/spotted-network/pkg/repos/blacklist"
 )
-
-type Network interface {
-	Peers() []peer.ID
-	Peerstore() Peerstore
-	Connect(ctx context.Context, pi peer.AddrInfo) error
-	ClosePeer(peer.ID) error
-	Connectedness(peer.ID) network.Connectedness
-}
-
-type Peerstore interface {
-	Addrs(peer.ID) []multiaddr.Multiaddr
-	RemovePeer(peer.ID)
-	ClearAddrs(peer.ID)
-}
 
 // P2PHost defines the minimal interface required for p2p functionality
 type P2PHost interface {
@@ -35,7 +20,7 @@ type P2PHost interface {
 	NewStream(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error)
 	SetStreamHandler(peerID protocol.ID, handler network.StreamHandler)
 	RemoveStreamHandler(peerID protocol.ID)
-	Network() Network
+	Network() network.Network
 	Close() error
 }
 
@@ -43,19 +28,17 @@ type P2PHost interface {
 type Config struct {
 	Host          P2PHost
 	BlacklistRepo *blacklist.Queries
-	Config        *config.Config
 }
 
 // Node represents an operator node in the network
 type Node struct {
 	host          P2PHost
 	blacklistRepo BlacklistRepo
-	config        *config.Config
 }
 
 // NewNode creates a new operator node with the given dependencies
-func NewNode(ctx context.Context, cfg Config) (*Node, error) {
-	if cfg.Config == nil {
+func NewNode(ctx context.Context, cfg *Config) (*Node, error) {
+	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
 
