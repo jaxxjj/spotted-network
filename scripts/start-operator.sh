@@ -1,34 +1,44 @@
 #!/bin/bash
 
-# default values for environment variables
+echo "Starting operator with signing key: $SIGNING_KEY_PATH"
+echo "Using P2P key: $P2P_KEY_PATH"
 
-echo "Starting operator with operator key: $OPERATOR_KEY_PATH"
-echo "Using signing key: $SIGNING_KEY_PATH"
-echo "Using config file: $CONFIG_PATH"
-
-# Check if REGISTRY_PEER_ID is set
-if [ -z "$REGISTRY_PEER_ID" ]; then
-    echo "REGISTRY_PEER_ID environment variable is not set"
+# Check if both key files exist
+if [ ! -f "$SIGNING_KEY_PATH" ]; then
+    echo "Signing key file not found at: $SIGNING_KEY_PATH"
     exit 1
 fi
-echo "Using registry peer ID: $REGISTRY_PEER_ID"
 
-echo "Waiting for registry to be ready..."
+if [ ! -f "$P2P_KEY_PATH" ]; then
+    echo "P2P key file not found at: $P2P_KEY_PATH"
+    exit 1
+fi
 
-# Wait for registry P2P endpoint to be ready
-while ! nc -z registry 9000; do
-    echo "Waiting for registry P2P endpoint..."
+# Check if password is needed for ECDSA signing key
+if [[ "$SIGNING_KEY_PATH" == *".key.json" ]] && [ -z "$KEYSTORE_PASSWORD" ]; then
+    echo "KEYSTORE_PASSWORD environment variable is required for ECDSA signing key"
+    exit 1
+fi
+
+# Wait for dependencies to be ready
+echo "Waiting for dependencies..."
+
+# Wait for postgres to be ready
+until PGPASSWORD=$POSTGRES_PASSWORD psql -h "$POSTGRES_HOST" -U "$POSTGRES_USERNAME" -d "$POSTGRES_DBNAME" -c '\q'; do
+    echo "Waiting for postgres..."
     sleep 1
 done
-echo "Registry P2P endpoint is ready"
+echo "Postgres is ready"
 
-# Get registry IP for P2P connection
-REGISTRY_IP=$(getent hosts registry | awk '{ print $1 }')
-echo "Registry IP: $REGISTRY_IP"
+# Wait for redis to be ready
+until redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping > /dev/null 2>&1; do
+    echo "Waiting for redis..."
+    sleep 1
+done
+echo "Redis is ready"
 
-# Start the operator node
+# Start the operator node with all required flags
 exec ./operator \
-  -operator-key "$OPERATOR_KEY_PATH" \
-  -signing-key "$SIGNING_KEY_PATH" \
-  -password "$KEYSTORE_PASSWORD" \
-  -registry "/ip4/$REGISTRY_IP/tcp/9000/p2p/$REGISTRY_PEER_ID"
+    -signing-key "$SIGNING_KEY_PATH" \
+    -p2p-key "$P2P_KEY_PATH" \
+    -password "$KEYSTORE_PASSWORD"

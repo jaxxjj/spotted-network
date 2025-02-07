@@ -45,6 +45,7 @@ type Repos struct {
 // App holds all the dependencies
 type App struct {
 	signingKey *string
+	p2pKeyPath *string
 	password   *string
 
 	ctx    context.Context
@@ -77,6 +78,9 @@ func main() {
 	app := &App{ctx: ctx}
 
 	app.parseFlags()
+	if err := app.initConfig(); err != nil {
+		log.Fatal("Failed to initialize config:", err)
+	}
 
 	if err := app.initMetrics(); err != nil {
 		log.Fatal("Failed to initialize metrics:", err)
@@ -132,20 +136,36 @@ func main() {
 
 func (a *App) parseFlags() {
 	signingKeyPath := flag.String("signing-key", "", "Path to signing keystore file")
+	p2pKeyPath := flag.String("p2p-key", "", "Path to P2P keystore file")
 	password := flag.String("password", "", "Password for keystore")
 	flag.Parse()
 
 	a.signingKey = signingKeyPath
+	a.p2pKeyPath = p2pKeyPath
 	a.password = password
 }
 
-func (a *App) initSigner() error {
+func (a *App) initConfig() error {
 	var err error
 	a.cfg, err = config.LoadConfig("config/operator.yaml")
 	if err != nil {
 		metric.RecordError("config_load_failed")
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	return nil
+}
+
+func (a *App) initSigner() error {
+	signer, err := signer.NewLocalSigner(&signer.Config{
+		SigningKeyPath: *a.signingKey,
+		Password:       *a.password,
+		P2PKeyPath:     *a.p2pKeyPath,
+	})
+	if err != nil {
+		metric.RecordError("signer_init_failed")
+		return fmt.Errorf("failed to initialize signer: %w", err)
+	}
+	a.signer = signer
 	return nil
 }
 
@@ -232,12 +252,18 @@ func (a *App) initGater() error {
 }
 
 func (a *App) initNode() error {
+	privKey, err := signer.LoadPrivateKeyFromFile(*a.p2pKeyPath)
+	if err != nil {
+		metric.RecordError("p2p_key_load_failed")
+		return fmt.Errorf("failed to load P2P key: %w", err)
+	}
 
 	host, err := libp2p.New(
 		libp2p.ListenAddrStrings(
 			fmt.Sprintf("/ip4/%s/tcp/%d", a.cfg.P2P.ExternalIP, a.cfg.P2P.Port),
 		),
 		libp2p.ConnectionGater(a.gater),
+		libp2p.Identity(privKey),
 	)
 	if err != nil {
 		metric.RecordError("host_creation_failed")

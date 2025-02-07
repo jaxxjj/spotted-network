@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	p2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -37,7 +38,11 @@ func TestLocalSigner(t *testing.T) {
 	signingKeyPath := filepath.Join(tmpDir, signingAccount.URL.Path)
 
 	// Create signer
-	s, err := signer.NewLocalSigner(signingKeyPath, password)
+	cfg := &signer.Config{
+		SigningKeyPath: signingKeyPath,
+		Password:       password,
+	}
+	s, err := signer.NewLocalSigner(cfg)
 	require.NoError(t, err)
 
 	t.Run("signing key functions", func(t *testing.T) {
@@ -70,11 +75,17 @@ func TestLocalSigner(t *testing.T) {
 
 	t.Run("error cases", func(t *testing.T) {
 		// Test with non-existent key file
-		_, err := signer.NewLocalSigner("non-existent-file", password)
+		_, err := signer.NewLocalSigner(&signer.Config{
+			SigningKeyPath: "non-existent-file",
+			Password:       password,
+		})
 		require.Error(t, err)
 
 		// Test with wrong password
-		_, err = signer.NewLocalSigner(signingKeyPath, "wrongpassword")
+		_, err = signer.NewLocalSigner(&signer.Config{
+			SigningKeyPath: signingKeyPath,
+			Password:       "wrongpassword",
+		})
 		require.Error(t, err)
 
 		// Test signature verification with modified parameters
@@ -92,6 +103,47 @@ func TestLocalSigner(t *testing.T) {
 		// Modify params and verify should fail
 		params.Value = big.NewInt(200)
 		err = s.VerifyTaskResponse(params, sig, s.GetSigningAddress().Hex())
+		require.Error(t, err)
+	})
+}
+
+func TestLoadPrivateKeyFromFile(t *testing.T) {
+	// Create temporary directory
+	tmpDir, err := os.MkdirTemp("", "p2p-key-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	t.Run("successful key loading", func(t *testing.T) {
+		// Generate Ed25519 key
+		privKey, _, err := p2pcrypto.GenerateEd25519Key(nil)
+		require.NoError(t, err)
+
+		// Marshal the key
+		keyBytes, err := p2pcrypto.MarshalPrivateKey(privKey)
+		require.NoError(t, err)
+
+		// Write to temporary file
+		keyPath := filepath.Join(tmpDir, "valid.key")
+		err = os.WriteFile(keyPath, keyBytes, 0600)
+		require.NoError(t, err)
+
+		// Test loading
+		loadedKey, err := signer.LoadPrivateKeyFromFile(keyPath)
+		require.NoError(t, err)
+		assert.Equal(t, p2pcrypto.Ed25519, loadedKey.Type())
+	})
+
+	t.Run("error cases", func(t *testing.T) {
+		// Test non-existent file
+		_, err := signer.LoadPrivateKeyFromFile("non-existent-file")
+		require.Error(t, err)
+
+		// Test invalid key data
+		invalidKeyPath := filepath.Join(tmpDir, "invalid.key")
+		err = os.WriteFile(invalidKeyPath, []byte("invalid key data"), 0600)
+		require.NoError(t, err)
+
+		_, err = signer.LoadPrivateKeyFromFile(invalidKeyPath)
 		require.Error(t, err)
 	})
 }

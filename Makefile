@@ -8,16 +8,7 @@ POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DBNAME=spotted
 
-.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-all start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean generate-bindings clean-bindings
-
-# Install golangci-lint
-install-lint:
-	@echo "Installing golangci-lint..."
-	@if [ "$(shell uname)" = "Darwin" ]; then \
-		brew install golangci-lint; \
-	else \
-		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v1.55.2; \
-	fi
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean generate-bindings clean-bindings
 
 # Start monitoring infrastructure
 start-prometheus:
@@ -28,31 +19,6 @@ start-otel:
 
 start-monitoring: start-prometheus start-otel
 
-
-# Start registry node
-start-registry: 
-	@docker compose up -d registry 
-
-
-# Start operator nodes
-start-operators: 
-	@docker compose --profile operators up -d operator1 operator2 operator3 --build
-
-# Start everything in sequence
-start-all: start-monitoring start-registry get-registry-id start-operators
-	@echo "All services started"
-	@echo "Prometheus UI: http://localhost:9090"
-	@echo "Registry metrics: http://localhost:4014/metrics"
-	@echo "Operator1 metrics: http://localhost:4015/metrics"
-	@echo "Operator2 metrics: http://localhost:4016/metrics"
-	@echo "Operator3 metrics: http://localhost:4017/metrics"
-
-# Check monitoring status
-check-monitoring:
-	@echo "Checking Prometheus status..."
-	@curl -s http://localhost:9090/-/healthy || echo "Prometheus is not healthy"
-	@echo "\nChecking OpenTelemetry Collector status..."
-	@curl -s http://localhost:8888/metrics > /dev/null && echo "OpenTelemetry Collector is healthy" || echo "OpenTelemetry Collector is not healthy"
 
 # Generate operator keys
 generate-keys:
@@ -242,3 +208,46 @@ generate-bindings: clean-bindings
 clean-bindings:
 	@echo "Cleaning old bindings..."
 	@rm -f pkg/common/contracts/bindings/*.go
+
+# Build operators
+build-operator1:
+	@echo "Building operator1..."
+	@docker compose build operator1
+
+build-operator2:
+	@echo "Building operator2..."
+	@docker compose build operator2
+
+build-operator3:
+	@echo "Building operator3..."
+	@docker compose build operator3
+
+# Build all operators
+build-operators: build-operator1 build-operator2 build-operator3
+	@echo "All operators built"
+
+# Start individual operators with build
+start-operator1: build-operator1
+	@echo "Starting operator1..."
+	@docker compose up -d postgres_operator1 redis
+	@sleep 5  # Wait for dependencies
+	@docker compose --profile operators up -d operator1
+	@echo "Operator1 started"
+
+start-operator2: build-operator2
+	@echo "Starting operator2..."
+	@docker compose up -d postgres_operator2 redis
+	@sleep 5  # Wait for dependencies
+	@docker compose --profile operators up -d operator2
+	@echo "Operator2 started"
+
+start-operator3: build-operator3
+	@echo "Starting operator3..."
+	@docker compose up -d postgres_operator3 redis
+	@sleep 5  # Wait for dependencies
+	@docker compose --profile operators up -d operator3
+	@echo "Operator3 started"
+
+# Start all operators in sequence with build
+start-operators: build-operators start-operator1 start-operator2 start-operator3
+	@echo "All operators started"

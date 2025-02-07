@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	"gopkg.in/yaml.v3"
 )
 
@@ -142,6 +143,24 @@ func (c *Config) validate() error {
 		}
 	}
 
+	// Validate P2P configuration
+	if c.P2P.Port < 0 {
+		return fmt.Errorf("p2p port must be non-negative")
+	}
+	if c.P2P.ExternalIP == "" {
+		return fmt.Errorf("p2p external IP is required")
+	}
+	if c.P2P.Rendezvous == "" {
+		return fmt.Errorf("p2p rendezvous string is required")
+	}
+
+	// Validate bootstrap peers if provided
+	if len(c.P2P.BootstrapPeers) > 0 {
+		if _, err := c.P2P.GetBootstrapPeers(); err != nil {
+			return fmt.Errorf("invalid bootstrap peers: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -167,9 +186,9 @@ func DefaultConfig() *Config {
 		},
 		P2P: P2PConfig{
 			Port:           0, // Random port
-			BootstrapPeers: []string{},
 			ExternalIP:     "0.0.0.0",
-			Rendezvous:     "",
+			Rendezvous:     "spotted-network",
+			BootstrapPeers: []string{}, // Empty by default
 		},
 		HTTP: HTTPConfig{
 			Port: 8001,
@@ -191,4 +210,25 @@ func GetConfig() *Config {
 		panic("config not loaded")
 	}
 	return config
+}
+
+// GetBootstrapPeers returns a list of valid bootstrap peer AddrInfo
+func (c *P2PConfig) GetBootstrapPeers() ([]peer.AddrInfo, error) {
+	var peers []peer.AddrInfo
+
+	for _, addr := range c.BootstrapPeers {
+		// Skip empty addresses
+		if addr == "" {
+			continue
+		}
+
+		// Parse the multiaddr
+		pi, err := peer.AddrInfoFromString(addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid bootstrap peer address %s: %w", addr, err)
+		}
+		peers = append(peers, *pi)
+	}
+
+	return peers, nil
 }
