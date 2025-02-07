@@ -27,10 +27,17 @@ contract EmitRegisterEvent is Script {
             0x083739b681B85cc2c9e394471486321D6446b25b // operator3
         ];
 
+        address[3] memory p2pKeys = [  
+            0xD1752226C0780A52C0AAc53896d75a284a9263D6, // operator1
+            0x6645ADC3de46AFF919BFcFe7976fb10efA1b6791, // operator2
+            0x210D446085DC279334fE273b17EB717Fb1852fA9 // operator3
+        ];
+
         for (uint256 i = 0; i < operators.length; i++) {
             console.log("Emitting OperatorRegistered event for operator", i + 1);
             console.log("Operator:", operators[i]);
             console.log("Signing Key:", operators[i]); // Using same address as signing key
+            console.log("P2P Key:", p2pKeys[i]);
             console.log("AVS:", avs);
             console.log("-------------------");
 
@@ -38,6 +45,7 @@ contract EmitRegisterEvent is Script {
             registry.emitOperatorRegistered(
                 operators[i],
                 signingKeys[i], // Using same address as signing key
+                p2pKeys[i],
                 avs
             );
         }

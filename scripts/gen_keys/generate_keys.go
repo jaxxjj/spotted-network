@@ -1,116 +1,119 @@
 package main
 
 import (
-	"crypto/ed25519"
 	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/crypto"
+	p2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"golang.org/x/crypto/sha3"
 )
 
 func main() {
-	// Add flag for key type
-	keyType := flag.String("type", "ecdsa", "Key type to generate: 'ecdsa' or 'ed25519'")
+	keyType := flag.String("type", "ed25519", "Type of key to generate (ed25519 or ecdsa)")
 	flag.Parse()
 
-	// Create directory for keys if not exists
-	keysDir := "keys"
+	// Create keys directory if it doesn't exist
+	keysDir := "./keys"
 	if err := os.MkdirAll(keysDir, 0755); err != nil {
-		panic(err)
+		fmt.Printf("Failed to create keys directory: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Clean up existing files based on key type
-	pattern := "operator*.key.json"
-	if *keyType == "ed25519" {
-		pattern = "operator*.ed25519.key"
-	}
-	
-	files, err := filepath.Glob(filepath.Join(keysDir, pattern))
-	if err != nil {
-		panic(err)
-	}
-	for _, f := range files {
-		if err := os.Remove(f); err != nil {
-			panic(err)
-		}
-	}
-
-	// Generate 3 different keys
+	// Generate keys for three operators
 	for i := 1; i <= 3; i++ {
-		if *keyType == "ed25519" {
-			generateEd25519Key(i, keysDir)
-		} else {
-			generateECDSAKey(i, keysDir)
+		switch *keyType {
+		case "ed25519":
+			if err := generateEd25519Key(i, keysDir); err != nil {
+				fmt.Printf("Failed to generate Ed25519 key for operator%d: %v\n", i, err)
+				os.Exit(1)
+			}
+		case "ecdsa":
+			if err := generateECDSAKey(i, keysDir); err != nil {
+				fmt.Printf("Failed to generate ECDSA key for operator%d: %v\n", i, err)
+				os.Exit(1)
+			}
+		default:
+			fmt.Printf("Unsupported key type: %s\n", *keyType)
+			os.Exit(1)
 		}
 	}
 }
 
-func generateEd25519Key(index int, keysDir string) {
-	// Generate Ed25519 keypair
-	pubKey, privKey, err := ed25519.GenerateKey(nil)
+func generateEd25519Key(operatorNum int, keysDir string) error {
+	// Generate Ed25519 key pair
+	privKey, pubKey, err := p2pcrypto.GenerateEd25519Key(nil)
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to generate Ed25519 key: %v", err)
 	}
 
-	// Save private key to file
-	filename := filepath.Join(keysDir, fmt.Sprintf("operator%d.ed25519.key", index))
-	if err := os.WriteFile(filename, privKey, 0600); err != nil {
-		panic(err)
+	// Get key bytes
+	keyBytes, err := p2pcrypto.MarshalPrivateKey(privKey)
+	if err != nil {
+		return fmt.Errorf("failed to marshal private key: %v", err)
 	}
 
-	// Print the public key for reference
-	fmt.Printf("Operator %d (Ed25519):\n", index)
-	fmt.Printf("Public Key: %s\n", hex.EncodeToString(pubKey))
-	fmt.Printf("Private Key saved to: %s\n", filename)
-	fmt.Println("-------------------")
+	// Generate address from public key
+	address, err := generateAddress(pubKey)
+	if err != nil {
+		return fmt.Errorf("failed to generate address: %v", err)
+	}
+
+	// Save private key
+	filename := filepath.Join(keysDir, fmt.Sprintf("operator%d.ed25519.key", operatorNum))
+	if err := os.WriteFile(filename, keyBytes, 0600); err != nil {
+		return fmt.Errorf("failed to write key file: %v", err)
+	}
+
+	fmt.Printf("Generated Ed25519 key for operator%d:\n", operatorNum)
+	fmt.Printf("  Key file: %s\n", filename)
+	fmt.Printf("  Address: %s\n\n", address)
+
+	return nil
 }
 
-func generateECDSAKey(index int, keysDir string) {
-	password := "testpassword"
-	
-	// Generate new private key
-	privateKey, err := crypto.GenerateKey()
+func generateECDSAKey(operatorNum int, keysDir string) error {
+	// Generate ECDSA key
+	key, err := crypto.GenerateKey()
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to generate ECDSA key: %v", err)
 	}
 
-	// Create keystore and import key
-	ks := keystore.NewKeyStore(keysDir, keystore.StandardScryptN, keystore.StandardScryptP)
-	_, err = ks.ImportECDSA(privateKey, password)
-	if err != nil {
-		panic(err)
+	// Get address
+	address := crypto.PubkeyToAddress(key.PublicKey).Hex()
+
+	// Save private key
+	filename := filepath.Join(keysDir, fmt.Sprintf("operator%d.ecdsa.key", operatorNum))
+	keyBytes := crypto.FromECDSA(key)
+	if err := os.WriteFile(filename, keyBytes, 0600); err != nil {
+		return fmt.Errorf("failed to write key file: %v", err)
 	}
 
-	// Find and rename the UTC file
-	files, err := filepath.Glob(filepath.Join(keysDir, "*"))
+	fmt.Printf("Generated ECDSA key for operator%d:\n", operatorNum)
+	fmt.Printf("  Key file: %s\n", filename)
+	fmt.Printf("  Address: %s\n\n", address)
+
+	return nil
+}
+
+func generateAddress(pubKey p2pcrypto.PubKey) (string, error) {
+	// Marshal public key
+	pubKeyBytes, err := p2pcrypto.MarshalPublicKey(pubKey)
 	if err != nil {
-		panic(err)
-	}
-	
-	var utcFile string
-	for _, f := range files {
-		if strings.HasPrefix(filepath.Base(f), "UTC--") {
-			utcFile = f
-			break
-		}
-	}
-	
-	if utcFile == "" {
-		panic("Could not find UTC file")
-	}
-	
-	newPath := filepath.Join(keysDir, fmt.Sprintf("operator%d.key.json", index))
-	if err := os.Rename(utcFile, newPath); err != nil {
-		panic(err)
+		return "", fmt.Errorf("failed to marshal public key: %v", err)
 	}
 
-	address := crypto.PubkeyToAddress(privateKey.PublicKey)
-	fmt.Printf("Operator %d (ECDSA):\n", index)
-	fmt.Printf("Address: %s\n", address.Hex())
-	fmt.Println("-------------------")
-} 
+	// Generate Keccak256 hash
+	hasher := sha3.NewLegacyKeccak256()
+	hasher.Write(pubKeyBytes)
+	hash := hasher.Sum(nil)
+
+	// Get last 20 bytes as address
+	address := hash[len(hash)-20:]
+
+	// Convert to hex with 0x prefix
+	return "0x" + hex.EncodeToString(address), nil
+}

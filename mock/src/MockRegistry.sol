@@ -5,8 +5,8 @@ contract MockRegistry {
     event OperatorRegistered(
         address indexed _operator,
         uint256 indexed blockNumber,
-        address indexed _signingKey,
-        uint256 timestamp,
+        address indexed _p2pKey,
+        address _signingKey,
         address _avs
     );
     address public constant OPERATOR_1 = address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342);
@@ -15,12 +15,15 @@ contract MockRegistry {
     address public constant SIGNING_KEY_1 = address(0x9F0D8BAC11C5693a290527f09434b86651c66Bf2);
     address public constant SIGNING_KEY_2 = address(0xeBBAce05Db3D717A5BA82EAB8AdE712dFb151b13);
     address public constant SIGNING_KEY_3 = address(0x083739b681B85cc2c9e394471486321D6446b25b);
-
+    address public constant P2P_KEY_1 = address(0xD1752226C0780A52C0AAc53896d75a284a9263D6);
+    address public constant P2P_KEY_2 = address(0x6645ADC3de46AFF919BFcFe7976fb10efA1b6791);
+    address public constant P2P_KEY_3 = address(0x210D446085DC279334fE273b17EB717Fb1852fA9);
+    
     event OperatorDeregistered(address indexed _operator, uint256 indexed blockNumber, address indexed _avs);
 
     // Mock function to emit operator registered event
-    function emitOperatorRegistered(address operator, address signingKey, address avs) external {
-        emit OperatorRegistered(operator, block.number, signingKey, block.timestamp, avs);
+    function emitOperatorRegistered(address operator, address signingKey, address p2pKey, address avs) external {
+        emit OperatorRegistered(operator, block.number, p2pKey, signingKey, avs);
     }
 
     function emitOperatorDeregistered(address operator, address avs) external {

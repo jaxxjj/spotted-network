@@ -162,3 +162,15 @@ curl -X GET "http://localhost:8001/api/v1/task/YOUR_TASK_ID/final"
 - When getting final task results, replace the task ID in the curl command with the actual task ID from the create-task response
 - The network uses PostgreSQL for persistence, with separate databases for each node
 - Mock contracts are used for testing and simulate the actual network contracts
+
+Generated Ed25519 key for operator1:
+  Key file: keys/operator1.ed25519.key
+  Address: 0xd1752226c0780a52c0aac53896d75a284a9263d6
+
+Generated Ed25519 key for operator2:
+  Key file: keys/operator2.ed25519.key
+  Address: 0x6645adc3de46aff919bfcfe7976fb10efa1b6791
+
+Generated Ed25519 key for operator3:
+  Key file: keys/operator3.ed25519.key
+  Address: 0x210d446085dc279334fe273b17eb717fb1852fa9
