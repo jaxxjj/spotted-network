@@ -12,8 +12,8 @@ import (
 
 // Config represents the main configuration structure
 type Config struct {
-	Chains     map[uint32]*ChainConfig  `yaml:"chains"`
-	Database   DatabaseConfig           `yaml:"database"`
+	Chains     map[uint32]*ChainConfig `yaml:"chains"`
+	Database   DatabaseConfig          `yaml:"database"`
 	P2P        P2PConfig               `yaml:"p2p"`
 	HTTP       HTTPConfig              `yaml:"http"`
 	Logging    LoggingConfig           `yaml:"logging"`
@@ -23,10 +23,10 @@ type Config struct {
 
 // ChainConfig represents configuration for a specific chain
 type ChainConfig struct {
-	RPC                  string          `yaml:"rpc"`
-	Contracts           ContractsConfig  `yaml:"contracts"`
-	RequiredConfirmations uint16         `yaml:"required_confirmations"`
-	AverageBlockTime     float64         `yaml:"average_block_time"`
+	RPC                   string          `yaml:"rpc"`
+	Contracts             ContractsConfig `yaml:"contracts"`
+	RequiredConfirmations uint16          `yaml:"required_confirmations"`
+	AverageBlockTime      float64         `yaml:"average_block_time"`
 }
 
 // ContractsConfig holds addresses for deployed contracts
@@ -46,9 +46,10 @@ type DatabaseConfig struct {
 
 // P2PConfig represents P2P network configuration
 type P2PConfig struct {
-	Port            int      `yaml:"port"`
-	BootstrapNodes []string `yaml:"bootstrap_nodes"`
 	ExternalIP     string   `yaml:"external_ip"`
+	Port           int      `yaml:"port"`
+	BootstrapPeers []string `yaml:"bootstrap_peers"`
+	Rendezvous     string   `yaml:"rendezvous"`
 }
 
 // HTTPConfig represents HTTP server configuration
@@ -65,7 +66,7 @@ type LoggingConfig struct {
 
 // MetricConfig represents metrics server configuration
 type MetricConfig struct {
-	Port int    `yaml:"port"`
+	Port int `yaml:"port"`
 }
 
 var (
@@ -75,7 +76,7 @@ var (
 // LoadConfig loads configuration from the specified file path
 func LoadConfig(path string) (*Config, error) {
 	var cfg Config
-	
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
@@ -88,9 +89,9 @@ func LoadConfig(path string) (*Config, error) {
 	log.Printf("Environment variables:")
 	for _, env := range os.Environ() {
 		if strings.HasPrefix(env, "DATABASE_URL=") ||
-		   strings.HasPrefix(env, "REGISTRY_ADDRESS=") ||
-		   strings.HasPrefix(env, "EPOCH_MANAGER_ADDRESS=") ||
-		   strings.HasPrefix(env, "STATE_MANAGER_ADDRESS=") {
+			strings.HasPrefix(env, "REGISTRY_ADDRESS=") ||
+			strings.HasPrefix(env, "EPOCH_MANAGER_ADDRESS=") ||
+			strings.HasPrefix(env, "STATE_MANAGER_ADDRESS=") {
 			log.Printf("%s", env)
 		}
 	}
@@ -155,7 +156,7 @@ func DefaultConfig() *Config {
 					StateManager: "",
 				},
 				RequiredConfirmations: 12,
-				AverageBlockTime: 12.5,
+				AverageBlockTime:      12.5,
 			},
 		},
 		Database: DatabaseConfig{
@@ -166,8 +167,9 @@ func DefaultConfig() *Config {
 		},
 		P2P: P2PConfig{
 			Port:           0, // Random port
-			BootstrapNodes: []string{},
+			BootstrapPeers: []string{},
 			ExternalIP:     "0.0.0.0",
+			Rendezvous:     "",
 		},
 		HTTP: HTTPConfig{
 			Port: 8001,
@@ -189,4 +191,4 @@ func GetConfig() *Config {
 		panic("config not loaded")
 	}
 	return config
-} 
+}

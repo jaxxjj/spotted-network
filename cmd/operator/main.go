@@ -47,19 +47,22 @@ type App struct {
 	signingKey *string
 	password   *string
 
-	ctx          context.Context
-	cfg          *config.Config
-	signer       *signer.LocalSigner
-	chainManager *ethereum.ChainManager
-	db           *wpgx.Pool
-	redisConn    redis.UniversalClient
-	dCache       *dcache.DCache
-	metricServer *metric.Server
-	host         host.Host
-	node         *node.Node
-	apiServer    *api.Server
-	repos        *Repos
+	ctx    context.Context
+	cfg    *config.Config
+	signer *signer.LocalSigner
 
+	chainManager  *ethereum.ChainManager
+	mainnetClient *ethereum.ChainClient
+	db            *wpgx.Pool
+	redisConn     redis.UniversalClient
+	dCache        *dcache.DCache
+	metricServer  *metric.Server
+	host          host.Host
+	node          *node.Node
+	apiServer     *api.Server
+	repos         *Repos
+
+	gater         *gater.ConnectionGater
 	taskProcessor *task.TaskProcessor
 	epochUpdator  *epoch.EpochUpdator
 }
@@ -88,8 +91,16 @@ func main() {
 	}
 	defer app.cleanup()
 
-	if err := app.initChainManager(); err != nil {
-		log.Fatal("Failed to initialize chain manager:", err)
+	if err := app.initChainManagerAndMainnetClient(); err != nil {
+		log.Fatal("Failed to initialize chain manager and mainnet client:", err)
+	}
+
+	if err := app.initEventListener(); err != nil {
+		log.Fatal("Failed to initialize event listener:", err)
+	}
+
+	if err := app.initGater(); err != nil {
+		log.Fatal("Failed to initialize gater:", err)
 	}
 
 	if err := app.initNode(); err != nil {
@@ -176,32 +187,38 @@ func (a *App) initDatabase() error {
 	return nil
 }
 
-func (a *App) initChainManager() error {
-	var err error
-	a.chainManager, err = ethereum.NewManager(a.cfg)
+func (a *App) initChainManagerAndMainnetClient() error {
+
+	chainManager, err := ethereum.NewManager(a.cfg)
 	if err != nil {
 		metric.RecordError("chain_manager_init_failed")
 		return fmt.Errorf("failed to initialize chain manager: %w", err)
 	}
-	return nil
-}
 
-func (a *App) initNode() error {
-	mainnetClient, err := a.chainManager.GetMainnetClient()
+	mainnetClient, err := chainManager.GetMainnetClient()
 	if err != nil {
 		metric.RecordError("mainnet_client_creation_failed")
 		return fmt.Errorf("failed to create mainnet client: %w", err)
 	}
 
-	_, err = event.NewEventListener(a.ctx, &event.Config{
-		MainnetClient: mainnetClient,
+	a.chainManager = chainManager
+	a.mainnetClient = mainnetClient
+	return nil
+}
+
+func (a *App) initEventListener() error {
+	_, err := event.NewEventListener(a.ctx, &event.Config{
+		MainnetClient: a.mainnetClient,
 		OperatorRepo:  a.repos.OperatorRepo,
 	})
 	if err != nil {
 		metric.RecordError("event_listener_creation_failed")
 		return fmt.Errorf("failed to create event listener: %w", err)
 	}
+	return nil
+}
 
+func (a *App) initGater() error {
 	gater, err := gater.NewConnectionGater(&gater.Config{
 		BlacklistRepo: a.repos.BlacklistRepo,
 		OperatorRepo:  a.repos.OperatorRepo,
@@ -210,12 +227,17 @@ func (a *App) initNode() error {
 		metric.RecordError("gater_creation_failed")
 		return fmt.Errorf("failed to create gater: %w", err)
 	}
+	a.gater = gater
+	return nil
+}
+
+func (a *App) initNode() error {
 
 	host, err := libp2p.New(
 		libp2p.ListenAddrStrings(
 			fmt.Sprintf("/ip4/%s/tcp/%d", a.cfg.P2P.ExternalIP, a.cfg.P2P.Port),
 		),
-		libp2p.ConnectionGater(gater),
+		libp2p.ConnectionGater(a.gater),
 	)
 	if err != nil {
 		metric.RecordError("host_creation_failed")
@@ -223,8 +245,9 @@ func (a *App) initNode() error {
 	}
 
 	a.node, err = node.NewNode(a.ctx, &node.Config{
-		Host:          host,
-		BlacklistRepo: a.repos.BlacklistRepo,
+		Host:             host,
+		BlacklistRepo:    a.repos.BlacklistRepo,
+		RendezvousString: a.cfg.P2P.Rendezvous,
 	})
 	if err != nil {
 		metric.RecordError("node_creation_failed")
@@ -235,14 +258,10 @@ func (a *App) initNode() error {
 }
 
 func (a *App) initEpochUpdator() error {
-	mainnetClient, err := a.chainManager.GetMainnetClient()
-	if err != nil {
-		return fmt.Errorf("failed to get mainnet client: %w", err)
-	}
 
 	epochUpdator, err := epoch.NewEpochUpdator(a.ctx, &epoch.Config{
 		OperatorRepo:  a.repos.OperatorRepo,
-		MainnetClient: mainnetClient,
+		MainnetClient: a.mainnetClient,
 		TxManager:     a.db,
 	})
 	if err != nil {

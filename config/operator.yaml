@@ -16,6 +16,7 @@ p2p:
   port: ${P2P_PORT}
   bootstrap_nodes: [] 
   external_ip: "0.0.0.0"
+  rendezvous: ${P2P_RENDEZVOUS}
 
 # HTTP Server Configuration
 http:
