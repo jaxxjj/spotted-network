@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -65,10 +66,21 @@ func NewNode(ctx context.Context, cfg *Config) (*Node, error) {
 		return nil, fmt.Errorf("failed to start peer discovery: %w", err)
 	}
 
+	// Print peer info before returning
+	node.PrintPeerInfo()
+
 	return node, nil
 }
 
+const (
+	maxRetries        = 3
+	retryInterval     = 5 * time.Second
+	bootstrapInterval = 20 * time.Second
+)
+
 func (n *Node) initDHT(bootstrapPeers []peer.AddrInfo) error {
+	log.Printf("Initializing DHT with bootstrap peers: %+v", bootstrapPeers)
+
 	var err error
 	n.dht, err = dht.New(n.ctx, n.host,
 		dht.Mode(dht.ModeServer),
@@ -80,23 +92,95 @@ func (n *Node) initDHT(bootstrapPeers []peer.AddrInfo) error {
 		return fmt.Errorf("failed to create DHT: %w", err)
 	}
 
+	log.Printf("Starting DHT bootstrap...")
 	if err = n.dht.Bootstrap(n.ctx); err != nil {
 		metric.RecordError("dht_bootstrap_failed")
 		return fmt.Errorf("failed to bootstrap DHT: %w", err)
 	}
+	log.Printf("DHT bootstrap completed")
 
 	n.routingDiscovery = routing.NewRoutingDiscovery(n.dht)
+
+	go n.maintainBootstrapConnections(bootstrapPeers)
+
 	return nil
+}
+
+func (n *Node) maintainBootstrapConnections(bootstrapPeers []peer.AddrInfo) {
+	ticker := time.NewTicker(bootstrapInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-n.ctx.Done():
+			return
+		case <-ticker.C:
+			for _, peer := range bootstrapPeers {
+				if len(n.host.Network().ConnsToPeer(peer.ID)) > 0 {
+					continue
+				}
+
+				log.Printf("Attempting to reconnect to bootstrap peer: %s", peer.ID)
+
+				// 重试连接
+				for retry := 0; retry < maxRetries; retry++ {
+					err := n.connectWithTimeout(peer)
+					if err == nil {
+						log.Printf("Successfully reconnected to bootstrap peer: %s", peer.ID)
+						break
+					}
+
+					if retry < maxRetries-1 {
+						log.Printf("Failed to connect to bootstrap peer %s (attempt %d/%d): %v",
+							peer.ID, retry+1, maxRetries, err)
+						time.Sleep(retryInterval)
+					} else {
+						log.Printf("Failed to connect to bootstrap peer %s after %d attempts: %v",
+							peer.ID, maxRetries, err)
+						metric.RecordError("bootstrap_peer_connection_failed")
+					}
+				}
+			}
+		}
+	}
+}
+
+func (n *Node) connectWithTimeout(peer peer.AddrInfo) error {
+	ctx, cancel := context.WithTimeout(n.ctx, 10*time.Second)
+	defer cancel()
+
+	if err := n.host.Connect(ctx, peer); err != nil {
+		if strings.Contains(err.Error(), "failed to dial") {
+			return fmt.Errorf("failed to dial: %w", err)
+		}
+		return err
+	}
+
+	for retry := 0; retry < 5; retry++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if len(n.host.Network().ConnsToPeer(peer.ID)) > 0 {
+				return nil
+			}
+			time.Sleep(time.Second)
+		}
+	}
+
+	return fmt.Errorf("connection not established after timeout")
 }
 
 func (n *Node) startPeerDiscovery(rendezvous string) error {
 	// Advertise our presence
 	ttl, err := n.routingDiscovery.Advertise(n.ctx, rendezvous)
 	if err != nil {
-		metric.RecordError("peer_advertise_failed")
-		return fmt.Errorf("failed to advertise: %w", err)
+		// if it's first node, acceptable
+		log.Printf("Warning: Failed to advertise (this is normal for the first node): %v", err)
+		metric.RecordRequest("first_node_advertise", err.Error())
+	} else {
+		log.Printf("Advertising this node with TTL: %s", ttl)
 	}
-	log.Printf("Advertising this node with TTL: %s", ttl)
 
 	// Start peer discovery
 	go n.discoverPeers(rendezvous)
@@ -108,39 +192,7 @@ func (n *Node) startPeerDiscovery(rendezvous string) error {
 }
 
 func (n *Node) discoverPeers(rendezvous string) {
-	for {
-		select {
-		case <-n.ctx.Done():
-			return
-		default:
-			peerChan, err := n.routingDiscovery.FindPeers(n.ctx, rendezvous)
-			if err != nil {
-				log.Printf("Peer discovery error: %v", err)
-				metric.RecordError("peer_discovery_failed")
-				time.Sleep(time.Minute)
-				continue
-			}
-
-			for peer := range peerChan {
-				if peer.ID == n.host.ID() {
-					continue // Skip self
-				}
-
-				if err := n.host.Connect(n.ctx, peer); err != nil {
-					log.Printf("Failed to connect to peer %s: %v", peer.ID, err)
-					metric.RecordError("peer_connection_failed")
-					continue
-				}
-
-				metric.RecordRequest("peer_connected", peer.ID.String())
-				log.Printf("Connected to peer: %s", peer.ID)
-			}
-		}
-	}
-}
-
-func (n *Node) maintainRoutingTable() {
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(time.Second * 10)
 	defer ticker.Stop()
 
 	for {
@@ -148,12 +200,82 @@ func (n *Node) maintainRoutingTable() {
 		case <-n.ctx.Done():
 			return
 		case <-ticker.C:
-			if err := n.dht.RefreshRoutingTable(); err != nil {
-				log.Printf("Failed to refresh routing table: %v", err)
-				metric.RecordError("routing_table_refresh_failed")
+			log.Printf("Starting peer discovery cycle with rendezvous: %s", rendezvous)
+			peerChan, err := n.routingDiscovery.FindPeers(n.ctx, rendezvous)
+			if err != nil {
+				log.Printf("Peer discovery error: %v", err)
+				metric.RecordRequest("peer_discovery_attempt", err.Error())
+				continue
+			}
+
+			peers := n.host.Network().Peers()
+			log.Printf("[Node] Connected to %d peers:", len(peers))
+			for _, p := range peers {
+				log.Printf("  - %s", p.String())
+			}
+
+			for peer := range peerChan {
+				if peer.ID == n.host.ID() {
+					continue // Skip self
+				}
+
+				log.Printf("Found peer: %s, attempting connection...", peer.ID)
+				if err := n.host.Connect(n.ctx, peer); err != nil {
+					log.Printf("Failed to connect to peer %s: %v", peer.ID, err)
+					metric.RecordError("peer_connection_failed")
+					continue
+				}
+
+				metric.RecordRequest("peer_connected", peer.ID.String())
+				log.Printf("Successfully connected to peer: %s", peer.ID)
 			}
 		}
 	}
+}
+
+func (n *Node) maintainRoutingTable() {
+	ticker := time.NewTicker(time.Second * 10)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-n.ctx.Done():
+			return
+		case <-ticker.C:
+			log.Printf("Starting routing table refresh...")
+
+			// get current router table
+			peers := n.dht.RoutingTable().ListPeers()
+			log.Printf("Current routing table has %d peers", len(peers))
+
+			if err := n.dht.RefreshRoutingTable(); err != nil {
+				log.Printf("Failed to refresh routing table: %v (peers: %d)", err, len(peers))
+				for _, p := range peers {
+					conns := n.host.Network().ConnsToPeer(p)
+					log.Printf("Peer %s connections: %d", p.String(), len(conns))
+				}
+				metric.RecordError("routing_table_refresh_failed")
+			} else {
+				newPeers := n.dht.RoutingTable().ListPeers()
+				log.Printf("Routing table refreshed successfully. Peers: %d -> %d",
+					len(peers), len(newPeers))
+			}
+		}
+	}
+}
+
+// PrintPeerInfo prints the node's peer information
+func (n *Node) PrintPeerInfo() {
+	// Get node's addresses
+	addrs := n.host.Addrs()
+	addrStrings := make([]string, 0, len(addrs))
+	for _, addr := range addrs {
+		addrStrings = append(addrStrings, addr.String())
+	}
+
+	log.Printf("Node Peer Info:")
+	log.Printf("PeerID: %s", n.host.ID().String())
+	log.Printf("Addresses: \n%s", strings.Join(addrStrings, "\n"))
 }
 
 func (n *Node) Stop(ctx context.Context) error {

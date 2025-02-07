@@ -14,14 +14,14 @@ WHERE signing_key = $1;
 -- -- cache: 168h
 -- -- timeout: 500ms
 SELECT * FROM operators
-WHERE p2p_key = $1; 
+WHERE LOWER(p2p_key) = LOWER($1);
 
 -- name: IsActiveOperator :one
 -- -- cache: 168h
 -- -- timeout: 500ms
 SELECT EXISTS (
     SELECT 1 FROM operators
-    WHERE p2p_key = $1
+    WHERE LOWER(p2p_key) = LOWER($1)
     AND is_active = true
 ) as is_active;
 

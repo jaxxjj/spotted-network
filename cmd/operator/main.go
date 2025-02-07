@@ -28,7 +28,9 @@ import (
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/redis/go-redis/v9"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx"
@@ -44,9 +46,9 @@ type Repos struct {
 
 // App holds all the dependencies
 type App struct {
-	signingKey *string
-	p2pKeyPath *string
-	password   *string
+	signingKeyPath *string
+	p2pKey64       *string
+	password       *string
 
 	ctx    context.Context
 	cfg    *config.Config
@@ -136,12 +138,12 @@ func main() {
 
 func (a *App) parseFlags() {
 	signingKeyPath := flag.String("signing-key", "", "Path to signing keystore file")
-	p2pKeyPath := flag.String("p2p-key", "", "Path to P2P keystore file")
+	p2pKey64 := flag.String("p2p-key-64", "", "p2p key in base64")
 	password := flag.String("password", "", "Password for keystore")
 	flag.Parse()
 
-	a.signingKey = signingKeyPath
-	a.p2pKeyPath = p2pKeyPath
+	a.signingKeyPath = signingKeyPath
+	a.p2pKey64 = p2pKey64
 	a.password = password
 }
 
@@ -157,9 +159,8 @@ func (a *App) initConfig() error {
 
 func (a *App) initSigner() error {
 	signer, err := signer.NewLocalSigner(&signer.Config{
-		SigningKeyPath: *a.signingKey,
+		SigningKeyPath: *a.signingKeyPath,
 		Password:       *a.password,
-		P2PKeyPath:     *a.p2pKeyPath,
 	})
 	if err != nil {
 		metric.RecordError("signer_init_failed")
@@ -252,7 +253,7 @@ func (a *App) initGater() error {
 }
 
 func (a *App) initNode() error {
-	privKey, err := signer.LoadPrivateKeyFromFile(*a.p2pKeyPath)
+	privKey, err := signer.Base64ToPrivKey(*a.p2pKey64)
 	if err != nil {
 		metric.RecordError("p2p_key_load_failed")
 		return fmt.Errorf("failed to load P2P key: %w", err)
@@ -260,19 +261,28 @@ func (a *App) initNode() error {
 
 	host, err := libp2p.New(
 		libp2p.ListenAddrStrings(
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", a.cfg.P2P.Port),
 			fmt.Sprintf("/ip4/%s/tcp/%d", a.cfg.P2P.ExternalIP, a.cfg.P2P.Port),
 		),
-		libp2p.ConnectionGater(a.gater),
+		// libp2p.ConnectionGater(a.gater),
 		libp2p.Identity(privKey),
+		libp2p.Security("/noise", noise.New),
+		libp2p.Muxer("/yamux/1.0.0", yamux.DefaultTransport),
 	)
 	if err != nil {
 		metric.RecordError("host_creation_failed")
 		return fmt.Errorf("failed to create host: %w", err)
 	}
-
+	a.host = host
+	bootstrapPeers, err := a.cfg.P2P.GetBootstrapPeers()
+	if err != nil {
+		metric.RecordError("bootstrap_peers_creation_failed")
+		return fmt.Errorf("failed to create bootstrap peers: %w", err)
+	}
 	a.node, err = node.NewNode(a.ctx, &node.Config{
 		Host:             host,
 		BlacklistRepo:    a.repos.BlacklistRepo,
+		BootstrapPeers:   bootstrapPeers,
 		RendezvousString: a.cfg.P2P.Rendezvous,
 	})
 	if err != nil {
@@ -299,13 +309,21 @@ func (a *App) initEpochUpdator() error {
 }
 
 func (a *App) initTaskProcessor() error {
-	pubsubService, err := pubsub.NewGossipSub(a.ctx, a.host)
-	if err != nil {
-		metric.RecordError("pubsub_creation_failed")
-		return fmt.Errorf("failed to create pubsub: %w", err)
+	// 创建GossipSub选项
+	gossipOpts := []pubsub.Option{
+		pubsub.WithMessageSigning(true),
+		pubsub.WithStrictSignatureVerification(true),
+		pubsub.WithPeerExchange(true),
 	}
 
-	taskProcessor, err := task.NewTaskProcessor(&task.TaskProcessorConfig{
+	// 创建GossipSub实例
+	ps, err := pubsub.NewGossipSub(a.ctx, a.host, gossipOpts...)
+	if err != nil {
+		return fmt.Errorf("failed to create gossipsub: %w", err)
+	}
+
+	// 创建任务处理器
+	processor, err := task.NewTaskProcessor(&task.TaskProcessorConfig{
 		ChainManager:          a.chainManager,
 		Signer:                a.signer,
 		EpochStateQuerier:     a.epochUpdator,
@@ -313,13 +331,12 @@ func (a *App) initTaskProcessor() error {
 		BlacklistRepo:         a.repos.BlacklistRepo,
 		TaskRepo:              a.repos.TaskRepo,
 		OperatorRepo:          a.repos.OperatorRepo,
-		PubSub:                pubsubService,
+		PubSub:                ps,
 	})
 	if err != nil {
-		metric.RecordError("task_processor_creation_failed")
 		return fmt.Errorf("failed to create task processor: %w", err)
 	}
-	a.taskProcessor = taskProcessor
+	a.taskProcessor = processor
 	return nil
 }
 

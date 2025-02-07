@@ -50,4 +50,4 @@ type OperatorDeregisteredEvent struct {
 	Operator    common.Address
 	BlockNumber *big.Int
 	AVS         common.Address
-} 
+}

@@ -26,18 +26,28 @@ generate-keys:
 	@go run scripts/generate_keys.go
 	@echo "Keys generated successfully in ./keys directory"
 
+# Generate keys
+generate-ecdsa-keys:
+	@echo "Generating ECDSA operator keys..."
+	@go run scripts/gen_keys/generate_keys.go -type ecdsa
+	@echo "ECDSA keys generated successfully in ./keys directory"
+
+generate-ed25519-keys:
+	@echo "Generating Ed25519 operator keys..."
+	@go run scripts/gen_keys/generate_keys.go -type ed25519
+	@echo "Ed25519 keys generated successfully in ./keys directory"
+
+generate-all-keys: generate-ecdsa-keys generate-ed25519-keys generate-p2p-keys
+	@echo "All keys generated successfully"
 # Check operator status table
 check-operator-status-operator1:
-	@echo "Querying operator status from registry database..."
-	@PGPASSWORD=spotted psql -h localhost -p 5432 -U spotted -d spotted -c "SELECT * FROM operators;"
+	docker-compose exec postgres_operator1 psql -U spotted -d operator1 -c "SELECT * FROM operators;"
 
 check-operator-status-operator2:
-	@echo "Querying operator2 status..."
-	@PGPASSWORD=spotted psql -h localhost -p 5434 -U spotted -d operator2 -c "SELECT * FROM operators;"
+	docker-compose exec postgres_operator2 psql -U spotted -d operator2 -c "SELECT * FROM operators;"
 
 check-operator-status-operator3:
-	@echo "Querying operator3 status..."
-	@PGPASSWORD=spotted psql -h localhost -p 5435 -U spotted -d operator3 -c "SELECT * FROM operators;"
+	docker-compose exec postgres_operator3 psql -U spotted -d operator3 -c "SELECT * FROM operators;"
 
 # Check tasks table
 check-tasks-operator1:
@@ -81,15 +91,15 @@ check-consensus-operator3:
 # Create a new sample task
 create-task-operator1:
 	@echo "Creating new task..."
-	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8001/api/v1/tasks
+	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8000/api/v1/tasks
 
 create-task-operator2:
 	@echo "Creating new task..."
-	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8002/api/v1/tasks
+	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8001/api/v1/tasks
 
 create-task-operator3:
 	@echo "Creating new task..."
-	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8003/api/v1/tasks
+	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8002/api/v1/tasks
 
 # Mine 15 blocks
 mine-15:
@@ -97,9 +107,14 @@ mine-15:
 	@curl -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"anvil_mine","params":["0xF"],"id":1}' http://localhost:8545
 
 # Get final task
-get-final-response-taskId:
-	@curl -X GET "http://localhost:8001/api/v1/consensus/tasks/fb562be126cced839de0da912247c4eaf591a594726e6e7672d4555df68d49ce"
+get-consensus-response-operator1:
+	@curl -X GET "http://localhost:8000/api/v1/consensus/tasks/31842f3b74110fefb9c8ed9f2836c10b696444e00f37e54853790dabd0f80ce1"
 
+get-consensus-response-operator2:
+	@curl -X GET "http://localhost:8001/api/v1/consensus/tasks/31842f3b74110fefb9c8ed9f2836c10b696444e00f37e54853790dabd0f80ce1"
+
+get-consensus-response-operator3:
+	@curl -X GET "http://localhost:8002/api/v1/consensus/tasks/31842f3b74110fefb9c8ed9f2836c10b696444e00f37e54853790dabd0f80ce1"
 # Build both binaries
 build:
 	@echo "Building registry and operator..."

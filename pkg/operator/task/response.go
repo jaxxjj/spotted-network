@@ -116,18 +116,19 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 	signingKey := operator.SigningKey
 	// Check if already processed
 	if tp.alreadyProcessed(pbMsg.TaskId, signingKey) {
-		return nil // Not an error, just skip
+		return nil
 	}
 
 	// Check existing consensus
 	consensus, err := tp.consensusRepo.GetConsensusResponseByTaskId(ctx, pbMsg.TaskId)
 	if err == nil && consensus != nil {
-		return nil // Not an error, just skip
+		log.Printf("[Response] Task %s already has consensus", pbMsg.TaskId)
+		return nil
 	}
 
 	// Verify response signature
 	if err := tp.verifyResponse(response, signingKey); err != nil {
-		return tp.incrementPeerViolation(ctx, peerID, fmt.Errorf("failed to convert peer ID to P2P key: %w", err))
+		return tp.incrementPeerViolation(ctx, peerID, fmt.Errorf("failed to verify response: %w", err))
 	}
 
 	weight, err := utils.NumericToBigInt(operator.Weight)
@@ -143,7 +144,7 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 	tp.taskResponseTrack.mu.RUnlock()
 
 	if !processed {
-		return tp.ProcessTask(ctx, &tasks.Tasks{
+		if err := tp.ProcessTask(ctx, &tasks.Tasks{
 			TaskID:        response.taskID,
 			Value:         utils.StringToNumeric(response.value),
 			BlockNumber:   response.blockNumber,
@@ -151,12 +152,14 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 			TargetAddress: response.targetAddress,
 			Key:           utils.StringToNumeric(response.key),
 			Epoch:         response.epoch,
-		})
+		}); err != nil {
+			return fmt.Errorf("failed to process task: %w", err)
+		}
 	}
 
 	// Check consensus
 	if err := tp.checkConsensus(ctx, response); err != nil {
-		return fmt.Errorf("failed to check consensus: %w", err)
+		log.Printf("[Response] Failed to check consensus for task %s: %v", response.taskID, err)
 	}
 
 	return nil

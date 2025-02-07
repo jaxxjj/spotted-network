@@ -23,7 +23,6 @@ type TaskSignParams struct {
 type Config struct {
 	SigningKeyPath string
 	Password       string
-	P2PKeyPath     string
 }
 
 // LocalSigner implements Signer interface using a local keystore file
@@ -98,23 +97,15 @@ func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte
 	return nil
 }
 
-// LoadPrivateKeyFromFile loads an Ed25519 private key from a file
-func LoadPrivateKeyFromFile(keyPath string) (p2pcrypto.PrivKey, error) {
-	// Read the key file
-	keyBytes, err := os.ReadFile(keyPath)
+func Base64ToPrivKey(encodedKey string) (p2pcrypto.PrivKey, error) {
+	privKeyBytes, err := p2pcrypto.ConfigDecodeKey(encodedKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read key file: %w", err)
+		return nil, fmt.Errorf("failed to decode base64 key: %v", err)
 	}
 
-	// Unmarshal the private key
-	privKey, err := p2pcrypto.UnmarshalPrivateKey(keyBytes)
+	privKey, err := p2pcrypto.UnmarshalPrivateKey(privKeyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal private key: %w", err)
-	}
-
-	// Verify that it's an Ed25519 key
-	if privKey.Type() != p2pcrypto.Ed25519 {
-		return nil, fmt.Errorf("invalid key type: expected Ed25519, got %s", privKey.Type())
+		return nil, fmt.Errorf("failed to unmarshal private key: %v", err)
 	}
 
 	return privKey, nil

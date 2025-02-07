@@ -163,14 +163,17 @@ curl -X GET "http://localhost:8001/api/v1/task/YOUR_TASK_ID/final"
 - The network uses PostgreSQL for persistence, with separate databases for each node
 - Mock contracts are used for testing and simulate the actual network contracts
 
-Generated Ed25519 key for operator1:
-  Key file: keys/operator1.ed25519.key
-  Address: 0xd1752226c0780a52c0aac53896d75a284a9263d6
+Generated P2P key for operator1:
+  Private key (base64): CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys=
+  Public key (base64): CAESIL3bARtK0oHIyUx/KlsEWEcrCWmfu2eHoC8b0obwZ0Mr
+  Address: 0x310c8425b620980dcfcf756e46572bb6ac80eb07
 
-Generated Ed25519 key for operator2:
-  Key file: keys/operator2.ed25519.key
-  Address: 0x6645adc3de46aff919bfcfe7976fb10efa1b6791
+Generated P2P key for operator2:
+  Private key (base64): CAESQHGMebvS8Wf6IZZh40yacCPzXhRlKqJCGfPySZyCFid6EdbnbwgelZkcZbllzWAZFfrdV/dcf2poB1OySA2mV0I=
+  Public key (base64): CAESIBHW528IHpWZHGW5Zc1gGRX63Vf3XH9qaAdTskgNpldC
+  Address: 0x01078ffbf1de436d6f429f5ce6be8fd9d6e16165
 
-Generated Ed25519 key for operator3:
-  Key file: keys/operator3.ed25519.key
-  Address: 0x210d446085dc279334fe273b17eb717fb1852fa9
+Generated P2P key for operator3:
+  Private key (base64): CAESQM5ltPHuttHq7/HHHHymN5A/XSDKt5EPOwGWor2H3k0PXckF23DDwxzmdOhEtOy5f8szIAYWqSFH8cIlICumemo=
+  Public key (base64): CAESIF3JBdtww8Mc5nToRLTsuX/LMyAGFqkhR/HCJSArpnpq
+  Address: 0x67aa23adde2459a1620be2ea28982310597521b0

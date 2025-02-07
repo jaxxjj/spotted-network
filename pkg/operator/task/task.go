@@ -114,9 +114,10 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 		epoch:         task.Epoch,
 	}
 
-	operatorSigningKey := tp.signer.GetSigningAddress()
+	operatorSigningKey := tp.signer.GetSigningAddress().Hex()
+
 	// Get and store our own weight
-	operator, err := tp.operatorRepo.GetOperatorBySigningKey(ctx, operatorSigningKey.Hex())
+	operator, err := tp.operatorRepo.GetOperatorBySigningKey(ctx, operatorSigningKey)
 	if err != nil {
 		return fmt.Errorf("failed to get operator: %w", err)
 	}
@@ -125,14 +126,19 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	if err != nil {
 		return fmt.Errorf("failed to convert operator weight to big int: %w", err)
 	}
-	// Store in local map
+
+	// Store in local map with proper initialization
 	tp.taskResponseTrack.mu.Lock()
-	tp.taskResponseTrack.responses[task.TaskID] = make(map[string]taskResponse)
-	tp.taskResponseTrack.responses[task.TaskID][tp.signer.GetSigningAddress().Hex()] = response
-	tp.taskResponseTrack.weights[task.TaskID] = make(map[string]*big.Int)
-	tp.taskResponseTrack.weights[task.TaskID][operator.Address] = weight
+	if _, exists := tp.taskResponseTrack.responses[task.TaskID]; !exists {
+		tp.taskResponseTrack.responses[task.TaskID] = make(map[string]taskResponse)
+		tp.taskResponseTrack.weights[task.TaskID] = make(map[string]*big.Int)
+	}
+	tp.taskResponseTrack.responses[task.TaskID][operatorSigningKey] = response
+	tp.taskResponseTrack.weights[task.TaskID][operatorSigningKey] = weight
 	tp.taskResponseTrack.mu.Unlock()
-	log.Printf("[Task] Stored own weight %s for task %s", weight, task.TaskID)
+
+	log.Printf("[Task] Stored own response and weight %s for task %s with key %s",
+		weight, task.TaskID, operatorSigningKey)
 
 	// Broadcast response
 	if err := tp.broadcastResponse(response); err != nil {

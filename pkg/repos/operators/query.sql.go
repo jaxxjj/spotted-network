@@ -75,26 +75,26 @@ func _GetOperatorByAddress(ctx context.Context, q CacheQuerierConn, address stri
 
 const getOperatorByP2PKey = `-- name: GetOperatorByP2PKey :one
 SELECT address, signing_key, p2p_key, registered_at_block_number, active_epoch, exit_epoch, is_active, weight, created_at, updated_at FROM operators
-WHERE p2p_key = $1
+WHERE LOWER(p2p_key) = LOWER($1)
 `
 
 // -- cache: 168h
 // -- timeout: 500ms
-func (q *Queries) GetOperatorByP2PKey(ctx context.Context, p2pKey string) (*Operators, error) {
-	return _GetOperatorByP2PKey(ctx, q.AsReadOnly(), p2pKey)
+func (q *Queries) GetOperatorByP2PKey(ctx context.Context, lower string) (*Operators, error) {
+	return _GetOperatorByP2PKey(ctx, q.AsReadOnly(), lower)
 }
 
-func (q *ReadOnlyQueries) GetOperatorByP2PKey(ctx context.Context, p2pKey string) (*Operators, error) {
-	return _GetOperatorByP2PKey(ctx, q, p2pKey)
+func (q *ReadOnlyQueries) GetOperatorByP2PKey(ctx context.Context, lower string) (*Operators, error) {
+	return _GetOperatorByP2PKey(ctx, q, lower)
 }
 
-func _GetOperatorByP2PKey(ctx context.Context, q CacheQuerierConn, p2pKey string) (*Operators, error) {
+func _GetOperatorByP2PKey(ctx context.Context, q CacheQuerierConn, lower string) (*Operators, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	q.GetConn().CountIntent("operators.GetOperatorByP2PKey")
 	dbRead := func() (any, time.Duration, error) {
 		cacheDuration := time.Duration(time.Millisecond * 604800000)
-		row := q.GetConn().WQueryRow(qctx, "operators.GetOperatorByP2PKey", getOperatorByP2PKey, p2pKey)
+		row := q.GetConn().WQueryRow(qctx, "operators.GetOperatorByP2PKey", getOperatorByP2PKey, lower)
 		var i *Operators = new(Operators)
 		err := row.Scan(
 			&i.Address,
@@ -119,7 +119,7 @@ func _GetOperatorByP2PKey(ctx context.Context, q CacheQuerierConn, p2pKey string
 	}
 
 	var i *Operators
-	err := q.GetCache().GetWithTtl(qctx, "operators:GetOperatorByP2PKey:"+hashIfLong(fmt.Sprintf("%+v", p2pKey)), &i, dbRead, false, false)
+	err := q.GetCache().GetWithTtl(qctx, "operators:GetOperatorByP2PKey:"+hashIfLong(fmt.Sprintf("%+v", lower)), &i, dbRead, false, false)
 	if err != nil {
 		return nil, err
 	}
@@ -184,28 +184,28 @@ func _GetOperatorBySigningKey(ctx context.Context, q CacheQuerierConn, signingKe
 const isActiveOperator = `-- name: IsActiveOperator :one
 SELECT EXISTS (
     SELECT 1 FROM operators
-    WHERE p2p_key = $1
+    WHERE LOWER(p2p_key) = LOWER($1)
     AND is_active = true
 ) as is_active
 `
 
 // -- cache: 168h
 // -- timeout: 500ms
-func (q *Queries) IsActiveOperator(ctx context.Context, p2pKey string) (*bool, error) {
-	return _IsActiveOperator(ctx, q.AsReadOnly(), p2pKey)
+func (q *Queries) IsActiveOperator(ctx context.Context, lower string) (*bool, error) {
+	return _IsActiveOperator(ctx, q.AsReadOnly(), lower)
 }
 
-func (q *ReadOnlyQueries) IsActiveOperator(ctx context.Context, p2pKey string) (*bool, error) {
-	return _IsActiveOperator(ctx, q, p2pKey)
+func (q *ReadOnlyQueries) IsActiveOperator(ctx context.Context, lower string) (*bool, error) {
+	return _IsActiveOperator(ctx, q, lower)
 }
 
-func _IsActiveOperator(ctx context.Context, q CacheQuerierConn, p2pKey string) (*bool, error) {
+func _IsActiveOperator(ctx context.Context, q CacheQuerierConn, lower string) (*bool, error) {
 	qctx, cancel := context.WithTimeout(ctx, time.Millisecond*500)
 	defer cancel()
 	q.GetConn().CountIntent("operators.IsActiveOperator")
 	dbRead := func() (any, time.Duration, error) {
 		cacheDuration := time.Duration(time.Millisecond * 604800000)
-		row := q.GetConn().WQueryRow(qctx, "operators.IsActiveOperator", isActiveOperator, p2pKey)
+		row := q.GetConn().WQueryRow(qctx, "operators.IsActiveOperator", isActiveOperator, lower)
 		var is_active *bool = new(bool)
 		err := row.Scan(is_active)
 		if err == pgx.ErrNoRows {
@@ -219,7 +219,7 @@ func _IsActiveOperator(ctx context.Context, q CacheQuerierConn, p2pKey string) (
 	}
 
 	var is_active *bool
-	err := q.GetCache().GetWithTtl(qctx, "operators:IsActiveOperator:"+hashIfLong(fmt.Sprintf("%+v", p2pKey)), &is_active, dbRead, false, false)
+	err := q.GetCache().GetWithTtl(qctx, "operators:IsActiveOperator:"+hashIfLong(fmt.Sprintf("%+v", lower)), &is_active, dbRead, false, false)
 	if err != nil {
 		return nil, err
 	}

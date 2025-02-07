@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -22,8 +23,8 @@ import (
 
 const (
 	GenesisBlock = 0
-	EpochPeriod = 12
-	GracePeriod = 3
+	EpochPeriod  = 12
+	GracePeriod  = 3
 )
 
 // ChainClient defines the interface for getting blocks that the helper functions need
@@ -52,44 +53,44 @@ func NumericToString(n pgtype.Numeric) string {
 func NumericToBigInt(n pgtype.Numeric) (*big.Int, error) {
 	if n.Exp == 0 {
 		return n.Int, nil
-    }
-    big10 := big.NewInt(10)
-    big0 := big.NewInt(0)
-    num := &big.Int{}
-    num.Set(n.Int)
-    if n.Exp > 0 {
-        mul := &big.Int{}
-        mul.Exp(big10, big.NewInt(int64(n.Exp)), nil)
-        num.Mul(num, mul)
-        return num, nil
-    }
+	}
+	big10 := big.NewInt(10)
+	big0 := big.NewInt(0)
+	num := &big.Int{}
+	num.Set(n.Int)
+	if n.Exp > 0 {
+		mul := &big.Int{}
+		mul.Exp(big10, big.NewInt(int64(n.Exp)), nil)
+		num.Mul(num, mul)
+		return num, nil
+	}
 
-    div := &big.Int{}
-    div.Exp(big10, big.NewInt(int64(-n.Exp)), nil)
-    remainder := &big.Int{}
-    num.DivMod(num, div, remainder)
-    if remainder.Cmp(big0) != 0 {
-        return nil, fmt.Errorf("cannot convert %v to integer", n)
-    }
-    return num, nil
+	div := &big.Int{}
+	div.Exp(big10, big.NewInt(int64(-n.Exp)), nil)
+	remainder := &big.Int{}
+	num.DivMod(num, div, remainder)
+	if remainder.Cmp(big0) != 0 {
+		return nil, fmt.Errorf("cannot convert %v to integer", n)
+	}
+	return num, nil
 }
 
 // NumericToInt64 converts a pgtype.Numeric to int64
 func NumericToInt64(num pgtype.Numeric) int64 {
-    if !num.Valid {
-        return 0
-    }
-    fl, _ := num.Float64Value()
-    return int64(fl.Float64)
+	if !num.Valid {
+		return 0
+	}
+	fl, _ := num.Float64Value()
+	return int64(fl.Float64)
 }
 
 // NumericToUint64 converts a pgtype.Numeric to uint64
 func NumericToUint64(num pgtype.Numeric) uint64 {
-    if !num.Valid {
-        return 0
-    }
-    fl, _ := num.Float64Value()
-    return uint64(fl.Float64)
+	if !num.Valid {
+		return 0
+	}
+	fl, _ := num.Float64Value()
+	return uint64(fl.Float64)
 }
 
 func StringToBigInt(s string) *big.Int {
@@ -117,7 +118,6 @@ func Uint64ToBytes(i uint64) []byte {
 	binary.BigEndian.PutUint64(b, i)
 	return b
 }
-
 
 // BlockNumberToTimestamp converts a block number to its corresponding timestamp
 func BlockNumberToTimestamp(ctx context.Context, client ChainClient, chainID uint32, blockNumber uint64) (uint64, error) {
@@ -279,80 +279,81 @@ func CalculateCurrentEpochNumber(blockNumber uint64) uint32 {
 
 func GetEffectiveEpochByBlockNumber(currentBlockNumber uint64) uint32 {
 
-    blocksSinceGenesis := currentBlockNumber - GenesisBlock
+	blocksSinceGenesis := currentBlockNumber - GenesisBlock
 
-    absoluteEpoch := uint32(blocksSinceGenesis / EpochPeriod)
+	absoluteEpoch := uint32(blocksSinceGenesis / EpochPeriod)
 
-    epochStartBlock := GenesisBlock + (uint64(absoluteEpoch) * EpochPeriod)
-    epochEndBlock := epochStartBlock + EpochPeriod
+	epochStartBlock := GenesisBlock + (uint64(absoluteEpoch) * EpochPeriod)
+	epochEndBlock := epochStartBlock + EpochPeriod
 
-    isGracePeriod := currentBlockNumber >= (epochEndBlock - GracePeriod)
+	isGracePeriod := currentBlockNumber >= (epochEndBlock - GracePeriod)
 
-    if isGracePeriod {
-        return absoluteEpoch + 2
-    }
-    return absoluteEpoch + 1
+	if isGracePeriod {
+		return absoluteEpoch + 2
+	}
+	return absoluteEpoch + 1
 }
 
 // PeerIDToP2PKey converts peer.ID to p2p key (similar to Ethereum address format)
 func PeerIDToP2PKey(peerID peer.ID) (string, error) {
-    // 1. extract public key from peerID
-    pubKey, err := peerID.ExtractPublicKey()
-    if err != nil {
-        return "", fmt.Errorf("failed to extract public key: %v", err)
-    }
+	// 1. extract public key from peerID
+	pubKey, err := peerID.ExtractPublicKey()
+	if err != nil {
+		return "", fmt.Errorf("failed to extract public key: %v", err)
+	}
 
-    // 2. get original public key bytes
-    pubKeyBytes, err := crypto.MarshalPublicKey(pubKey)
-    if err != nil {
-        return "", fmt.Errorf("failed to marshal public key: %v", err)
-    }
+	// 2. get original public key bytes
+	pubKeyBytes, err := crypto.MarshalPublicKey(pubKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal public key: %v", err)
+	}
 
-    // 3. use keccak256 hash algorithm
-    hasher := sha3.NewLegacyKeccak256()
-    hasher.Write(pubKeyBytes)
-    hash := hasher.Sum(nil)
+	// 3. use keccak256 hash algorithm
+	hasher := sha3.NewLegacyKeccak256()
+	hasher.Write(pubKeyBytes)
+	hash := hasher.Sum(nil)
 
-    // 4. get last 20 bytes
-    address := hash[len(hash)-20:]
+	// 4. get last 20 bytes
+	address := hash[len(hash)-20:]
 
-    // 5. convert to hex string and add "0x" prefix
-    return "0x" + hex.EncodeToString(address), nil
+	// 5. convert to hex string and add "0x" prefix
+	hexStr := hex.EncodeToString(address)
+	return "0x" + strings.ToLower(hexStr), nil
 }
 
 // writeLengthPrefix writes a 4-byte length prefix to the stream
 func WriteLengthPrefix(stream network.Stream, length uint32) error {
-    lengthBuf := make([]byte, 4)
-    binary.BigEndian.PutUint32(lengthBuf, length)
-    
-    if _, err := stream.Write(lengthBuf); err != nil {
-        return fmt.Errorf("failed to write length prefix: %w", err)
-    }
-    return nil
+	lengthBuf := make([]byte, 4)
+	binary.BigEndian.PutUint32(lengthBuf, length)
+
+	if _, err := stream.Write(lengthBuf); err != nil {
+		return fmt.Errorf("failed to write length prefix: %w", err)
+	}
+	return nil
 }
 
 // readLengthPrefix reads a 4-byte length prefix from the stream
 func ReadLengthPrefix(stream network.Stream) (uint32, error) {
-    lengthBuf := make([]byte, 4)
-    if _, err := io.ReadFull(stream, lengthBuf); err != nil {
-        return 0, fmt.Errorf("failed to read length prefix: %w", err)
-    }
-    
-    length := binary.BigEndian.Uint32(lengthBuf)
-    return length, nil
+	lengthBuf := make([]byte, 4)
+	if _, err := io.ReadFull(stream, lengthBuf); err != nil {
+		return 0, fmt.Errorf("failed to read length prefix: %w", err)
+	}
+
+	length := binary.BigEndian.Uint32(lengthBuf)
+	return length, nil
 }
 
 // WriteLengthPrefixedData writes length-prefixed data to a stream
 func WriteLengthPrefixedData(stream network.Stream, data []byte) error {
-    if err := WriteLengthPrefix(stream, uint32(len(data))); err != nil {
-        return err
-    }
-    
-    if _, err := stream.Write(data); err != nil {
-        return fmt.Errorf("failed to write data: %w", err)
-    }
-    
-    return nil
+	if err := WriteLengthPrefix(stream, uint32(len(data))); err != nil {
+		return err
+	}
+
+	if _, err := stream.Write(data); err != nil {
+		return fmt.Errorf("failed to write data: %w", err)
+	}
+
+	return nil
 }
 
 func MultiaddrsToStrings(multiaddrs []multiaddr.Multiaddr) []string {
@@ -364,19 +365,18 @@ func MultiaddrsToStrings(multiaddrs []multiaddr.Multiaddr) []string {
 }
 
 func StringsToMultiaddrs(addrs []string) ([]multiaddr.Multiaddr, error) {
-    multiaddrs := make([]multiaddr.Multiaddr, 0, len(addrs))
-    
-    for _, addr := range addrs {
-        maddr, err := multiaddr.NewMultiaddr(addr)
-        if err != nil {
-            return nil, fmt.Errorf("invalid multiaddr %s: %w", addr, err)
-        }
-        multiaddrs = append(multiaddrs, maddr)
-    }
-    
-    return multiaddrs, nil
-}
+	multiaddrs := make([]multiaddr.Multiaddr, 0, len(addrs))
 
+	for _, addr := range addrs {
+		maddr, err := multiaddr.NewMultiaddr(addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid multiaddr %s: %w", addr, err)
+		}
+		multiaddrs = append(multiaddrs, maddr)
+	}
+
+	return multiaddrs, nil
+}
 
 // readMessage reads a protobuf message from a stream
 func ReadStreamMessage(stream network.Stream, msg proto.Message, maxMessageSize int) error {
@@ -386,7 +386,7 @@ func ReadStreamMessage(stream network.Stream, msg proto.Message, maxMessageSize 
 		return err
 	}
 	defer reader.ReleaseMsg(bytes)
-	
+
 	return proto.Unmarshal(bytes, msg)
 }
 
@@ -396,8 +396,7 @@ func WriteStreamMessage(stream network.Stream, msg proto.Message) error {
 	if err != nil {
 		return err
 	}
-	
+
 	writer := msgio.NewVarintWriter(stream)
 	return writer.WriteMsg(bytes)
 }
-

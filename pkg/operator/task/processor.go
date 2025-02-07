@@ -129,6 +129,7 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 		epochStateQuerier: cfg.EpochStateQuerier,
 		taskRepo:          cfg.TaskRepo,
 		consensusRepo:     cfg.ConsensusResponseRepo,
+		blacklistRepo:     cfg.BlacklistRepo,
 		operatorRepo:      cfg.OperatorRepo,
 		chainManager:      cfg.ChainManager,
 		responseTopic:     responseTopic,

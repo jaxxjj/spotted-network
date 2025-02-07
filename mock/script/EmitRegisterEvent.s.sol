@@ -28,9 +28,9 @@ contract EmitRegisterEvent is Script {
         ];
 
         address[3] memory p2pKeys = [  
-            0xD1752226C0780A52C0AAc53896d75a284a9263D6, // operator1
-            0x6645ADC3de46AFF919BFcFe7976fb10efA1b6791, // operator2
-            0x210D446085DC279334fE273b17EB717Fb1852fA9 // operator3
+            0x310C8425b620980DCFcf756e46572bb6ac80Eb07, // operator1
+            0x01078ffBf1De436d6f429f5Ce6Be8Fd9D6E16165, // operator2
+            0x67aa23adde2459a1620BE2Ea28982310597521b0 // operator3
         ];
 
         for (uint256 i = 0; i < operators.length; i++) {
