@@ -264,7 +264,7 @@ func (a *App) initNode() error {
 			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", a.cfg.P2P.Port),
 			fmt.Sprintf("/ip4/%s/tcp/%d", a.cfg.P2P.ExternalIP, a.cfg.P2P.Port),
 		),
-		// libp2p.ConnectionGater(a.gater),
+		libp2p.ConnectionGater(a.gater),
 		libp2p.Identity(privKey),
 		libp2p.Security("/noise", noise.New),
 		libp2p.Muxer("/yamux/1.0.0", yamux.DefaultTransport),
@@ -309,20 +309,17 @@ func (a *App) initEpochUpdator() error {
 }
 
 func (a *App) initTaskProcessor() error {
-	// 创建GossipSub选项
 	gossipOpts := []pubsub.Option{
 		pubsub.WithMessageSigning(true),
 		pubsub.WithStrictSignatureVerification(true),
 		pubsub.WithPeerExchange(true),
 	}
 
-	// 创建GossipSub实例
 	ps, err := pubsub.NewGossipSub(a.ctx, a.host, gossipOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to create gossipsub: %w", err)
 	}
 
-	// 创建任务处理器
 	processor, err := task.NewTaskProcessor(&task.TaskProcessorConfig{
 		ChainManager:          a.chainManager,
 		Signer:                a.signer,

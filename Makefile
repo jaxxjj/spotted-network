@@ -3,10 +3,11 @@ NAME=spotted-network
 TEST_DIRS := $(shell go list ./...)
 POSTGRES_USERNAME=spotted
 POSTGRES_PASSWORD=spotted
-POSTGRES_APPNAME=registry_test
+POSTGRES_APPNAME=operator_test
 POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
+POSTGRES_PORT=5435
 POSTGRES_DBNAME=spotted
+POSTGRES_SSLMODE=disable
 
 .PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean generate-bindings clean-bindings
 
@@ -199,9 +200,24 @@ test-infra-down:
 	docker-compose stop postgres redis
 	docker-compose rm -f postgres redis
 
-# 清理测试基础设施（包括数据）
-test-infra-clean: test-infra-down
-	docker volume rm -f spotted-network_postgres_data
+test-event:
+	@docker compose up -d postgres_test redis
+	@echo "Waiting for services to be ready..."
+	@sleep 10
+
+	@( \
+		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
+		export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
+		export POSTGRES_HOST=$(POSTGRES_HOST) && \
+		export POSTGRES_PORT=$(POSTGRES_PORT) && \
+		export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
+		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
+		go test -v ./pkg/operator/event/... \
+	)
+	@echo "Cleaning up test services..."
+	@docker compose stop postgres_test redis
+	@docker compose rm -f postgres_test redis
 
 # Generate contract bindings
 generate-bindings: clean-bindings
@@ -266,3 +282,6 @@ start-operator3: build-operator3
 # Start all operators in sequence with build
 start-operators: build-operators start-operator1 start-operator2 start-operator3
 	@echo "All operators started"
+
+check-operator1:
+	docker exec -it spotted-network-postgres_operator2-1 psql -U spotted -d operator2 -c "SELECT * FROM operators WHERE LOWER(p2p_key) = LOWER('0x310c8425b620980dcfcf756e46572bb6ac80eb07');"

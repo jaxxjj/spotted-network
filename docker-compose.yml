@@ -1,6 +1,42 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:6-alpine
+    platform: linux/arm64
+    ports:
+      - "6379:6379"
+    networks:
+      - spotted-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres_test:
+    image: postgres:14-alpine
+    platform: linux/arm64
+    environment:
+      POSTGRES_USER: spotted
+      POSTGRES_PASSWORD: spotted
+      POSTGRES_DB: spotted
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./pkg/repos/blacklist/schema.sql:/docker-entrypoint-initdb.d/01-blacklist-schema.sql
+      - ./pkg/repos/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/02-consensus-responses-schema.sql
+      - ./pkg/repos/operators/schema.sql:/docker-entrypoint-initdb.d/03-operators-schema.sql
+      - ./pkg/repos/tasks/schema.sql:/docker-entrypoint-initdb.d/04-tasks-schema.sql
+    networks:
+      - spotted-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spotted -d spotted"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   postgres_operator1:
     image: postgres:14-alpine
     platform: linux/arm64
@@ -69,19 +105,6 @@ services:
       - spotted-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U spotted -d operator3"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:6-alpine
-    platform: linux/arm64
-    ports:
-      - "6379:6379"
-    networks:
-      - spotted-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -364,4 +387,5 @@ volumes:
   postgres_operator1_data:
   postgres_operator2_data:
   postgres_operator3_data:
+  postgres_test_data:
   prometheus_data: 

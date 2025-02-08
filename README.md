@@ -110,43 +110,17 @@ curl -X GET "http://localhost:8001/api/v1/task/YOUR_TASK_ID/final"
 
 ### Ports
 
-- Registry Node: 
-  - P2P: 9000
-  - HTTP: 8000
 - Operator 1:
   - P2P: 10000
-  - HTTP: 8001
+  - HTTP: 8000
 - Operator 2:
   - P2P: 10001
-  - HTTP: 8002
+  - HTTP: 8001
 - Operator 3:
   - P2P: 10002
-  - HTTP: 8003
-
-### Databases
-
-- Registry: Port 5432
-- Operator 1: Port 5433
-- Operator 2: Port 5434
-- Operator 3: Port 5435
+  - HTTP: 8002
 
 ## Development
-
-### Project Structure
-
-```
-.
-├── cmd/
-│   ├── registry/        # Registry node entry point
-│   └── operator/        # Operator node entry point
-├── pkg/
-│   ├── common/          # Shared utilities and types
-│   ├── operator/        # Operator node implementation
-│   └── registry/        # Registry node implementation
-├── mock/               # Mock contracts for testing
-├── keys/               # Test operator keys
-└── docker-compose.yml  # Network deployment configuration
-```
 
 ### Key Features
 
@@ -162,6 +136,7 @@ curl -X GET "http://localhost:8001/api/v1/task/YOUR_TASK_ID/final"
 - When getting final task results, replace the task ID in the curl command with the actual task ID from the create-task response
 - The network uses PostgreSQL for persistence, with separate databases for each node
 - Mock contracts are used for testing and simulate the actual network contracts
+
 
 Generated P2P key for operator1:
   Private key (base64): CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys=

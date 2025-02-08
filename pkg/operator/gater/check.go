@@ -31,7 +31,6 @@ func (g *ConnectionGater) isActiveOperator(peerID peer.ID) (bool, error) {
 		return false, fmt.Errorf("failed to convert peerID to p2p key: %w", err)
 	}
 
-	// 使用 GetOperatorByP2PKey 获取完整记录
 	operator, err := g.operatorRepo.GetOperatorByP2PKey(context.Background(), p2pKey)
 	if err != nil {
 		log.Printf("[Gater] Error getting operator by p2p key %s: %v", p2pKey, err)
@@ -43,7 +42,6 @@ func (g *ConnectionGater) isActiveOperator(peerID peer.ID) (bool, error) {
 		return false, nil
 	}
 
-	// 打印完整的 operator 记录用于调试
 	log.Printf("[Gater] Found operator: address=%s, p2p_key=%s, is_active=%v, active_epoch=%d, exit_epoch=%d",
 		operator.Address,
 		operator.P2pKey,
@@ -57,29 +55,29 @@ func (g *ConnectionGater) isActiveOperator(peerID peer.ID) (bool, error) {
 
 // checkPeerPermission checks if a peer is allowed to connect
 func (g *ConnectionGater) checkPeerPermission(peerID peer.ID) bool {
-	// log.Printf("[Gater] Checking permission for peer %s", peerID)
+	log.Printf("[Gater] Checking permission for peer %s", peerID)
 
-	// // check if the peer is blocked
-	// blocked, err := g.isBlocked(peerID)
-	// if err != nil {
-	// 	log.Printf("[Gater] Error checking if peer %s is blocked: %v", peerID, err)
-	// 	return false
-	// }
-	// if blocked {
-	// 	log.Printf("[Gater] Peer %s is blocked, denying connection", peerID)
-	// 	return false
-	// }
+	// check if the peer is blocked
+	blocked, err := g.isBlocked(peerID)
+	if err != nil {
+		log.Printf("[Gater] Error checking if peer %s is blocked: %v", peerID, err)
+		return false
+	}
+	if blocked {
+		log.Printf("[Gater] Peer %s is blocked, denying connection", peerID)
+		return false
+	}
 
-	// // check if the peer is active operator
-	// isActive, err := g.isActiveOperator(peerID)
-	// if err != nil {
-	// 	log.Printf("[Gater] Error checking if peer %s is active operator: %v", peerID, err)
-	// 	return false
-	// }
-	// if !isActive {
-	// 	log.Printf("[Gater] Peer %s is not an active operator, denying connection", peerID)
-	// 	return false
-	// }
+	// check if the peer is active operator
+	isActive, err := g.isActiveOperator(peerID)
+	if err != nil {
+		log.Printf("[Gater] Error checking if peer %s is active operator: %v", peerID, err)
+		return false
+	}
+	if !isActive {
+		log.Printf("[Gater] Peer %s is not an active operator, denying connection", peerID)
+		return false
+	}
 
 	log.Printf("[Gater] Peer %s is allowed to connect", peerID)
 	return true
