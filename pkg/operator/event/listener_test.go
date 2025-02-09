@@ -43,23 +43,21 @@ func (o operatorStatesTableSerde) Dump() ([]byte, error) {
 
 // MockChainClient implements ChainClient interface for testing
 type MockChainClient struct {
-	weight              *big.Int
 	regSub              event.Subscription
 	deregSub            event.Subscription
 	regChan             chan *ethereum.OperatorRegisteredEvent
 	deregChan           chan *ethereum.OperatorDeregisteredEvent
-	getWeightError      error
 	watchRegError       error
 	watchDeregError     error
+	blockNumberError    error
 	watchRegCallCount   int
 	watchDeregCallCount int
 	closed              bool
-	mu                  sync.Mutex // 添加互斥锁保护状态
+	mu                  sync.Mutex
 }
 
 func NewMockChainClient() *MockChainClient {
 	return &MockChainClient{
-		weight:    big.NewInt(100),
 		regChan:   make(chan *ethereum.OperatorRegisteredEvent),
 		deregChan: make(chan *ethereum.OperatorDeregisteredEvent),
 		regSub: event.NewSubscription(func(quit <-chan struct{}) error {
@@ -72,10 +70,6 @@ func NewMockChainClient() *MockChainClient {
 		}),
 		closed: false,
 	}
-}
-
-func (m *MockChainClient) GetOperatorWeight(ctx context.Context, address common.Address) (*big.Int, error) {
-	return m.weight, m.getWeightError
 }
 
 func (m *MockChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error) {
@@ -144,6 +138,13 @@ func (m *MockChainClient) Close() error {
 		m.closed = true
 	}
 	return nil
+}
+
+func (m *MockChainClient) BlockNumber(ctx context.Context) (uint64, error) {
+	if m.blockNumberError != nil {
+		return 0, m.blockNumberError
+	}
+	return 100, nil
 }
 
 // OperatorTestSuite 是主测试套件
@@ -249,7 +250,7 @@ func (s *OperatorTestSuite) TestEventListener() {
 		{
 			name: "successful_operator_registration",
 			setupMock: func(m *MockChainClient) {
-				m.weight = big.NewInt(100)
+				// 移除 weight 设置
 			},
 			events: []interface{}{
 				&ethereum.OperatorRegisteredEvent{
@@ -272,7 +273,7 @@ func (s *OperatorTestSuite) TestEventListener() {
 		{
 			name: "successful_operator_deregistration",
 			setupMock: func(m *MockChainClient) {
-				m.weight = big.NewInt(100)
+				// 移除 weight 设置
 			},
 			events: []interface{}{
 				&ethereum.OperatorRegisteredEvent{
@@ -314,7 +315,7 @@ func (s *OperatorTestSuite) TestEventListener() {
 		{
 			name: "duplicate_registration",
 			setupMock: func(m *MockChainClient) {
-				m.weight = big.NewInt(100)
+				// 移除 weight 设置
 			},
 			events: []interface{}{
 				&ethereum.OperatorRegisteredEvent{
@@ -468,13 +469,11 @@ func (s *OperatorTestSuite) TestEpochBoundaries() {
 
 // 2. 测试错误恢复和重试机制
 func (s *OperatorTestSuite) TestErrorRecoveryAndRetry() {
-	// 设置临时错误
-	s.mockClient.getWeightError = fmt.Errorf("temporary error")
-
-	// 创建带重试的context
+	// 创建一个新的context
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// 设置一个事件
 	event := &ethereum.OperatorRegisteredEvent{
 		Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
 		SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
@@ -482,19 +481,22 @@ func (s *OperatorTestSuite) TestErrorRecoveryAndRetry() {
 		BlockNumber: big.NewInt(1),
 	}
 
+	// 在MockChainClient中添加BlockNumber方法的错误
+	s.mockClient.blockNumberError = fmt.Errorf("temporary block number error")
+
 	// 发送事件
 	s.mockClient.regChan <- event
 
 	// 等待一段时间后移除错误
 	time.Sleep(2 * time.Second)
-	s.mockClient.getWeightError = nil
+	s.mockClient.blockNumberError = nil
 
 	// 验证最终状态
 	time.Sleep(1 * time.Second)
-	op, err := s.operatorRepo.GetOperatorByAddress(ctx,
-		"0x0000000000000000000000000000000000000001")
+	op, err := s.operatorRepo.GetOperatorByAddress(ctx, "0x0000000000000000000000000000000000000001")
 	s.NoError(err)
 	s.NotNil(op)
+	s.Equal(uint64(1), op.RegisteredAtBlockNumber)
 }
 
 // 3. 测试事件处理顺序
@@ -585,4 +587,103 @@ func (s *OperatorTestSuite) TestResourceLeakage() {
 	// 验证资源是否正确释放
 	time.Sleep(1 * time.Second)
 	s.True(s.mockClient.closed)
+}
+
+// TestMultipleRegistrationsWithKeyChanges 测试连续register(更换signing key和p2p key)后，deregister，然后再register的场景
+func (s *OperatorTestSuite) TestMultipleRegistrationsWithKeyChanges() {
+	// 定义operator地址
+	operatorAddr := common.HexToAddress("0x0000000000000000000000000000000000000001")
+
+	// 定义不同的signing key和p2p key
+	signingKey1 := common.HexToAddress("0x0000000000000000000000000000000000000002")
+	p2pKey1 := common.HexToAddress("0x0000000000000000000000000000000000000003")
+
+	signingKey2 := common.HexToAddress("0x0000000000000000000000000000000000000004")
+	p2pKey2 := common.HexToAddress("0x0000000000000000000000000000000000000005")
+
+	signingKey3 := common.HexToAddress("0x0000000000000000000000000000000000000006")
+	p2pKey3 := common.HexToAddress("0x0000000000000000000000000000000000000007")
+
+	// 1. 连续发送register事件，每次使用不同的key
+	registerEvents := []*ethereum.OperatorRegisteredEvent{
+		{
+			Operator:    operatorAddr,
+			SigningKey:  signingKey1,
+			P2PKey:      p2pKey1,
+			BlockNumber: big.NewInt(10),
+		},
+		{
+			Operator:    operatorAddr,
+			SigningKey:  signingKey2,
+			P2PKey:      p2pKey2,
+			BlockNumber: big.NewInt(20),
+		},
+		{
+			Operator:    operatorAddr,
+			SigningKey:  signingKey3,
+			P2PKey:      p2pKey3,
+			BlockNumber: big.NewInt(30),
+		},
+	}
+
+	// 发送register事件
+	for i, evt := range registerEvents {
+		s.mockClient.regChan <- evt
+		time.Sleep(1 * time.Second)
+
+		// 验证每次register后的状态
+		op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), operatorAddr.Hex())
+		s.Require().NoError(err)
+		s.Equal(evt.BlockNumber.Uint64(), op.RegisteredAtBlockNumber,
+			"Should have updated register block number at step %d", i)
+		s.Equal(evt.SigningKey.Hex(), op.SigningKey,
+			"Should have updated signing key at step %d", i)
+		s.Equal(evt.P2PKey.Hex(), op.P2pKey,
+			"Should have updated p2p key at step %d", i)
+		s.Equal(uint32(4294967295), op.ExitEpoch,
+			"Should have max exit epoch at step %d", i)
+	}
+
+	// 2. 发送deregister事件
+	deregisterEvent := &ethereum.OperatorDeregisteredEvent{
+		Operator:    operatorAddr,
+		BlockNumber: big.NewInt(40),
+	}
+	s.mockClient.deregChan <- deregisterEvent
+	time.Sleep(1 * time.Second)
+
+	// 验证deregister后的状态
+	op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), operatorAddr.Hex())
+	s.Require().NoError(err)
+	s.Equal(uint64(30), op.RegisteredAtBlockNumber, "Register block number should not change")
+	s.Equal(signingKey3.Hex(), op.SigningKey, "Signing key should remain unchanged")
+	s.Equal(p2pKey3.Hex(), op.P2pKey, "P2P key should remain unchanged")
+	s.Equal(uint32(4), op.ExitEpoch, "Should have updated exit epoch to 4")
+
+	// 3. 再次register，使用新的key
+	finalSigningKey := common.HexToAddress("0x0000000000000000000000000000000000000008")
+	finalP2PKey := common.HexToAddress("0x0000000000000000000000000000000000000009")
+
+	finalRegisterEvent := &ethereum.OperatorRegisteredEvent{
+		Operator:    operatorAddr,
+		SigningKey:  finalSigningKey,
+		P2PKey:      finalP2PKey,
+		BlockNumber: big.NewInt(50),
+	}
+	s.mockClient.regChan <- finalRegisterEvent
+	time.Sleep(1 * time.Second)
+
+	// 验证最终状态
+	op, err = s.operatorRepo.GetOperatorByAddress(context.Background(), operatorAddr.Hex())
+	s.Require().NoError(err)
+	s.Equal(uint64(50), op.RegisteredAtBlockNumber, "Should have new register block number")
+	s.Equal(finalSigningKey.Hex(), op.SigningKey, "Should have final signing key")
+	s.Equal(finalP2PKey.Hex(), op.P2pKey, "Should have final p2p key")
+	s.Equal(uint32(4294967295), op.ExitEpoch, "Should have max exit epoch again")
+
+	// 使用golden文件验证最终状态
+	operatorSerde := operatorStatesTableSerde{
+		operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+	}
+	s.Golden("multiple_registrations_with_key_changes", operatorSerde)
 }
