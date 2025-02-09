@@ -3,20 +3,19 @@ package gater
 import (
 	"context"
 	"fmt"
-	"math/big"
-	"sync"
 	"testing"
 	"time"
 
+	"sync"
+
 	"github.com/coocood/freecache"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/event"
-	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/repos/blacklist"
 	"github.com/galxe/spotted-network/pkg/repos/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operators"
 	"github.com/galxe/spotted-network/pkg/repos/tasks"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/suite"
 	"github.com/stumble/dcache"
@@ -41,117 +40,31 @@ func (o operatorStatesTableSerde) Dump() ([]byte, error) {
 	})
 }
 
-// MockChainClient implements ChainClient interface for testing
-type MockChainClient struct {
-	weight              *big.Int
-	regSub              event.Subscription
-	deregSub            event.Subscription
-	regChan             chan *ethereum.OperatorRegisteredEvent
-	deregChan           chan *ethereum.OperatorDeregisteredEvent
-	getWeightError      error
-	watchRegError       error
-	watchDeregError     error
-	watchRegCallCount   int
-	watchDeregCallCount int
-	closed              bool
-	mu                  sync.Mutex // 添加互斥锁保护状态
+type blacklistStatesTableSerde struct {
+	blacklistQuerier *blacklist.Queries
 }
 
-func NewMockChainClient() *MockChainClient {
-	return &MockChainClient{
-		weight:    big.NewInt(100),
-		regChan:   make(chan *ethereum.OperatorRegisteredEvent),
-		deregChan: make(chan *ethereum.OperatorDeregisteredEvent),
-		regSub: event.NewSubscription(func(quit <-chan struct{}) error {
-			<-quit
-			return nil
-		}),
-		deregSub: event.NewSubscription(func(quit <-chan struct{}) error {
-			<-quit
-			return nil
-		}),
-		closed: false,
-	}
-}
-
-func (m *MockChainClient) GetOperatorWeight(ctx context.Context, address common.Address) (*big.Int, error) {
-	return m.weight, m.getWeightError
-}
-
-func (m *MockChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.watchRegCallCount++
-	if m.watchRegError != nil {
-		return nil, m.watchRegError
-	}
-
-	// 创建一个新的订阅，它会在context取消时关闭
-	sub := event.NewSubscription(func(quit <-chan struct{}) error {
-		for {
-			select {
-			case evt := <-m.regChan:
-				select {
-				case sink <- evt:
-				case <-quit:
-					return nil
-				}
-			case <-quit:
-				return nil
-			}
-		}
-	})
-
-	return sub, nil
-}
-
-func (m *MockChainClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.watchDeregCallCount++
-	if m.watchDeregError != nil {
-		return nil, m.watchDeregError
-	}
-
-	// 创建一个新的订阅，它会在context取消时关闭
-	sub := event.NewSubscription(func(quit <-chan struct{}) error {
-		for {
-			select {
-			case evt := <-m.deregChan:
-				select {
-				case sink <- evt:
-				case <-quit:
-					return nil
-				}
-			case <-quit:
-				return nil
-			}
-		}
-	})
-
-	return sub, nil
-}
-
-func (m *MockChainClient) Close() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if !m.closed {
-		close(m.regChan)
-		close(m.deregChan)
-		m.closed = true
+func (o blacklistStatesTableSerde) Load(data []byte) error {
+	if err := o.blacklistQuerier.Load(context.Background(), data); err != nil {
+		return fmt.Errorf("failed to load blacklist states data: %w", err)
 	}
 	return nil
+}
+
+func (o blacklistStatesTableSerde) Dump() ([]byte, error) {
+	return o.blacklistQuerier.Dump(context.Background(), func(m *blacklist.Blacklist) {
+		m.CreatedAt = time.Unix(0, 0).UTC()
+		m.UpdatedAt = time.Unix(0, 0).UTC()
+	})
 }
 
 // OperatorTestSuite 是主测试套件
 type OperatorTestSuite struct {
 	*testsuite.WPgxTestSuite
-	eventListener *EventListener
+	gater *ConnectionGater
+
 	operatorRepo  OperatorRepo
-	mockClient    *MockChainClient
+	blacklistRepo BlacklistRepo
 
 	RedisConn redis.UniversalClient
 	FreeCache *freecache.Cache
@@ -174,27 +87,21 @@ func (s *OperatorTestSuite) SetupTest() {
 	conn := pool.WConn()
 	s.Require().NotNil(conn, "Database connection should not be nil")
 
-	s.mockClient = NewMockChainClient()
-
 	// 确保 operatorRepo 正确初始化
 	operatorRepo := operators.New(conn, s.DCache)
 	s.Require().NotNil(operatorRepo, "Operator repository should not be nil")
 	s.operatorRepo = operatorRepo
+	blacklistRepo := blacklist.New(conn, s.DCache)
+	s.Require().NotNil(blacklistRepo, "Blacklist repository should not be nil")
+	s.blacklistRepo = blacklistRepo
 
 	// 创建 EventListener
-	eventListener, err := NewEventListener(context.Background(), &Config{
-		MainnetClient: s.mockClient,
+	gater, err := NewConnectionGater(&Config{
+		BlacklistRepo: s.blacklistRepo,
 		OperatorRepo:  s.operatorRepo,
 	})
 	s.Require().NoError(err, "Failed to create event listener")
-	s.eventListener = eventListener
-}
-
-// TearDownTest 在每个测试后运行
-func (s *OperatorTestSuite) TearDownTest() {
-	if s.eventListener != nil {
-		s.eventListener.Stop()
-	}
+	s.gater = gater
 }
 
 // NewOperatorTestSuite 创建新的测试套件实例
@@ -236,132 +143,105 @@ func newOperatorTestSuite() *OperatorTestSuite {
 	return s
 }
 
-// Test cases for EventListener
-func (s *OperatorTestSuite) TestEventListener() {
-	for _, tc := range []struct {
+// Test cases for gater
+
+// TestPeerPermissions tests the peer permission checking functionality
+func (s *OperatorTestSuite) TestPeerPermissions() {
+	// Create test peer IDs
+	testCases := []struct {
 		name          string
-		setupMock     func(*MockChainClient)
-		events        []interface{}
-		expectedError error
-		validateState func(*OperatorTestSuite)
+		setupState    func(s *OperatorTestSuite)
+		peerID        string
+		expectedAllow bool
+		validateState func(s *OperatorTestSuite)
 		goldenFile    string
 	}{
 		{
-			name: "successful_operator_registration",
-			setupMock: func(m *MockChainClient) {
-				m.weight = big.NewInt(100)
+			name: "active_operator_not_blocked",
+			setupState: func(s *OperatorTestSuite) {
+				operatorSerde := operatorStatesTableSerde{
+					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/active_operator.json", operatorSerde)
 			},
-			events: []interface{}{
-				&ethereum.OperatorRegisteredEvent{
-					Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-					SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
-					P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
-					BlockNumber: big.NewInt(2),
-				},
-			},
-			expectedError: nil,
-			validateState: func(s *OperatorTestSuite) {
-				// Verify operator was registered correctly
-				op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), "0x0000000000000000000000000000000000000001")
-				s.Require().NoError(err)
-				s.Equal("0x0000000000000000000000000000000000000002", op.SigningKey)
-				s.Equal("0x0000000000000000000000000000000000000003", op.P2pKey)
-			},
-			goldenFile: "successful_registration",
+			peerID:        "12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p",
+			expectedAllow: true,
 		},
 		{
-			name: "successful_operator_deregistration",
-			setupMock: func(m *MockChainClient) {
-				m.weight = big.NewInt(100)
+			name: "inactive_operator",
+			setupState: func(s *OperatorTestSuite) {
+				operatorSerde := operatorStatesTableSerde{
+					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/inactive_operator.json", operatorSerde)
 			},
-			events: []interface{}{
-				&ethereum.OperatorRegisteredEvent{
-					Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-					SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
-					P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
-					BlockNumber: big.NewInt(2),
-				},
-				&ethereum.OperatorDeregisteredEvent{
-					Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-					BlockNumber: big.NewInt(14),
-				},
-			},
-			expectedError: nil,
-			validateState: func(s *OperatorTestSuite) {
-				// Verify operator was deregistered correctly
-				op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), "0x0000000000000000000000000000000000000001")
-				s.Require().NoError(err)
-				s.NotEqual(uint64(4294967295), op.ExitEpoch)
-			},
-			goldenFile: "successful_deregistration",
+			peerID:        "12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p",
+			expectedAllow: false,
 		},
 		{
-			name: "registration_subscription_error",
-			setupMock: func(m *MockChainClient) {
-				m.watchRegError = fmt.Errorf("registration subscription failed")
+			name: "blocked_operator",
+			setupState: func(s *OperatorTestSuite) {
+				operatorSerde := operatorStatesTableSerde{
+					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/blocked_operator.json", operatorSerde)
+
+				blacklistSerde := blacklistStatesTableSerde{
+					blacklistQuerier: s.blacklistRepo.(*blacklist.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/blacklist.json", blacklistSerde)
 			},
-			events:        []interface{}{},
-			expectedError: fmt.Errorf("failed to subscribe after retries: registration subscription failed"),
+			peerID:        "12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p",
+			expectedAllow: false,
 		},
 		{
-			name: "deregistration_subscription_error",
-			setupMock: func(m *MockChainClient) {
-				m.watchDeregError = fmt.Errorf("deregistration subscription failed")
+			name: "blocked_operator_expires",
+			setupState: func(s *OperatorTestSuite) {
+				operatorSerde := operatorStatesTableSerde{
+					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/blocked_operator.json", operatorSerde)
+
+				blacklistSerde := blacklistStatesTableSerde{
+					blacklistQuerier: s.blacklistRepo.(*blacklist.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/blacklist_expires.json", blacklistSerde)
 			},
-			events:        []interface{}{},
-			expectedError: fmt.Errorf("failed to subscribe after retries: deregistration subscription failed"),
+			peerID:        "12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p",
+			expectedAllow: true,
 		},
 		{
-			name: "duplicate_registration",
-			setupMock: func(m *MockChainClient) {
-				m.weight = big.NewInt(100)
-			},
-			events: []interface{}{
-				&ethereum.OperatorRegisteredEvent{
-					Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-					SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
-					P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
-					BlockNumber: big.NewInt(2),
-				},
-				&ethereum.OperatorRegisteredEvent{
-					Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-					SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
-					P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
-					BlockNumber: big.NewInt(3),
-				},
-			},
-			validateState: func(s *OperatorTestSuite) {
-				op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), "0x0000000000000000000000000000000000000001")
-				s.Require().NoError(err)
-				s.Equal(uint64(3), op.RegisteredAtBlockNumber)
-			},
-			goldenFile: "duplicate_registration",
+			name:          "non_existent_operator",
+			setupState:    func(s *OperatorTestSuite) {},
+			peerID:        "12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p",
+			expectedAllow: false,
 		},
-	} {
+	}
+
+	for _, tc := range testCases {
 		s.Run(tc.name, func() {
 			s.SetupTest()
-			if tc.setupMock != nil {
-				tc.setupMock(s.mockClient)
-			}
 
-			// Send events
-			for _, evt := range tc.events {
-				switch e := evt.(type) {
-				case *ethereum.OperatorRegisteredEvent:
-					s.mockClient.regChan <- e
-				case *ethereum.OperatorDeregisteredEvent:
-					s.mockClient.deregChan <- e
-				}
-				// Give some time for event processing
-				time.Sleep(3 * time.Second)
-			}
+			// Setup test state
+			tc.setupState(s)
 
-			// Validate state if needed
+			// Create peer ID
+			peerID, err := peer.Decode(tc.peerID)
+			s.Require().NoError(err)
+
+			// Test all gating methods
+			s.Equal(tc.expectedAllow, s.gater.InterceptPeerDial(peerID))
+			s.Equal(tc.expectedAllow, s.gater.InterceptAddrDial(peerID, nil))
+			s.Equal(tc.expectedAllow, s.gater.InterceptSecured(network.DirInbound, peerID, nil))
+
+			// InterceptUpgraded always returns true
+			allow, _ := s.gater.InterceptUpgraded(nil)
+			s.True(allow)
+
 			if tc.validateState != nil {
 				tc.validateState(s)
 			}
 
-			// Compare with golden file if specified
 			if tc.goldenFile != "" {
 				operatorSerde := operatorStatesTableSerde{
 					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
@@ -372,217 +252,174 @@ func (s *OperatorTestSuite) TestEventListener() {
 	}
 }
 
-func (s *OperatorTestSuite) TestEventListenerContextCancellation() {
-	// Create context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-
-	listener, err := NewEventListener(ctx, &Config{
-		MainnetClient: s.mockClient,
-		OperatorRepo:  s.operatorRepo,
-	})
-	s.Require().NoError(err)
-
-	// Cancel context
-	cancel()
-
-	// Give some time for shutdown
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify cleanup
-	listener.Stop()
-}
-
-func (s *OperatorTestSuite) TestConcurrentRegistration() {
-	const numOperators = 5
-	var wg sync.WaitGroup
-
-	for i := 0; i < numOperators; i++ {
-		wg.Add(1)
-		go func(index int) {
-			defer wg.Done()
-
-			// 创建唯一的地址
-			addr := fmt.Sprintf("0x%040x", index+1)
-			event := &ethereum.OperatorRegisteredEvent{
-				Operator:    common.HexToAddress(addr),
-				SigningKey:  common.HexToAddress(fmt.Sprintf("0x%040x", index+1000)),
-				P2PKey:      common.HexToAddress(fmt.Sprintf("0x%040x", index+2000)),
-				BlockNumber: big.NewInt(int64(index + 1)),
-			}
-
-			// 发送事件
-			s.mockClient.regChan <- event
-		}(i)
-	}
-
-	// 等待所有注册完成
-	wg.Wait()
-	time.Sleep(3 * time.Second)
-
-	for i := 0; i < numOperators; i++ {
-		addr := fmt.Sprintf("0x%040x", i+1)
-		op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), addr)
-		s.Require().NoError(err)
-		s.NotNil(op)
-	}
-}
-
-func (s *OperatorTestSuite) TestEpochBoundaries() {
+// TestAddressValidation tests the multiaddr validation functionality
+func (s *OperatorTestSuite) TestAddressValidation() {
 	testCases := []struct {
-		name          string
-		blockNumber   uint64
-		expectedEpoch uint32
+		name        string
+		addr        string
+		expectValid bool
 	}{
 		{
-			name:          "min_block_number",
-			blockNumber:   0,
-			expectedEpoch: 1,
+			name:        "valid_ipv4_tcp",
+			addr:        "/ip4/127.0.0.1/tcp/1234",
+			expectValid: true,
 		},
 		{
-			name:          "epoch_transition",
-			blockNumber:   27,
-			expectedEpoch: 3,
+			name:        "valid_ipv4_tcp_min_port",
+			addr:        "/ip4/127.0.0.1/tcp/1",
+			expectValid: true,
+		},
+		{
+			name:        "valid_ipv4_tcp_max_port",
+			addr:        "/ip4/127.0.0.1/tcp/65535",
+			expectValid: true,
+		},
+		{
+			name:        "valid_ipv6_tcp",
+			addr:        "/ip6/::1/tcp/1234",
+			expectValid: false,
+		},
+		{
+			name:        "invalid_ip",
+			addr:        "/ip4/256.256.256.256/tcp/1234",
+			expectValid: false,
+		},
+		{
+			name:        "invalid_port_zero",
+			addr:        "/ip4/127.0.0.1/tcp/0",
+			expectValid: false,
+		},
+		{
+			name:        "invalid_port_negative",
+			addr:        "/ip4/127.0.0.1/tcp/-1",
+			expectValid: false,
+		},
+		{
+			name:        "invalid_port_too_large",
+			addr:        "/ip4/127.0.0.1/tcp/65536",
+			expectValid: false,
+		},
+		{
+			name:        "missing_tcp",
+			addr:        "/ip4/127.0.0.1",
+			expectValid: false,
+		},
+		{
+			name:        "missing_ip",
+			addr:        "/tcp/1234",
+			expectValid: false,
+		},
+		{
+			name:        "additional_protocol",
+			addr:        "/ip4/127.0.0.1/udp/1234/tcp/1234",
+			expectValid: true,
 		},
 	}
 
 	for _, tc := range testCases {
 		s.Run(tc.name, func() {
-			event := &ethereum.OperatorRegisteredEvent{
-				Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-				SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
-				P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
-				BlockNumber: new(big.Int).SetUint64(tc.blockNumber),
+			addr, err := ma.NewMultiaddr(tc.addr)
+			if err != nil {
+				s.False(tc.expectValid)
+				return
 			}
 
-			s.mockClient.regChan <- event
-			time.Sleep(1 * time.Second)
-
-			// 验证 epoch
-			op, err := s.operatorRepo.GetOperatorByAddress(context.Background(),
-				"0x0000000000000000000000000000000000000001")
-			s.Require().NoError(err)
-			s.Equal(tc.expectedEpoch, op.ActiveEpoch)
+			s.Equal(tc.expectValid, s.gater.InterceptAccept(&mockConnMultiaddrs{
+				remoteAddr: addr,
+			}))
 		})
 	}
 }
 
-// 2. 测试错误恢复和重试机制
-func (s *OperatorTestSuite) TestErrorRecoveryAndRetry() {
-	// 设置临时错误
-	s.mockClient.getWeightError = fmt.Errorf("temporary error")
-
-	// 创建带重试的context
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	event := &ethereum.OperatorRegisteredEvent{
-		Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-		SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
-		P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
-		BlockNumber: big.NewInt(1),
-	}
-
-	// 发送事件
-	s.mockClient.regChan <- event
-
-	// 等待一段时间后移除错误
-	time.Sleep(2 * time.Second)
-	s.mockClient.getWeightError = nil
-
-	// 验证最终状态
-	time.Sleep(1 * time.Second)
-	op, err := s.operatorRepo.GetOperatorByAddress(ctx,
-		"0x0000000000000000000000000000000000000001")
-	s.NoError(err)
-	s.NotNil(op)
+// mockConnMultiaddrs implements network.ConnMultiaddrs for testing
+type mockConnMultiaddrs struct {
+	remoteAddr ma.Multiaddr
 }
 
-// 3. 测试事件处理顺序
-func (s *OperatorTestSuite) TestEventProcessingOrder() {
-	events := []struct {
-		eventType string
-		event     interface{}
-		delay     time.Duration
-	}{
-		{
-			eventType: "register",
-			event: &ethereum.OperatorRegisteredEvent{
-				Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-				SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
-				P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
-				BlockNumber: big.NewInt(1),
-			},
-			delay: 100 * time.Millisecond,
-		},
-		{
-			eventType: "deregister",
-			event: &ethereum.OperatorDeregisteredEvent{
-				Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-				BlockNumber: big.NewInt(2),
-			},
-			delay: 50 * time.Millisecond,
-		},
-		{
-			eventType: "register",
-			event: &ethereum.OperatorRegisteredEvent{
-				Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-				SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
-				P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
-				BlockNumber: big.NewInt(3),
-			},
-			delay: 0,
-		},
-	}
-
-	// 按顺序发送事件
-	for _, evt := range events {
-		time.Sleep(evt.delay)
-		switch e := evt.event.(type) {
-		case *ethereum.OperatorRegisteredEvent:
-			s.mockClient.regChan <- e
-		case *ethereum.OperatorDeregisteredEvent:
-			s.mockClient.deregChan <- e
-		}
-	}
-
-	// 等待处理完成
-	time.Sleep(2 * time.Second)
-
-	// 验证最终状态
-	op, err := s.operatorRepo.GetOperatorByAddress(context.Background(),
-		"0x0000000000000000000000000000000000000001")
-	s.NoError(err)
-	s.Equal(uint64(3), op.RegisteredAtBlockNumber)
+func (m *mockConnMultiaddrs) RemoteMultiaddr() ma.Multiaddr {
+	return m.remoteAddr
 }
 
-// 4. 测试资源泄漏
-func (s *OperatorTestSuite) TestResourceLeakage() {
-	// 创建多个监听器
-	listeners := make([]*EventListener, 0)
-	for i := 0; i < 10; i++ {
-		listener, err := NewEventListener(context.Background(), &Config{
-			MainnetClient: s.mockClient,
-			OperatorRepo:  s.operatorRepo,
-		})
-		s.NoError(err)
-		listeners = append(listeners, listener)
+func (m *mockConnMultiaddrs) LocalMultiaddr() ma.Multiaddr {
+	// For testing purposes, we return the same address
+	return m.remoteAddr
+}
+
+// TestConcurrentConnections tests concurrent connection attempts
+func (s *OperatorTestSuite) TestConcurrentConnections() {
+	const numConnections = 10
+	var wg sync.WaitGroup
+
+	// Load active operator state
+	operatorSerde := operatorStatesTableSerde{
+		operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+	}
+	s.LoadState("TestOperatorSuite/TestConcurrentConnections/active_operator.json", operatorSerde)
+
+	peerID, err := peer.Decode("12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p")
+	s.Require().NoError(err)
+
+	for i := 0; i < numConnections; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.True(s.gater.InterceptPeerDial(peerID))
+		}()
 	}
 
-	// 发送一些事件
-	event := &ethereum.OperatorRegisteredEvent{
-		Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
-		SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
-		P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
-		BlockNumber: big.NewInt(1),
-	}
-	s.mockClient.regChan <- event
+	wg.Wait()
+}
 
-	// 正确关闭所有监听器
-	for _, l := range listeners {
-		l.Stop()
+// TestInvalidPeerID tests handling of invalid peer IDs
+func (s *OperatorTestSuite) TestInvalidPeerID() {
+	// Test with invalid peer ID format
+	invalidPeerID := "invalid-peer-id"
+	peerID, err := peer.Decode(invalidPeerID)
+	s.Error(err)
+
+	// Even with error in peer.Decode, test the gater methods
+	s.False(s.gater.InterceptPeerDial(peerID))
+	s.False(s.gater.InterceptAddrDial(peerID, nil))
+	s.False(s.gater.InterceptSecured(network.DirInbound, peerID, nil))
+}
+
+// TestNilMultiaddr tests handling of nil multiaddr
+func (s *OperatorTestSuite) TestNilMultiaddr() {
+	s.False(s.gater.InterceptAccept(&mockConnMultiaddrs{
+		remoteAddr: nil,
+	}))
+}
+
+// TestRaceConditions tests for race conditions in concurrent access
+func (s *OperatorTestSuite) TestRaceConditions() {
+	const numGoroutines = 100
+	var wg sync.WaitGroup
+
+	// Setup test data
+	operatorSerde := operatorStatesTableSerde{
+		operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+	}
+	s.LoadState("TestOperatorSuite/TestPeerPermissions/active_operator.json", operatorSerde)
+
+	peerID, err := peer.Decode("12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p")
+	s.Require().NoError(err)
+
+	// Test concurrent access to all gater methods
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			s.True(s.gater.InterceptPeerDial(peerID))
+		}()
+		go func() {
+			defer wg.Done()
+			s.True(s.gater.InterceptAddrDial(peerID, nil))
+		}()
+		go func() {
+			defer wg.Done()
+			s.True(s.gater.InterceptSecured(network.DirInbound, peerID, nil))
+		}()
 	}
 
-	// 验证资源是否正确释放
-	time.Sleep(1 * time.Second)
-	s.True(s.mockClient.closed)
+	wg.Wait()
 }

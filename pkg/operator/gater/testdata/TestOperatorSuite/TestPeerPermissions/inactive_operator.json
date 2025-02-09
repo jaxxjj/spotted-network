@@ -1,0 +1,14 @@
+[
+  {
+    "address": "0x0000000000000000000000000000000000000001",
+    "signing_key": "0x0000000000000000000000000000000000000002",
+    "p2p_key": "0x310c8425b620980dcfcf756e46572bb6ac80eb07",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 2,
+    "is_active": false,
+    "weight": 1,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  }
+] 

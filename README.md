@@ -141,14 +141,17 @@ curl -X GET "http://localhost:8001/api/v1/task/YOUR_TASK_ID/final"
 Generated P2P key for operator1:
   Private key (base64): CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys=
   Public key (base64): CAESIL3bARtK0oHIyUx/KlsEWEcrCWmfu2eHoC8b0obwZ0Mr
-  Address: 0x310c8425b620980dcfcf756e46572bb6ac80eb07
+  P2PKey: 0x310c8425b620980dcfcf756e46572bb6ac80eb07
+  PeerId: 12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p
 
 Generated P2P key for operator2:
   Private key (base64): CAESQHGMebvS8Wf6IZZh40yacCPzXhRlKqJCGfPySZyCFid6EdbnbwgelZkcZbllzWAZFfrdV/dcf2poB1OySA2mV0I=
   Public key (base64): CAESIBHW528IHpWZHGW5Zc1gGRX63Vf3XH9qaAdTskgNpldC
-  Address: 0x01078ffbf1de436d6f429f5ce6be8fd9d6e16165
+  P2PKey: 0x01078ffbf1de436d6f429f5ce6be8fd9d6e16165
+  PeerId: 12D3KooWB21ALruLNKbH5vLjDjiG1mM9XVnCJMGdsdo2LKvoqneD
 
 Generated P2P key for operator3:
   Private key (base64): CAESQM5ltPHuttHq7/HHHHymN5A/XSDKt5EPOwGWor2H3k0PXckF23DDwxzmdOhEtOy5f8szIAYWqSFH8cIlICumemo=
   Public key (base64): CAESIF3JBdtww8Mc5nToRLTsuX/LMyAGFqkhR/HCJSArpnpq
-  Address: 0x67aa23adde2459a1620be2ea28982310597521b0
+  P2PKey: 0x67aa23adde2459a1620be2ea28982310597521b0
+  PeerId: 12D3KooWG8TsS8YsbnfArhnQznH6Rmumt6fwE9J66ZN8tF7n9GVf

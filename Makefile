@@ -198,6 +198,30 @@ test-event-cov:
 		go test -cover ./pkg/operator/event/... \
 	)
 
+test-gater:
+	@( \
+		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
+		export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
+		export POSTGRES_HOST=$(POSTGRES_HOST) && \
+		export POSTGRES_PORT=$(POSTGRES_PORT) && \
+		export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
+		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
+		go test -v ./pkg/operator/gater/... \
+	)
+
+test-gater-cov:
+	@( \
+		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
+		export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
+		export POSTGRES_HOST=$(POSTGRES_HOST) && \
+		export POSTGRES_PORT=$(POSTGRES_PORT) && \
+		export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
+		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
+		go test -cover ./pkg/operator/gater/... \
+	)
+
 # Generate contract bindings
 generate-bindings: clean-bindings
 	@echo "Creating bindings directory..."
