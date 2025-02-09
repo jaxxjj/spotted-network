@@ -1,17 +1,17 @@
 -- name: GetOperatorByAddress :one
--- -- cache: 168h
+-- -- cache: 30s
 -- -- timeout: 500ms
 SELECT * FROM operators
 WHERE address = $1;
 
 -- name: GetOperatorBySigningKey :one
--- -- cache: 168h
+-- -- cache: 30s
 -- -- timeout: 500ms
 SELECT * FROM operators
 WHERE signing_key = $1;
 
 -- name: GetOperatorByP2PKey :one
--- -- cache: 168h
+-- -- cache: 30s
 -- -- timeout: 500ms
 SELECT * FROM operators
 WHERE LOWER(p2p_key) = LOWER($1);

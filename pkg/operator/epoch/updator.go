@@ -247,7 +247,7 @@ func (e *EpochUpdator) UpdateEpochState(ctx context.Context, currentEpoch uint32
 		TotalWeight:     totalWeight,
 		ThresholdWeight: thresholdWeight,
 	}
-
+	log.Printf("[Epoch] Epoch state: %+v", e.currentEpochState)
 	return nil
 }
 

@@ -21,6 +21,7 @@ type BlacklistRepo interface {
 type OperatorRepo interface {
 	IsActiveOperator(ctx context.Context, lower string) (*bool, error)
 	GetOperatorByP2PKey(ctx context.Context, lower string) (*operators.Operators, error)
+	Dump(ctx context.Context, beforeDump ...operators.BeforeDump) ([]byte, error)
 }
 
 type Config struct {
@@ -61,14 +62,7 @@ func (g *ConnectionGater) InterceptAddrDial(peerID peer.ID, addr ma.Multiaddr) b
 
 // InterceptAccept tests whether an incoming connection is allowed
 func (g *ConnectionGater) InterceptAccept(addrs network.ConnMultiaddrs) bool {
-	remoteMaddr := addrs.RemoteMultiaddr()
-
-	// extract peer ID from multiaddr
-	addrInfo, err := peer.AddrInfoFromP2pAddr(remoteMaddr)
-	if err != nil {
-		return false
-	}
-	return g.checkPeerPermission(addrInfo.ID)
+	return validateBasicAddr(addrs.RemoteMultiaddr())
 }
 
 // InterceptSecured tests whether a secured connection is allowed

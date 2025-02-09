@@ -45,6 +45,10 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 	if task == nil {
 		return fmt.Errorf("task is nil")
 	}
+	if tp.alreadyProcessed(task.TaskID, tp.signer.GetSigningAddress().Hex()) {
+		log.Printf("[Task] Task %s already processed by signing key %s", task.TaskID, tp.signer.GetSigningAddress().Hex())
+		return nil
+	}
 	log.Printf("[Task] Starting to process task %s", task.TaskID)
 
 	blockNumber := task.BlockNumber
@@ -145,7 +149,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 		return fmt.Errorf("failed to broadcast response: %w", err)
 	}
 	log.Printf("[Task] Broadcasted response")
-
+	tp.checkConsensus(ctx, response)
 	return nil
 }
 

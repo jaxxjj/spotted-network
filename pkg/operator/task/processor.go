@@ -77,8 +77,9 @@ type TaskProcessor struct {
 
 	taskResponseTrack TaskResponseTrack
 	subscription      *pubsub.Subscription
-	cancel            context.CancelFunc
-	wg                sync.WaitGroup
+
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // NewTaskProcessor creates a new task processor

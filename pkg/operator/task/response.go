@@ -106,6 +106,7 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 		return tp.incrementPeerViolation(ctx, peerID, fmt.Errorf("failed to convert peer ID to P2P key: %w", err))
 	}
 	operator, err := tp.operatorRepo.GetOperatorByP2PKey(ctx, p2pKey)
+	log.Printf("[Response] Operator: %+v", operator)
 	if err != nil {
 		return tp.incrementPeerViolation(ctx, peerID, fmt.Errorf("failed to get operator state: %w", err))
 	}
@@ -116,6 +117,7 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 	signingKey := operator.SigningKey
 	// Check if already processed
 	if tp.alreadyProcessed(pbMsg.TaskId, signingKey) {
+		log.Printf("[Response] Task %s already processed by signing key %s", pbMsg.TaskId, signingKey)
 		return nil
 	}
 
@@ -138,6 +140,11 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 	// Store response and weight
 	tp.storeResponseAndWeight(response, signingKey, weight)
 
+	// Check consensus
+	if err := tp.checkConsensus(ctx, response); err != nil {
+		log.Printf("[Response] Failed to check consensus for task %s: %v", response.taskID, err)
+	}
+
 	// Check if we need to process this task
 	tp.taskResponseTrack.mu.RLock()
 	_, processed := tp.taskResponseTrack.responses[response.taskID][tp.signer.GetSigningAddress().Hex()]
@@ -157,11 +164,6 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 		}
 	}
 
-	// Check consensus
-	if err := tp.checkConsensus(ctx, response); err != nil {
-		log.Printf("[Response] Failed to check consensus for task %s: %v", response.taskID, err)
-	}
-
 	return nil
 }
 
@@ -169,9 +171,13 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 func (tp *TaskProcessor) storeResponseAndWeight(response taskResponse, signingKey string, weight *big.Int) {
 	// Store in local map
 	tp.taskResponseTrack.mu.Lock()
-	tp.taskResponseTrack.responses[response.taskID] = make(map[string]taskResponse)
+	// Initialize maps if they don't exist
+	if _, exists := tp.taskResponseTrack.responses[response.taskID]; !exists {
+		tp.taskResponseTrack.responses[response.taskID] = make(map[string]taskResponse)
+		tp.taskResponseTrack.weights[response.taskID] = make(map[string]*big.Int)
+	}
+	// Add new response and weight
 	tp.taskResponseTrack.responses[response.taskID][signingKey] = response
-	tp.taskResponseTrack.weights[response.taskID] = make(map[string]*big.Int)
 	tp.taskResponseTrack.weights[response.taskID][signingKey] = weight
 	tp.taskResponseTrack.mu.Unlock()
 }
@@ -199,12 +205,7 @@ func (tp *TaskProcessor) alreadyProcessed(taskId string, signingKey string) bool
 	_, processed := tp.taskResponseTrack.responses[taskId][signingKey]
 	tp.taskResponseTrack.mu.RUnlock()
 
-	if processed {
-		log.Printf("[Response] Task %s from operator %s already processed in memory", taskId, signingKey)
-		return true
-	}
-
-	return false
+	return processed
 }
 
 // incrementPeerViolation adds a violation record for the peer and returns the original error

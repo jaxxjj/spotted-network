@@ -194,9 +194,9 @@ services:
       platforms:
         - linux/arm64
     ports:
-      - "10001:10000"  # P2P port
-      - "8001:8000"    # HTTP port
-      - "4015:4014"    # Metrics port
+      - "10001:10001"  # P2P port
+      - "8001:8001"    # HTTP port
+      - "4015:4015"    # Metrics port
     environment:
       - REGISTRY_PEER_ID=${REGISTRY_PEER_ID}
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}
@@ -271,9 +271,9 @@ services:
       platforms:
         - linux/arm64
     ports:
-      - "10002:10000"  # P2P port
-      - "8002:8000"    # HTTP port
-      - "4016:4014"    # Metrics port
+      - "10002:10002"  # P2P port
+      - "8002:8002"    # HTTP port
+      - "4017:4017"    # Metrics port
     environment:
       - REGISTRY_PEER_ID=${REGISTRY_PEER_ID}
       - REGISTRY_ADDRESS=${REGISTRY_ADDRESS}

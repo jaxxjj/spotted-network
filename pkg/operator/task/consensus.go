@@ -45,7 +45,7 @@ func (tp *TaskProcessor) checkConsensus(ctx context.Context, response taskRespon
 
 	// Check threshold
 	threshold := tp.epochStateQuerier.GetThresholdWeight()
-	if totalWeight.Cmp(threshold) >= 0 {
+	if totalWeight.Cmp(threshold) < 0 {
 		log.Printf("[Consensus] Threshold not reached - total weight: %s, threshold: %s",
 			totalWeight.String(), threshold.String())
 		return nil

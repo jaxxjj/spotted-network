@@ -49,8 +49,6 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 
 				log.Printf("[INFO] [timeout] Processing pending task: task_id=%s retry_count=%d", task.TaskID, task.RetryCount)
 
-				// Clean up task
-				tp.cleanupTask(task.TaskID)
 				newRetryCount, err := tp.taskRepo.IncrementRetryCount(ctx, task.TaskID)
 				if err != nil {
 					log.Printf("[ERROR] [timeout] Failed to increment retry count: task_id=%s error=%v", task.TaskID, err)

@@ -122,7 +122,6 @@ func (n *Node) maintainBootstrapConnections(bootstrapPeers []peer.AddrInfo) {
 
 				log.Printf("Attempting to reconnect to bootstrap peer: %s", peer.ID)
 
-				// 重试连接
 				for retry := 0; retry < maxRetries; retry++ {
 					err := n.connectWithTimeout(peer)
 					if err == nil {

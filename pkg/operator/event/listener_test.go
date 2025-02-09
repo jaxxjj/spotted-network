@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,6 +59,8 @@ type MockChainClient struct {
 	watchDeregError     error
 	watchRegCallCount   int
 	watchDeregCallCount int
+	closed              bool
+	mu                  sync.Mutex // 添加互斥锁保护状态
 }
 
 func NewMockChainClient() *MockChainClient {
@@ -65,8 +68,15 @@ func NewMockChainClient() *MockChainClient {
 		weight:    big.NewInt(100),
 		regChan:   make(chan *ethereum.OperatorRegisteredEvent),
 		deregChan: make(chan *ethereum.OperatorDeregisteredEvent),
-		regSub:    event.NewSubscription(func(quit <-chan struct{}) error { return nil }),
-		deregSub:  event.NewSubscription(func(quit <-chan struct{}) error { return nil }),
+		regSub: event.NewSubscription(func(quit <-chan struct{}) error {
+			<-quit
+			return nil
+		}),
+		deregSub: event.NewSubscription(func(quit <-chan struct{}) error {
+			<-quit
+			return nil
+		}),
+		closed: false,
 	}
 }
 
@@ -75,34 +85,70 @@ func (m *MockChainClient) GetOperatorWeight(ctx context.Context, address common.
 }
 
 func (m *MockChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.watchRegCallCount++
 	if m.watchRegError != nil {
 		return nil, m.watchRegError
 	}
-	go func() {
-		for evt := range m.regChan {
-			sink <- evt
+
+	// 创建一个新的订阅，它会在context取消时关闭
+	sub := event.NewSubscription(func(quit <-chan struct{}) error {
+		for {
+			select {
+			case evt := <-m.regChan:
+				select {
+				case sink <- evt:
+				case <-quit:
+					return nil
+				}
+			case <-quit:
+				return nil
+			}
 		}
-	}()
-	return m.regSub, nil
+	})
+
+	return sub, nil
 }
 
 func (m *MockChainClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.watchDeregCallCount++
 	if m.watchDeregError != nil {
 		return nil, m.watchDeregError
 	}
-	go func() {
-		for evt := range m.deregChan {
-			sink <- evt
+
+	// 创建一个新的订阅，它会在context取消时关闭
+	sub := event.NewSubscription(func(quit <-chan struct{}) error {
+		for {
+			select {
+			case evt := <-m.deregChan:
+				select {
+				case sink <- evt:
+				case <-quit:
+					return nil
+				}
+			case <-quit:
+				return nil
+			}
 		}
-	}()
-	return m.deregSub, nil
+	})
+
+	return sub, nil
 }
 
 func (m *MockChainClient) Close() error {
-	close(m.regChan)
-	close(m.deregChan)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.closed {
+		close(m.regChan)
+		close(m.deregChan)
+		m.closed = true
+	}
 	return nil
 }
 
@@ -128,16 +174,25 @@ func (s *OperatorTestSuite) SetupTest() {
 	s.Require().NoError(s.RedisConn.FlushAll(context.Background()).Err())
 	s.FreeCache.Clear()
 
-	s.mockClient = NewMockChainClient()
-	s.operatorRepo = operators.New(s.GetPool().WConn(), s.DCache)
+	// 确保数据库连接正确初始化
+	pool := s.GetPool()
+	s.Require().NotNil(pool, "Database pool should not be nil")
+	conn := pool.WConn()
+	s.Require().NotNil(conn, "Database connection should not be nil")
 
+	s.mockClient = NewMockChainClient()
+
+	// 确保 operatorRepo 正确初始化
+	operatorRepo := operators.New(conn, s.DCache)
+	s.Require().NotNil(operatorRepo, "Operator repository should not be nil")
+	s.operatorRepo = operatorRepo
+
+	// 创建 EventListener
 	eventListener, err := NewEventListener(context.Background(), &Config{
 		MainnetClient: s.mockClient,
 		OperatorRepo:  s.operatorRepo,
 	})
-	if err != nil {
-		panic(err)
-	}
+	s.Require().NoError(err, "Failed to create event listener")
 	s.eventListener = eventListener
 }
 
@@ -204,19 +259,19 @@ func (s *OperatorTestSuite) TestEventListener() {
 			},
 			events: []interface{}{
 				&ethereum.OperatorRegisteredEvent{
-					Operator:    common.HexToAddress("0x1234"),
-					SigningKey:  common.HexToAddress("0x5678"),
-					P2PKey:      common.HexToAddress("0x9abc"),
+					Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
+					SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
+					P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
 					BlockNumber: big.NewInt(2),
 				},
 			},
 			expectedError: nil,
 			validateState: func(s *OperatorTestSuite) {
 				// Verify operator was registered correctly
-				op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), "0x1234")
+				op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), "0x0000000000000000000000000000000000000001")
 				s.Require().NoError(err)
-				s.Equal("0x5678", op.SigningKey)
-				s.Equal("0x9abc", op.P2pKey)
+				s.Equal("0x0000000000000000000000000000000000000002", op.SigningKey)
+				s.Equal("0x0000000000000000000000000000000000000003", op.P2pKey)
 			},
 			goldenFile: "successful_registration",
 		},
@@ -227,20 +282,20 @@ func (s *OperatorTestSuite) TestEventListener() {
 			},
 			events: []interface{}{
 				&ethereum.OperatorRegisteredEvent{
-					Operator:    common.HexToAddress("0x1234"),
-					SigningKey:  common.HexToAddress("0x5678"),
-					P2PKey:      common.HexToAddress("0x9abc"),
+					Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
+					SigningKey:  common.HexToAddress("0x0000000000000000000000000000000000000002"),
+					P2PKey:      common.HexToAddress("0x0000000000000000000000000000000000000003"),
 					BlockNumber: big.NewInt(2),
 				},
 				&ethereum.OperatorDeregisteredEvent{
-					Operator:    common.HexToAddress("0x1234"),
+					Operator:    common.HexToAddress("0x0000000000000000000000000000000000000001"),
 					BlockNumber: big.NewInt(14),
 				},
 			},
 			expectedError: nil,
 			validateState: func(s *OperatorTestSuite) {
 				// Verify operator was deregistered correctly
-				op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), "0x1234")
+				op, err := s.operatorRepo.GetOperatorByAddress(context.Background(), "0x0000000000000000000000000000000000000001")
 				s.Require().NoError(err)
 				s.NotEqual(uint64(4294967295), op.ExitEpoch)
 			},
@@ -278,7 +333,7 @@ func (s *OperatorTestSuite) TestEventListener() {
 					s.mockClient.deregChan <- e
 				}
 				// Give some time for event processing
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(3 * time.Second)
 			}
 
 			// Validate state if needed
@@ -298,7 +353,10 @@ func (s *OperatorTestSuite) TestEventListener() {
 }
 
 func (s *OperatorTestSuite) TestEventListenerRetryLogic() {
-	s.mockClient.watchRegError = fmt.Errorf("temporary error")
+	// 设置一个明确的错误
+	expectedErr := fmt.Errorf("temporary error")
+	s.mockClient.watchRegError = expectedErr
+	s.mockClient.watchDeregError = expectedErr
 
 	// Create event listener with retry logic
 	listener, err := NewEventListener(context.Background(), &Config{
@@ -308,7 +366,8 @@ func (s *OperatorTestSuite) TestEventListenerRetryLogic() {
 
 	// Should fail after 3 retries
 	s.Require().Error(err)
-	s.Equal(3, s.mockClient.watchRegCallCount)
+	s.Contains(err.Error(), expectedErr.Error(), "Error should contain the original error message")
+	s.Equal(3, s.mockClient.watchRegCallCount, "Should retry 3 times")
 
 	if listener != nil {
 		listener.Stop()

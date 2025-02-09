@@ -52,40 +52,14 @@ check-operator-status-operator3:
 
 # Check tasks table
 check-tasks-operator1:
-	@echo "Querying tasks from operator1 database..."
-	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM tasks;"
+	docker-compose exec postgres_operator1 psql -U spotted -d operator1 -c "SELECT * FROM tasks;"
 
 check-tasks-operator2:
-	@echo "Querying tasks from operator2 database..."
-	@PGPASSWORD=spotted psql -h localhost -p 5434 -U spotted -d operator2 -c "SELECT * FROM tasks;"
+	docker-compose exec postgres_operator2 psql -U spotted -d operator2 -c "SELECT * FROM tasks;"
 
 check-tasks-operator3:
-	@echo "Querying tasks from operator3 database..."
-	@PGPASSWORD=spotted psql -h localhost -p 5435 -U spotted -d operator3 -c "SELECT * FROM tasks;"
+	docker-compose exec postgres_operator3 psql -U spotted -d operator3 -c "SELECT * FROM tasks;"
 
-# Check task responses table
-check-task-responses-operator1:
-	@echo "Querying task responses from operator1 database..."
-	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM task_responses;"
-
-check-task-responses-operator2:
-	@echo "Querying task responses from operator2 database..."
-	@PGPASSWORD=spotted psql -h localhost -p 5434 -U spotted -d operator2 -c "SELECT * FROM task_responses;"
-
-check-task-responses-operator3:
-	@echo "Querying task responses from operator3 database..."
-	@PGPASSWORD=spotted psql -h localhost -p 5435 -U spotted -d operator3 -c "SELECT * FROM task_responses;"
-
-# Check consensus responses table
-check-consensus-operator1:
-	@echo "Querying consensus responses from operator1 database..."
-	@PGPASSWORD=spotted psql -h localhost -p 5433 -U spotted -d operator1 -c "SELECT * FROM consensus_responses;"
-
-check-consensus-operator2:
-	@echo "Querying consensus responses from operator2 database..."
-	@PGPASSWORD=spotted psql -h localhost -p 5434 -U spotted -d operator2 -c "SELECT * FROM consensus_responses;"
-
-check-consensus-operator3:
 	@echo "Querying consensus responses from operator3 database..."
 	@PGPASSWORD=spotted psql -h localhost -p 5435 -U spotted -d operator3 -c "SELECT * FROM consensus_responses;"
 
@@ -109,13 +83,13 @@ mine-15:
 
 # Get final task
 get-consensus-response-operator1:
-	@curl -X GET "http://localhost:8000/api/v1/consensus/tasks/31842f3b74110fefb9c8ed9f2836c10b696444e00f37e54853790dabd0f80ce1"
+	@curl -X GET "http://localhost:8000/api/v1/consensus/tasks/ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6"
 
 get-consensus-response-operator2:
-	@curl -X GET "http://localhost:8001/api/v1/consensus/tasks/31842f3b74110fefb9c8ed9f2836c10b696444e00f37e54853790dabd0f80ce1"
+	@curl -X GET "http://localhost:8001/api/v1/consensus/tasks/ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6"
 
 get-consensus-response-operator3:
-	@curl -X GET "http://localhost:8002/api/v1/consensus/tasks/31842f3b74110fefb9c8ed9f2836c10b696444e00f37e54853790dabd0f80ce1"
+	@curl -X GET "http://localhost:8002/api/v1/consensus/tasks/ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6"
 # Build both binaries
 build:
 	@echo "Building registry and operator..."
@@ -193,7 +167,7 @@ lint-fix:
 
 # 启动测试所需的基础设施
 test-infra-up:
-	docker-compose up -d postgres redis
+	docker-compose up -d postgres_test redis
 
 # 关闭测试基础设施
 test-infra-down:
@@ -201,10 +175,6 @@ test-infra-down:
 	docker-compose rm -f postgres redis
 
 test-event:
-	@docker compose up -d postgres_test redis
-	@echo "Waiting for services to be ready..."
-	@sleep 10
-
 	@( \
 		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
 		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
@@ -215,9 +185,6 @@ test-event:
 		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
 		go test -v ./pkg/operator/event/... \
 	)
-	@echo "Cleaning up test services..."
-	@docker compose stop postgres_test redis
-	@docker compose rm -f postgres_test redis
 
 # Generate contract bindings
 generate-bindings: clean-bindings
