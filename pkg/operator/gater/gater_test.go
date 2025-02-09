@@ -1,4 +1,4 @@
-package event
+package gater
 
 import (
 	"context"
@@ -22,6 +22,12 @@ import (
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx/testsuite"
 )
+
+type TimePointSet struct {
+	Now  time.Time
+	P12H string
+	P24H string
+}
 
 type operatorStatesTableSerde struct {
 	operatorStatesQuerier *operators.Queries
