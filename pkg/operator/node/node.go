@@ -248,7 +248,7 @@ func (n *Node) maintainRoutingTable() {
 			log.Printf("Current routing table has %d peers", len(peers))
 
 			if err := n.dht.RefreshRoutingTable(); err != nil {
-				log.Printf("Failed to refresh routing table: %v (peers: %d)", err, len(peers))
+				log.Printf("No new peers to refresh routing table: %v (peers: %d)", err, len(peers))
 				for _, p := range peers {
 					conns := n.host.Network().ConnsToPeer(p)
 					log.Printf("Peer %s connections: %d", p.String(), len(conns))

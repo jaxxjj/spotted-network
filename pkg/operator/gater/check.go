@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 
 	utils "github.com/galxe/spotted-network/pkg/common"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -35,32 +34,11 @@ func (g *ConnectionGater) isActiveOperator(peerID peer.ID) (bool, error) {
 		return false, fmt.Errorf("failed to convert peerID to p2p key: %w", err)
 	}
 
-	// Debug: Dump full operators table
-	dumpBytes, err := g.operatorRepo.Dump(context.Background())
-	if err != nil {
-		log.Printf("[Gater] Error dumping operators table: %v", err)
-	} else {
-		log.Printf("[Gater] Full operators table dump:\n%s", string(dumpBytes))
-	}
-
-	// Add debug logging for the exact p2p key we're looking up
-	log.Printf("[Gater] Looking up operator with p2p key (original): %s", p2pKey)
-	log.Printf("[Gater] Looking up operator with p2p key (lowercase): %s", strings.ToLower(p2pKey))
-
-	// Try direct lookup first
+	// Try direct lookup
 	operator, err := g.operatorRepo.GetOperatorByP2PKey(context.Background(), p2pKey)
 	if err != nil {
 		log.Printf("[Gater] Error getting operator by p2p key %s: %v", p2pKey, err)
 		return false, err
-	}
-
-	// If not found, try lowercase version
-	if operator == nil {
-		operator, err = g.operatorRepo.GetOperatorByP2PKey(context.Background(), strings.ToLower(p2pKey))
-		if err != nil {
-			log.Printf("[Gater] Error getting operator by lowercase p2p key %s: %v", strings.ToLower(p2pKey), err)
-			return false, err
-		}
 	}
 
 	if operator == nil {

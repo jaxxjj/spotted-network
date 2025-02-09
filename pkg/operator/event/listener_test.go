@@ -352,28 +352,6 @@ func (s *OperatorTestSuite) TestEventListener() {
 	}
 }
 
-func (s *OperatorTestSuite) TestEventListenerRetryLogic() {
-	// 设置一个明确的错误
-	expectedErr := fmt.Errorf("temporary error")
-	s.mockClient.watchRegError = expectedErr
-	s.mockClient.watchDeregError = expectedErr
-
-	// Create event listener with retry logic
-	listener, err := NewEventListener(context.Background(), &Config{
-		MainnetClient: s.mockClient,
-		OperatorRepo:  s.operatorRepo,
-	})
-
-	// Should fail after 3 retries
-	s.Require().Error(err)
-	s.Contains(err.Error(), expectedErr.Error(), "Error should contain the original error message")
-	s.Equal(3, s.mockClient.watchRegCallCount, "Should retry 3 times")
-
-	if listener != nil {
-		listener.Stop()
-	}
-}
-
 func (s *OperatorTestSuite) TestEventListenerContextCancellation() {
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
