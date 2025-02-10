@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"sync"
 	"testing"
 	"time"
 
@@ -201,6 +202,38 @@ func (s *OperatorTestSuite) TestEpochUpdatorInitialization() {
 	s.mainnetClient.AssertExpectations(s.T())
 }
 
+func (s *OperatorTestSuite) TestConcurrentEpochUpdates() {
+	const numUpdates = 5
+	var wg sync.WaitGroup
+
+	// Setup mock expectations
+	for i := 0; i < numUpdates; i++ {
+		s.mainnetClient.On("GetMinimumWeight", mock.Anything).Return(big.NewInt(1), nil).Once()
+		s.mainnetClient.On("GetTotalWeight", mock.Anything).Return(big.NewInt(100), nil).Once()
+		s.mainnetClient.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(67), nil).Once()
+	}
+
+	// Perform concurrent updates
+	for i := 0; i < numUpdates; i++ {
+		wg.Add(1)
+		go func(epoch uint32) {
+			defer wg.Done()
+			err := s.updator.UpdateEpochState(context.Background(), epoch)
+			s.NoError(err)
+		}(uint32(i + 1))
+	}
+
+	wg.Wait()
+
+	// Verify final state is valid
+	state := s.updator.GetEpochState()
+	s.NotNil(state.MinimumWeight)
+	s.NotNil(state.TotalWeight)
+	s.NotNil(state.ThresholdWeight)
+
+	s.mainnetClient.AssertExpectations(s.T())
+}
+
 func (s *OperatorTestSuite) TestEpochStateUpdate() {
 	// Setup mock expectations
 	s.mainnetClient.On("GetMinimumWeight", mock.Anything).Return(big.NewInt(1), nil).Once()
@@ -300,6 +333,59 @@ func (s *OperatorTestSuite) TestOperatorActiveStatus() {
 	}
 }
 
+func (s *OperatorTestSuite) TestOperatorActiveStatusEdgeCases() {
+	testCases := []struct {
+		name         string
+		currentBlock uint64
+		activeEpoch  uint32
+		exitEpoch    uint32
+		expectActive bool
+	}{
+		{
+			name:         "max_uint32_exit_epoch",
+			currentBlock: 100,
+			activeEpoch:  1,
+			exitEpoch:    4294967295,
+			expectActive: true,
+		},
+		{
+			name:         "same_active_and_exit_epoch",
+			currentBlock: 100,
+			activeEpoch:  5,
+			exitEpoch:    5,
+			expectActive: false,
+		},
+		{
+			name:         "zero_active_epoch",
+			currentBlock: 100,
+			activeEpoch:  0,
+			exitEpoch:    4294967295,
+			expectActive: true,
+		},
+		{
+			name:         "zero_current_block",
+			currentBlock: 0,
+			activeEpoch:  1,
+			exitEpoch:    4294967295,
+			expectActive: false,
+		},
+		{
+			name:         "max_uint64_current_block",
+			currentBlock: 18446744073709551615,
+			activeEpoch:  1,
+			exitEpoch:    2,
+			expectActive: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		s.Run(tc.name, func() {
+			active := isOperatorActive(tc.currentBlock, tc.activeEpoch, tc.exitEpoch)
+			s.Equal(tc.expectActive, active)
+		})
+	}
+}
+
 func (s *OperatorTestSuite) TestEpochStateGetters() {
 	// Setup initial state
 	s.mainnetClient.On("GetMinimumWeight", mock.Anything).Return(big.NewInt(1), nil).Once()
@@ -322,6 +408,43 @@ func (s *OperatorTestSuite) TestEpochStateGetters() {
 	s.mainnetClient.AssertExpectations(s.T())
 }
 
+func (s *OperatorTestSuite) TestEpochStateConsistency() {
+	// Setup initial state
+	s.mainnetClient.On("GetMinimumWeight", mock.Anything).Return(big.NewInt(1), nil).Once()
+	s.mainnetClient.On("GetTotalWeight", mock.Anything).Return(big.NewInt(100), nil).Once()
+	s.mainnetClient.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(67), nil).Once()
+
+	err := s.updator.UpdateEpochState(context.Background(), 42)
+	s.NoError(err)
+
+	// Test state consistency across all getters
+	state := s.updator.GetEpochState()
+	s.Equal(state.EpochNumber, s.updator.GetCurrentEpochNumber())
+	s.Equal(state.ThresholdWeight, s.updator.GetThresholdWeight())
+
+	s.mainnetClient.AssertExpectations(s.T())
+}
+
+func (s *OperatorTestSuite) TestEpochUpdatorStop() {
+	// Create a new updator with a mock client
+	updator, err := NewEpochUpdator(context.Background(), &Config{
+		OperatorRepo:  s.operatorRepo,
+		MainnetClient: s.mainnetClient,
+		TxManager:     s.GetPool(),
+	})
+	s.Require().NoError(err)
+	s.NotNil(updator)
+
+	// Setup mock expectations for Close
+	s.mainnetClient.On("Close").Return(nil).Once()
+
+	// Stop the updator
+	updator.Stop()
+
+	// Verify expectations
+	s.mainnetClient.AssertExpectations(s.T())
+}
+
 func (s *OperatorTestSuite) TestCompleteEpochUpdateFlow() {
 	// Setup test data
 	addr := common.HexToAddress("0x0000000000000000000000000000000000000001")
@@ -330,7 +453,7 @@ func (s *OperatorTestSuite) TestCompleteEpochUpdateFlow() {
 	}
 	s.LoadState("TestOperatorSuite/TestCompleteEpochUpdateFlow/active_operator.json", operatorSerde)
 	// Setup mock expectations for first epoch
-	s.mainnetClient.On("BlockNumber", mock.Anything).Return(uint64(100), nil).Once()
+	s.mainnetClient.On("BlockNumber", mock.Anything).Return(uint64(17), nil).Once()
 	s.mainnetClient.On("GetMinimumWeight", mock.Anything).Return(big.NewInt(1), nil).Once()
 	s.mainnetClient.On("GetTotalWeight", mock.Anything).Return(big.NewInt(100), nil).Once()
 	s.mainnetClient.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(67), nil).Once()
@@ -348,7 +471,7 @@ func (s *OperatorTestSuite) TestCompleteEpochUpdateFlow() {
 	s.Golden("after_first_update", operatorSerde)
 
 	// Setup mock expectations for second epoch with changes
-	s.mainnetClient.On("BlockNumber", mock.Anything).Return(uint64(200), nil).Once()
+	s.mainnetClient.On("BlockNumber", mock.Anything).Return(uint64(26), nil).Once()
 	s.mainnetClient.On("GetMinimumWeight", mock.Anything).Return(big.NewInt(2), nil).Once()
 	s.mainnetClient.On("GetTotalWeight", mock.Anything).Return(big.NewInt(200), nil).Once()
 	s.mainnetClient.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(134), nil).Once()
