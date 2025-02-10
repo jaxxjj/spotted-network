@@ -145,6 +145,35 @@ func newOperatorTestSuite() *OperatorTestSuite {
 
 // Test cases for gater
 
+func (s *OperatorTestSuite) TestGaterInitialization() {
+	// Test successful initialization
+	gater, err := NewConnectionGater(&Config{
+		BlacklistRepo: s.blacklistRepo,
+		OperatorRepo:  s.operatorRepo,
+	})
+	s.Require().NoError(err)
+	s.NotNil(gater)
+
+	// Test initialization with nil config
+	gater, err = NewConnectionGater(nil)
+	s.Error(err)
+	s.Nil(gater)
+
+	// Test initialization with missing BlacklistRepo
+	gater, err = NewConnectionGater(&Config{
+		OperatorRepo: s.operatorRepo,
+	})
+	s.Error(err)
+	s.Nil(gater)
+
+	// Test initialization with missing OperatorRepo
+	gater, err = NewConnectionGater(&Config{
+		BlacklistRepo: s.blacklistRepo,
+	})
+	s.Error(err)
+	s.Nil(gater)
+}
+
 // TestPeerPermissions tests the peer permission checking functionality
 func (s *OperatorTestSuite) TestPeerPermissions() {
 	// Create test peer IDs
@@ -168,7 +197,7 @@ func (s *OperatorTestSuite) TestPeerPermissions() {
 			expectedAllow: true,
 		},
 		{
-			name: "inactive_operator",
+			name: "inactive_operator_not_blocked",
 			setupState: func(s *OperatorTestSuite) {
 				operatorSerde := operatorStatesTableSerde{
 					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
@@ -179,7 +208,7 @@ func (s *OperatorTestSuite) TestPeerPermissions() {
 			expectedAllow: false,
 		},
 		{
-			name: "blocked_operator",
+			name: "active_operator_blocked",
 			setupState: func(s *OperatorTestSuite) {
 				operatorSerde := operatorStatesTableSerde{
 					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
@@ -195,7 +224,23 @@ func (s *OperatorTestSuite) TestPeerPermissions() {
 			expectedAllow: false,
 		},
 		{
-			name: "blocked_operator_expires",
+			name: "inactive_operator_blocked",
+			setupState: func(s *OperatorTestSuite) {
+				operatorSerde := operatorStatesTableSerde{
+					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/inactive_blocked_operator.json", operatorSerde)
+
+				blacklistSerde := blacklistStatesTableSerde{
+					blacklistQuerier: s.blacklistRepo.(*blacklist.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/blacklist.json", blacklistSerde)
+			},
+			peerID:        "12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p",
+			expectedAllow: false,
+		},
+		{
+			name: "active_operator_blocked_expires",
 			setupState: func(s *OperatorTestSuite) {
 				operatorSerde := operatorStatesTableSerde{
 					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
@@ -209,6 +254,22 @@ func (s *OperatorTestSuite) TestPeerPermissions() {
 			},
 			peerID:        "12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p",
 			expectedAllow: true,
+		},
+		{
+			name: "inactive_operator_blocked_expires",
+			setupState: func(s *OperatorTestSuite) {
+				operatorSerde := operatorStatesTableSerde{
+					operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/inactive_blocked_operator.json", operatorSerde)
+
+				blacklistSerde := blacklistStatesTableSerde{
+					blacklistQuerier: s.blacklistRepo.(*blacklist.Queries),
+				}
+				s.LoadState("TestOperatorSuite/TestPeerPermissions/blacklist_expires.json", blacklistSerde)
+			},
+			peerID:        "12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p",
+			expectedAllow: false,
 		},
 		{
 			name:          "non_existent_operator",

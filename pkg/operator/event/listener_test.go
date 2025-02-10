@@ -238,6 +238,37 @@ func newOperatorTestSuite() *OperatorTestSuite {
 }
 
 // Test cases for EventListener
+
+func (s *OperatorTestSuite) TestEventListenerInitialization() {
+	// Test successful initialization
+	listener, err := NewEventListener(context.Background(), &Config{
+		MainnetClient: s.mockClient,
+		OperatorRepo:  s.operatorRepo,
+	})
+	s.Require().NoError(err)
+	s.NotNil(listener)
+
+	// Test initialization with nil config
+	listener, err = NewEventListener(context.Background(), nil)
+	s.Error(err)
+	s.Nil(listener)
+
+	// Test initialization with missing MainnetClient
+	listener, err = NewEventListener(context.Background(), &Config{
+		OperatorRepo: s.operatorRepo,
+	})
+	s.Error(err)
+	s.Nil(listener)
+
+	// Test initialization with missing OperatorRepo
+	listener, err = NewEventListener(context.Background(), &Config{
+		MainnetClient: s.mockClient,
+	})
+	s.Error(err)
+	s.Nil(listener)
+
+}
+
 func (s *OperatorTestSuite) TestEventListener() {
 	for _, tc := range []struct {
 		name          string

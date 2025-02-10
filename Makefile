@@ -174,54 +174,6 @@ test-infra-down:
 	docker-compose stop postgres redis
 	docker-compose rm -f postgres redis
 
-test-event:
-	@( \
-		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
-		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
-		export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
-		export POSTGRES_HOST=$(POSTGRES_HOST) && \
-		export POSTGRES_PORT=$(POSTGRES_PORT) && \
-		export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
-		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
-		go test -v ./pkg/operator/event/... \
-	)
-
-test-event-cov:
-	@( \
-		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
-		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
-		export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
-		export POSTGRES_HOST=$(POSTGRES_HOST) && \
-		export POSTGRES_PORT=$(POSTGRES_PORT) && \
-		export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
-		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
-		go test -cover ./pkg/operator/event/... \
-	)
-
-test-gater:
-	@( \
-		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
-		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
-		export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
-		export POSTGRES_HOST=$(POSTGRES_HOST) && \
-		export POSTGRES_PORT=$(POSTGRES_PORT) && \
-		export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
-		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
-		go test -v ./pkg/operator/gater/... \
-	)
-
-test-gater-cov:
-	@( \
-		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
-		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
-		export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
-		export POSTGRES_HOST=$(POSTGRES_HOST) && \
-		export POSTGRES_PORT=$(POSTGRES_PORT) && \
-		export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
-		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
-		go test -cover ./pkg/operator/gater/... \
-	)
-
 # Generate contract bindings
 generate-bindings: clean-bindings
 	@echo "Creating bindings directory..."
@@ -288,3 +240,25 @@ start-operators: build-operators start-operator1 start-operator2 start-operator3
 
 check-operator1:
 	docker exec -it spotted-network-postgres_operator2-1 psql -U spotted -d operator2 -c "SELECT * FROM operators WHERE LOWER(p2p_key) = LOWER('0x310c8425b620980dcfcf756e46572bb6ac80eb07');"
+
+# Define test command template
+define test_cmd
+	@( \
+		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
+		export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
+		export POSTGRES_HOST=$(POSTGRES_HOST) && \
+		export POSTGRES_PORT=$(POSTGRES_PORT) && \
+		export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
+		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
+		go test $(2) ./pkg/operator/$(1)/... \
+	)
+endef
+
+# Test targets with package name parameter
+test-%:
+	$(call test_cmd,$*,-v)
+
+# Coverage test targets with package name parameter
+testcov-%:
+	$(call test_cmd,$(subst -cov,,$*),-cover)
