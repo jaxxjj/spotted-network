@@ -19,8 +19,9 @@ const (
 )
 
 type TaskProcessor interface {
+	Start(ctx context.Context, responseSubscription *pubsub.Subscription) error
+	Stop() error
 	ProcessTask(ctx context.Context, task *tasks.Tasks) error
-	Stop()
 }
 
 // ResponseTopic defines the interface for response topic functionality
@@ -45,7 +46,6 @@ type Config struct {
 	OperatorRepo          OperatorRepo
 	ChainManager          ChainManager
 	ResponseTopic         ResponseTopic
-	ResponseSubscription  *pubsub.Subscription
 }
 
 type taskResponse struct {
@@ -117,12 +117,6 @@ func NewTaskProcessor(cfg *Config) (TaskProcessor, error) {
 		return nil, fmt.Errorf("[TaskProcessor] response topic is nil")
 	}
 
-	if cfg.ResponseSubscription == nil {
-		return nil, fmt.Errorf("[TaskProcessor] response subscription is nil")
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
 	tp := &taskProcessor{
 		signer:            cfg.Signer,
 		epochStateQuerier: cfg.EpochStateQuerier,
@@ -132,18 +126,23 @@ func NewTaskProcessor(cfg *Config) (TaskProcessor, error) {
 		operatorRepo:      cfg.OperatorRepo,
 		chainManager:      cfg.ChainManager,
 		responseTopic:     cfg.ResponseTopic,
-		cancel:            cancel,
 		taskResponseTrack: TaskResponseTrack{
 			responses: make(map[string]map[string]taskResponse),
 			weights:   make(map[string]map[string]*big.Int),
 		},
 	}
+	return tp, nil
+}
+
+func (tp *taskProcessor) Start(ctx context.Context, responseSubscription *pubsub.Subscription) error {
+	ctx, cancel := context.WithCancel(ctx)
+	tp.cancel = cancel
 
 	// Start goroutines
 	tp.wg.Add(4)
 	go func() {
 		defer tp.wg.Done()
-		tp.handleResponses(ctx, cfg.ResponseSubscription)
+		tp.handleResponses(ctx, responseSubscription)
 	}()
 	go func() {
 		defer tp.wg.Done()
@@ -158,11 +157,11 @@ func NewTaskProcessor(cfg *Config) (TaskProcessor, error) {
 		tp.periodicCleanup(ctx)
 	}()
 
-	return tp, nil
+	return nil
 }
 
 // Stop gracefully stops the task processor
-func (tp *taskProcessor) Stop() {
+func (tp *taskProcessor) Stop() error {
 	log.Printf("[TaskProcessor] Stopping task processor...")
 
 	// 1. Cancel context to stop all goroutines
@@ -183,4 +182,5 @@ func (tp *taskProcessor) Stop() {
 	tp.taskResponseTrack.mu.Unlock()
 
 	log.Printf("[TaskProcessor] Task processor stopped")
+	return nil
 }

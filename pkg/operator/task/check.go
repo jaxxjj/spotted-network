@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const (
+var (
 	maxRetryCount             = 3
 	pendingTaskCheckInterval  = 30 * time.Second
 	confirmationCheckInterval = 10 * time.Second
@@ -46,7 +46,6 @@ func (tp *taskProcessor) checkTimeouts(ctx context.Context) {
 			}
 
 			for _, task := range tasks {
-
 				log.Printf("[INFO] [timeout] Processing pending task: task_id=%s retry_count=%d", task.TaskID, task.RetryCount)
 
 				newRetryCount, err := tp.taskRepo.IncrementRetryCount(ctx, task.TaskID)
@@ -56,21 +55,21 @@ func (tp *taskProcessor) checkTimeouts(ctx context.Context) {
 				}
 				log.Printf("[INFO] [timeout] Incremented retry count after failed processing: task_id=%s new_retry_count=%d",
 					task.TaskID, newRetryCount.RetryCount)
+
 				// Check if already at max retries before processing
-				if newRetryCount.RetryCount >= maxRetryCount {
+				if newRetryCount.RetryCount >= uint16(maxRetryCount) {
 					log.Printf("[INFO] [timeout] Task reached max retries, deleting task_id=%s", task.TaskID)
 					if err := tp.taskRepo.DeleteTaskByID(ctx, task.TaskID); err != nil {
 						log.Printf("[ERROR] [timeout] Failed to delete task: task_id=%s error=%v", task.TaskID, err)
 					}
 					// Clean up memory
 					tp.cleanupTask(task.TaskID)
-					continue
+					continue // Skip to next task
 				}
 
-				// Try to process the task
+				// Only process task if not deleted
 				if err := tp.ProcessTask(ctx, &task); err != nil {
 					log.Printf("[ERROR] [timeout] Failed to process task: task_id=%s error=%v", task.TaskID, err)
-					continue
 				}
 			}
 		}

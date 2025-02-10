@@ -343,11 +343,16 @@ func (a *App) initTaskProcessor() error {
 		TaskRepo:              a.repos.TaskRepo,
 		OperatorRepo:          a.repos.OperatorRepo,
 		ResponseTopic:         responseTopic,
-		ResponseSubscription:  responseSubscription,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create task processor: %w", err)
 	}
+
+	// 显式启动processor
+	if err := taskProcessor.Start(a.ctx, responseSubscription); err != nil {
+		return fmt.Errorf("failed to start task processor: %w", err)
+	}
+
 	a.taskProcessor = taskProcessor
 	return nil
 }

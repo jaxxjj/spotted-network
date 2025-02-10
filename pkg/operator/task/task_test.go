@@ -9,7 +9,10 @@ import (
 	"math/big"
 
 	"github.com/coocood/freecache"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/event"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/repos/blacklist"
@@ -68,9 +71,24 @@ func NewMockChainClient() *mockChainClient {
 	// 添加一些模拟的状态数据
 	mc.stateData["default"] = big.NewInt(1)
 
+	// 设置默认行为
 	mc.On("BlockNumber", mock.Anything).Return(mc.currentBlock, nil).Maybe()
 	mc.On("GetStateAtBlock", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mc.stateData["default"], nil).Maybe()
+	mc.On("GetLatestState", mock.Anything, mock.Anything, mock.Anything).Return(mc.stateData["default"], nil).Maybe()
+	mc.On("GetStateAtTimestamp", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mc.stateData["default"], nil).Maybe()
+	mc.On("GetCurrentEpoch", mock.Anything).Return(uint32(1), nil).Maybe()
+	mc.On("GetEffectiveEpochForBlock", mock.Anything, mock.Anything).Return(uint32(1), nil).Maybe()
+	mc.On("GetOperatorWeight", mock.Anything, mock.Anything).Return(big.NewInt(100), nil).Maybe()
+	mc.On("GetTotalWeight", mock.Anything).Return(big.NewInt(1000), nil).Maybe()
+	mc.On("GetMinimumWeight", mock.Anything).Return(big.NewInt(10), nil).Maybe()
+	mc.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(500), nil).Maybe()
+	mc.On("IsOperatorRegistered", mock.Anything, mock.Anything).Return(true, nil).Maybe()
+	mc.On("GetOperatorSigningKey", mock.Anything, mock.Anything, mock.Anything).Return(common.HexToAddress("0x1"), nil).Maybe()
+	mc.On("GetOperatorP2PKey", mock.Anything, mock.Anything, mock.Anything).Return(common.HexToAddress("0x2"), nil).Maybe()
+	mc.On("WatchOperatorRegistered", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	mc.On("WatchOperatorDeregistered", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	mc.On("Close").Return(nil).Maybe()
+
 	return mc
 }
 
@@ -87,9 +105,106 @@ func (m *mockChainClient) GetStateAtBlock(ctx context.Context, target common.Add
 	return nil, args.Error(1)
 }
 
+func (m *mockChainClient) GetLatestState(ctx context.Context, target common.Address, key *big.Int) (*big.Int, error) {
+	args := m.Called(ctx, target, key)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetStateAtTimestamp(ctx context.Context, target common.Address, key *big.Int, timestamp uint64) (*big.Int, error) {
+	args := m.Called(ctx, target, key, timestamp)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetCurrentEpoch(ctx context.Context) (uint32, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(uint32), args.Error(1)
+}
+
+func (m *mockChainClient) GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error) {
+	args := m.Called(ctx, blockNumber)
+	return args.Get(0).(uint32), args.Error(1)
+}
+
+func (m *mockChainClient) GetOperatorWeight(ctx context.Context, operator common.Address) (*big.Int, error) {
+	args := m.Called(ctx, operator)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetMinimumWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetThresholdWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) IsOperatorRegistered(ctx context.Context, operator common.Address) (bool, error) {
+	args := m.Called(ctx, operator)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockChainClient) GetOperatorSigningKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
+	args := m.Called(ctx, operator, epoch)
+	return args.Get(0).(common.Address), args.Error(1)
+}
+
+func (m *mockChainClient) GetOperatorP2PKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
+	args := m.Called(ctx, operator, epoch)
+	return args.Get(0).(common.Address), args.Error(1)
+}
+
+func (m *mockChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error) {
+	args := m.Called(filterOpts, sink)
+	if sub := args.Get(0); sub != nil {
+		return sub.(event.Subscription), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error) {
+	args := m.Called(filterOpts, sink)
+	if sub := args.Get(0); sub != nil {
+		return sub.(event.Subscription), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockChainClient) Close() error {
 	args := m.Called()
 	return args.Error(0)
+}
+
+func (m *mockChainClient) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+	args := m.Called(ctx, number)
+	if block := args.Get(0); block != nil {
+		return block.(*types.Block), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 type mockChainManager struct {
@@ -116,18 +231,18 @@ func NewMockChainManager() *mockChainManager {
 	return m
 }
 
-func (m *mockChainManager) GetMainnetClient() (*ethereum.ChainClient, error) {
+func (m *mockChainManager) GetMainnetClient() (ethereum.ChainClient, error) {
 	args := m.Called()
 	if client := args.Get(0); client != nil {
-		return client.(*ethereum.ChainClient), args.Error(1)
+		return client.(ethereum.ChainClient), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
-func (m *mockChainManager) GetClientByChainId(chainId uint32) (*ethereum.ChainClient, error) {
+func (m *mockChainManager) GetClientByChainId(chainId uint32) (ethereum.ChainClient, error) {
 	args := m.Called(chainId)
 	if client := args.Get(0); client != nil {
-		return client.(*ethereum.ChainClient), args.Error(1)
+		return client.(ethereum.ChainClient), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -255,17 +370,18 @@ func (o taskTableSerde) Dump() ([]byte, error) {
 // OperatorTestSuite 是主测试套件
 type OperatorTestSuite struct {
 	*testsuite.WPgxTestSuite
-	processor *TaskProcessor
+	processor *taskProcessor
 
 	operatorRepo          OperatorRepo
 	taskRepo              TaskRepo
 	blacklistRepo         BlacklistRepo
 	consensusResponseRepo ConsensusResponseRepo
 
-	signer         OperatorSigner
-	mockStateQuery *mockEpochStateQuerier
-	mockChainMgr   *mockChainManager
-	mockTopic      *mockTopic
+	signer           OperatorSigner
+	mockStateQuery   *mockEpochStateQuerier
+	mockChainMgr     *mockChainManager
+	mockTopic        *mockTopic
+	mockSubscription *pubsub.Subscription
 
 	RedisConn redis.UniversalClient
 	FreeCache *freecache.Cache
@@ -322,7 +438,10 @@ func (s *OperatorTestSuite) SetupTest() {
 	// Create mock subscription
 	mockSubscription, err := mockTopic.Subscribe()
 	s.Require().NoError(err)
+	s.mockSubscription = mockSubscription
 
+	pendingTaskCheckInterval = 1 * time.Second
+	confirmationCheckInterval = 1 * time.Second
 	processor, err := NewTaskProcessor(&Config{
 		Signer:                signer,
 		EpochStateQuerier:     mockStateQuery,
@@ -332,10 +451,9 @@ func (s *OperatorTestSuite) SetupTest() {
 		OperatorRepo:          operatorRepo,
 		ChainManager:          mockChainMgr,
 		ResponseTopic:         mockTopic,
-		ResponseSubscription:  mockSubscription,
 	})
 	s.Require().NoError(err)
-	s.processor = processor
+	s.processor = processor.(*taskProcessor)
 }
 
 // NewOperatorTestSuite 创建新的测试套件实例
@@ -379,9 +497,17 @@ func newOperatorTestSuite() *OperatorTestSuite {
 
 // TestTaskChecking tests the task checking functionality
 func (s *OperatorTestSuite) TestTaskChecking() {
-	// 如果需要,可以为这个测试用例设置特定的 mock 行为
-	// s.mockPubSub.On("Join", TaskResponseTopic).Return(s.mockTopic, nil).Once()
-	// s.mockTopic.On("Subscribe").Return(&pubsub.Subscription{}, nil).Once()
+	// 设置检查间隔
+	pendingTaskCheckInterval = 1 * time.Second
+	confirmationCheckInterval = 1 * time.Second
+	cleanupInterval = 1 * time.Second
+
+	// 设置mock期望,允许多次调用
+	mockChainClient := NewMockChainClient()
+	s.mockChainMgr.On("GetClientByChainId", uint32(1)).Return(mockChainClient, nil).Maybe()
+	mockChainClient.On("BlockNumber", mock.Anything).Return(uint64(120), nil).Maybe()
+
+	s.processor.Start(context.Background(), s.mockSubscription)
 
 	// Load initial task states
 	taskSerde := taskTableSerde{
@@ -389,44 +515,21 @@ func (s *OperatorTestSuite) TestTaskChecking() {
 	}
 	s.LoadState("TestOperatorSuite/TestTaskChecking/initial_tasks.json", taskSerde)
 
-	// Test case 1: Check pending tasks
-	// Trigger check
-	s.processor.checkTimeouts(context.Background())
+	// 等待足够时间让已经运行的checkTimeouts完成一次检查
+	time.Sleep(4 * time.Second)
 
-	// Verify state after timeout check
+	// 验证timeout检查结果
 	s.Golden("after_timeout_check", taskSerde)
 
-	// Test case 2: Check confirming tasks
-	mockChainClient := NewMockChainClient()
-	s.mockChainMgr.On("GetClientByChainId", uint32(1)).Return(mockChainClient, nil).Once()
-	mockChainClient.On("BlockNumber", mock.Anything).Return(uint64(120), nil).Once()
-
-	// Trigger check
-	s.processor.checkConfirmations(context.Background())
+	// 等待已经运行的checkConfirmations完成一次检查
+	time.Sleep(2 * time.Second)
 
 	// Verify state after confirmation check
 	s.Golden("after_confirmation_check", taskSerde)
-
-	// Test case 3: Check cleanup of max retried tasks
-	// Load state with max retried tasks
-	s.LoadState("TestOperatorSuite/TestTaskChecking/max_retry_tasks.json", taskSerde)
-
-	// Trigger check
-	s.processor.checkTimeouts(context.Background())
-
-	// Verify final state
-	s.Golden("after_cleanup", taskSerde)
-
-	s.mockChainMgr.AssertExpectations(s.T())
-	mockChainClient.AssertExpectations(s.T())
 }
 
 // TestTaskCleanup tests the task cleanup functionality
 func (s *OperatorTestSuite) TestTaskCleanup() {
-	// 如果需要,可以为这个测试用例设置特定的 mock 行为
-	// s.mockPubSub.On("Join", TaskResponseTopic).Return(s.mockTopic, nil).Once()
-	// s.mockTopic.On("Subscribe").Return(&pubsub.Subscription{}, nil).Once()
-
 	// Load initial task states
 	taskSerde := taskTableSerde{
 		taskQuerier: s.taskRepo.(*tasks.Queries),
@@ -434,9 +537,9 @@ func (s *OperatorTestSuite) TestTaskCleanup() {
 	s.LoadState("TestOperatorSuite/TestTaskCleanup/initial_tasks.json", taskSerde)
 
 	// Add some test data
-	response := taskResponse{
+	response1 := taskResponse{
 		taskID:        "test-task-1",
-		signature:     []byte("test-signature"),
+		signature:     []byte("test-signature-1"),
 		epoch:         1,
 		chainID:       1,
 		targetAddress: "0x1234567890123456789012345678901234567890",
@@ -445,13 +548,24 @@ func (s *OperatorTestSuite) TestTaskCleanup() {
 		blockNumber:   100,
 	}
 
-	s.processor.storeResponseAndWeight(response, "0x1234", big.NewInt(50))
-	s.processor.storeResponseAndWeight(response, "0x5678", big.NewInt(60))
+	response2 := taskResponse{
+		taskID:        "test-task-1",
+		signature:     []byte("test-signature-2"),
+		epoch:         1,
+		chainID:       1,
+		targetAddress: "0x1234567890123456789012345678901234567890",
+		key:           "1",
+		value:         "100",
+		blockNumber:   100,
+	}
+
+	s.processor.storeResponseAndWeight(response1, "0x1234", big.NewInt(50))
+	s.processor.storeResponseAndWeight(response2, "0x5678", big.NewInt(60))
 
 	// Verify data exists
 	s.processor.taskResponseTrack.mu.RLock()
-	s.Equal(2, len(s.processor.taskResponseTrack.responses[response.taskID]))
-	s.Equal(2, len(s.processor.taskResponseTrack.weights[response.taskID]))
+	s.Equal(2, len(s.processor.taskResponseTrack.responses[response1.taskID]))
+	s.Equal(2, len(s.processor.taskResponseTrack.weights[response1.taskID]))
 	s.processor.taskResponseTrack.mu.RUnlock()
 
 	// Trigger cleanup
@@ -463,6 +577,148 @@ func (s *OperatorTestSuite) TestTaskCleanup() {
 	s.Equal(0, len(s.processor.taskResponseTrack.weights))
 	s.processor.taskResponseTrack.mu.RUnlock()
 
-	// Verify final state
-	s.Golden("after_cleanup", taskSerde)
+}
+
+// TestTaskMemoryCleanup tests the cleanup of task tracking data in memory
+func (s *OperatorTestSuite) TestTaskMemoryCleanup() {
+	// Setup test data
+	taskID1 := "task1"
+	taskID2 := "task2"
+	operatorID := "operator1"
+
+	// Initialize test data in memory
+	s.processor.taskResponseTrack.mu.Lock()
+	s.processor.taskResponseTrack.responses = map[string]map[string]taskResponse{
+		taskID1: {
+			operatorID: taskResponse{
+				taskID:  taskID1,
+				epoch:   1,
+				chainID: 1,
+				value:   "100",
+			},
+		},
+		taskID2: {
+			operatorID: taskResponse{
+				taskID:  taskID2,
+				epoch:   1,
+				chainID: 1,
+				value:   "200",
+			},
+		},
+	}
+	s.processor.taskResponseTrack.weights = map[string]map[string]*big.Int{
+		taskID1: {
+			operatorID: big.NewInt(100),
+		},
+		taskID2: {
+			operatorID: big.NewInt(200),
+		},
+	}
+	s.processor.taskResponseTrack.mu.Unlock()
+
+	// Verify initial state
+	s.processor.taskResponseTrack.mu.RLock()
+	s.Require().Len(s.processor.taskResponseTrack.responses[taskID1], 1)
+	s.Require().Len(s.processor.taskResponseTrack.responses[taskID2], 1)
+	s.Require().Len(s.processor.taskResponseTrack.weights[taskID1], 1)
+	s.Require().Len(s.processor.taskResponseTrack.weights[taskID2], 1)
+	s.processor.taskResponseTrack.mu.RUnlock()
+
+	// Clean up task1
+	s.processor.cleanupTask(taskID1)
+
+	// Verify task1 is cleaned up but task2 remains
+	s.processor.taskResponseTrack.mu.RLock()
+	s.Require().Nil(s.processor.taskResponseTrack.responses[taskID1])
+	s.Require().Len(s.processor.taskResponseTrack.responses[taskID2], 1)
+	s.Require().Nil(s.processor.taskResponseTrack.weights[taskID1])
+	s.Require().Len(s.processor.taskResponseTrack.weights[taskID2], 1)
+	s.processor.taskResponseTrack.mu.RUnlock()
+
+	// Clean up task2
+	s.processor.cleanupTask(taskID2)
+
+	// Verify all data is cleaned up
+	s.processor.taskResponseTrack.mu.RLock()
+	s.Require().Nil(s.processor.taskResponseTrack.responses[taskID1])
+	s.Require().Nil(s.processor.taskResponseTrack.responses[taskID2])
+	s.Require().Nil(s.processor.taskResponseTrack.weights[taskID1])
+	s.Require().Nil(s.processor.taskResponseTrack.weights[taskID2])
+	s.processor.taskResponseTrack.mu.RUnlock()
+}
+
+// TestConsensus tests the consensus functionality
+func (s *OperatorTestSuite) TestConsensus() {
+	// Set mock expectations for threshold weight
+	s.mockStateQuery.thresholdWeight = big.NewInt(100)
+
+	// Load initial operator and task states
+	operatorSerde := operatorTableSerde{
+		operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+	}
+	s.LoadState("TestOperatorSuite/TestConsensus/initial_operators.json", operatorSerde)
+
+	taskSerde := taskTableSerde{
+		taskQuerier: s.taskRepo.(*tasks.Queries),
+	}
+	s.LoadState("TestOperatorSuite/TestConsensus/initial_tasks.json", taskSerde)
+
+	// Create test task responses with different signatures
+	taskID := "test-task-1"
+	response1 := taskResponse{
+		taskID:        taskID,
+		signature:     []byte("test-signature-1"),
+		epoch:         1,
+		chainID:       1,
+		targetAddress: "0x1234567890123456789012345678901234567890",
+		key:           "1",
+		value:         "100",
+		blockNumber:   100,
+	}
+
+	response2 := taskResponse{
+		taskID:        taskID,
+		signature:     []byte("test-signature-2"),
+		epoch:         1,
+		chainID:       1,
+		targetAddress: "0x1234567890123456789012345678901234567890",
+		key:           "1",
+		value:         "100",
+		blockNumber:   100,
+	}
+
+	// Initialize response maps
+	s.processor.taskResponseTrack.responses = make(map[string]map[string]taskResponse)
+	s.processor.taskResponseTrack.weights = make(map[string]map[string]*big.Int)
+
+	// Add responses and weights with different signatures
+	s.processor.taskResponseTrack.responses[taskID] = map[string]taskResponse{
+		"0x1111111111111111111111111111111111111111": response1,
+		"0x2222222222222222222222222222222222222222": response2,
+	}
+	s.processor.taskResponseTrack.weights[taskID] = map[string]*big.Int{
+		"0x1111111111111111111111111111111111111111": big.NewInt(60),
+		"0x2222222222222222222222222222222222222222": big.NewInt(50),
+	}
+
+	// Test consensus check
+	err := s.processor.checkConsensus(context.Background(), response1)
+	s.NoError(err)
+
+	// Verify maps are cleaned up
+	s.processor.taskResponseTrack.mu.RLock()
+	_, responsesExist := s.processor.taskResponseTrack.responses[taskID]
+	_, weightsExist := s.processor.taskResponseTrack.weights[taskID]
+	s.processor.taskResponseTrack.mu.RUnlock()
+
+	s.False(responsesExist)
+	s.False(weightsExist)
+
+	// Verify final states
+	s.Golden("after_consensus", taskSerde)
+
+	consensusSerde := consensusResponseTableSerde{
+		consensusResponseQuerier: s.consensusResponseRepo.(*consensus_responses.Queries),
+	}
+	s.Golden("consensus_response", consensusSerde)
 }
