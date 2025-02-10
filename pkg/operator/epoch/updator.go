@@ -55,7 +55,8 @@ type Config struct {
 	TxManager     TxManager
 }
 
-type EpochUpdator struct {
+// epochUpdator implements EpochStateQuerier interface
+type epochUpdator struct {
 	operatorRepo      OperatorRepo
 	mainnetClient     MainnetClient
 	txManager         TxManager
@@ -67,7 +68,8 @@ type EpochUpdator struct {
 	wg     sync.WaitGroup
 }
 
-func NewEpochUpdator(ctx context.Context, cfg *Config) (*EpochUpdator, error) {
+// NewEpochUpdator creates a new epoch updator
+func NewEpochUpdator(ctx context.Context, cfg *Config) (EpochStateQuerier, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -80,7 +82,7 @@ func NewEpochUpdator(ctx context.Context, cfg *Config) (*EpochUpdator, error) {
 	if cfg.TxManager == nil {
 		return nil, fmt.Errorf("txManager is nil")
 	}
-	e := &EpochUpdator{
+	e := &epochUpdator{
 		operatorRepo:  cfg.OperatorRepo,
 		mainnetClient: cfg.MainnetClient,
 		txManager:     cfg.TxManager,
@@ -103,7 +105,7 @@ func NewEpochUpdator(ctx context.Context, cfg *Config) (*EpochUpdator, error) {
 }
 
 // starts monitoring epoch updates
-func (e *EpochUpdator) start(ctx context.Context) error {
+func (e *epochUpdator) start(ctx context.Context) error {
 	ticker := time.NewTicker(epochMonitorInterval)
 	defer ticker.Stop()
 
@@ -156,7 +158,7 @@ func (e *EpochUpdator) start(ctx context.Context) error {
 	}
 }
 
-func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint32) error {
+func (e *epochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint32) error {
 	currentBlock, err := e.mainnetClient.BlockNumber(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get current block number: %w", err)
@@ -165,7 +167,7 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 	_, err = e.txManager.Transact(ctx, pgx.TxOptions{}, func(ctx context.Context, tx *wpgx.WTx) (any, error) {
 		txQuerier := e.operatorRepo.WithTx(tx)
 
-		err = e.UpdateEpochState(ctx, currentEpoch)
+		err = e.updateEpochState(ctx, currentEpoch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update epoch state: %w", err)
 		}
@@ -181,7 +183,7 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 			activeEpoch := operator.ActiveEpoch
 			exitEpoch := operator.ExitEpoch
 
-			isActive := isOperatorActive(currentBlock, activeEpoch, exitEpoch)
+			isActive := IsOperatorActive(currentBlock, activeEpoch, exitEpoch)
 			currentWeight, err := e.mainnetClient.GetOperatorWeight(ctx, ethcommon.HexToAddress(operator.Address))
 			if err != nil {
 				log.Printf("[Epoch] Failed to get weight for operator %s: %v", operator.Address, err)
@@ -225,7 +227,7 @@ func (e *EpochUpdator) handleEpochUpdate(ctx context.Context, currentEpoch uint3
 	return nil
 }
 
-func (e *EpochUpdator) UpdateEpochState(ctx context.Context, currentEpoch uint32) error {
+func (e *epochUpdator) updateEpochState(ctx context.Context, currentEpoch uint32) error {
 	minimumStake, err := e.mainnetClient.GetMinimumWeight(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get minimum stake: %w", err)
@@ -251,7 +253,7 @@ func (e *EpochUpdator) UpdateEpochState(ctx context.Context, currentEpoch uint32
 	return nil
 }
 
-func (e *EpochUpdator) Stop() {
+func (e *epochUpdator) Stop() {
 	e.mainnetClient.Close()
 	e.cancel()
 	e.wg.Wait()

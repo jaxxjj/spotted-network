@@ -61,7 +61,7 @@ func (o blacklistStatesTableSerde) Dump() ([]byte, error) {
 // OperatorTestSuite 是主测试套件
 type OperatorTestSuite struct {
 	*testsuite.WPgxTestSuite
-	gater *ConnectionGater
+	gater *connectionGater
 
 	operatorRepo  OperatorRepo
 	blacklistRepo BlacklistRepo
@@ -101,7 +101,7 @@ func (s *OperatorTestSuite) SetupTest() {
 		OperatorRepo:  s.operatorRepo,
 	})
 	s.Require().NoError(err, "Failed to create event listener")
-	s.gater = gater
+	s.gater = gater.(*connectionGater)
 }
 
 // NewOperatorTestSuite 创建新的测试套件实例

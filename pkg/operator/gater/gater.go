@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/galxe/spotted-network/pkg/repos/operators"
 	"github.com/libp2p/go-libp2p/core/connmgr"
 	"github.com/libp2p/go-libp2p/core/control"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -12,16 +11,12 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 )
 
-var _ connmgr.ConnectionGater = (*ConnectionGater)(nil)
+var _ connmgr.ConnectionGater = (*connectionGater)(nil)
 
-type BlacklistRepo interface {
-	IsBlocked(ctx context.Context, peerID string) (*bool, error)
-}
-
-type OperatorRepo interface {
-	IsActiveOperator(ctx context.Context, lower string) (*bool, error)
-	GetOperatorByP2PKey(ctx context.Context, lower string) (*operators.Operators, error)
-	Dump(ctx context.Context, beforeDump ...operators.BeforeDump) ([]byte, error)
+type ConnectionGater interface {
+	connmgr.ConnectionGater
+	IncrementViolationCount(ctx context.Context, params ViolationParams) error
+	UnblockNode(ctx context.Context, peerID peer.ID) error
 }
 
 type Config struct {
@@ -29,12 +24,12 @@ type Config struct {
 	OperatorRepo  OperatorRepo
 }
 
-type ConnectionGater struct {
+type connectionGater struct {
 	blacklistRepo BlacklistRepo
 	operatorRepo  OperatorRepo
 }
 
-func NewConnectionGater(cfg *Config) (*ConnectionGater, error) {
+func NewConnectionGater(cfg *Config) (ConnectionGater, error) {
 	if cfg == nil {
 		return nil, errors.New("[ConnectionGater] config is nil")
 	}
@@ -44,33 +39,33 @@ func NewConnectionGater(cfg *Config) (*ConnectionGater, error) {
 	if cfg.OperatorRepo == nil {
 		return nil, errors.New("[ConnectionGater] operator repo is nil")
 	}
-	return &ConnectionGater{
+	return &connectionGater{
 		blacklistRepo: cfg.BlacklistRepo,
 		operatorRepo:  cfg.OperatorRepo,
 	}, nil
 }
 
 // InterceptPeerDial tests whether we're allowed to Dial the specified peer
-func (g *ConnectionGater) InterceptPeerDial(peerID peer.ID) bool {
+func (g *connectionGater) InterceptPeerDial(peerID peer.ID) bool {
 	return g.checkPeerPermission(peerID)
 }
 
 // InterceptAddrDial tests whether we're allowed to dial the specified peer at the specified addr
-func (g *ConnectionGater) InterceptAddrDial(peerID peer.ID, addr ma.Multiaddr) bool {
+func (g *connectionGater) InterceptAddrDial(peerID peer.ID, addr ma.Multiaddr) bool {
 	return g.checkPeerPermission(peerID)
 }
 
 // InterceptAccept tests whether an incoming connection is allowed
-func (g *ConnectionGater) InterceptAccept(addrs network.ConnMultiaddrs) bool {
+func (g *connectionGater) InterceptAccept(addrs network.ConnMultiaddrs) bool {
 	return validateBasicAddr(addrs.RemoteMultiaddr())
 }
 
 // InterceptSecured tests whether a secured connection is allowed
-func (g *ConnectionGater) InterceptSecured(direction network.Direction, peerID peer.ID, addrs network.ConnMultiaddrs) bool {
+func (g *connectionGater) InterceptSecured(direction network.Direction, peerID peer.ID, addrs network.ConnMultiaddrs) bool {
 	return g.checkPeerPermission(peerID)
 }
 
 // InterceptUpgraded tests whether an upgraded connection is allowed
-func (g *ConnectionGater) InterceptUpgraded(conn network.Conn) (bool, control.DisconnectReason) {
+func (g *connectionGater) InterceptUpgraded(conn network.Conn) (bool, control.DisconnectReason) {
 	return true, 0
 }

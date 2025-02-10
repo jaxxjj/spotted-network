@@ -1,4 +1,4 @@
-package node
+package gater
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 type BlacklistRepo interface {
 	IncrementViolationCount(ctx context.Context, arg blacklist.IncrementViolationCountParams, isBlocked *string) (*blacklist.Blacklist, error)
 	UnblockNode(ctx context.Context, peerID string, isBlocked *string) error
+	IsBlocked(ctx context.Context, peerID string) (*bool, error)
 }
 
 // ViolationParams contains parameters for incrementing violation count
@@ -21,15 +22,15 @@ type ViolationParams struct {
 	ExpiresAt      *time.Time // optional expiration time
 }
 
-// increments the violation count for a peer
-func (n *Node) IncrementViolationCount(ctx context.Context, params ViolationParams) error {
+// IncrementViolationCount increments the violation count for a peer
+func (g *connectionGater) IncrementViolationCount(ctx context.Context, params ViolationParams) error {
 	dbParams := blacklist.IncrementViolationCountParams{
 		PeerID:         params.PeerID.String(),
 		ViolationCount: params.ViolationCount,
 		ExpiresAt:      params.ExpiresAt, // could be nil
 	}
 
-	_, err := n.blacklistRepo.IncrementViolationCount(ctx, dbParams, nil)
+	_, err := g.blacklistRepo.IncrementViolationCount(ctx, dbParams, nil)
 	if err != nil {
 		return err
 	}
@@ -37,9 +38,9 @@ func (n *Node) IncrementViolationCount(ctx context.Context, params ViolationPara
 	return nil
 }
 
-// removes a peer from the blacklist
-func (n *Node) UnblockNode(ctx context.Context, peerID peer.ID) error {
-	err := n.blacklistRepo.UnblockNode(ctx, peerID.String(), nil)
+// UnblockNode removes a peer from the blacklist
+func (g *connectionGater) UnblockNode(ctx context.Context, peerID peer.ID) error {
+	err := g.blacklistRepo.UnblockNode(ctx, peerID.String(), nil)
 	if err != nil {
 		return err
 	}

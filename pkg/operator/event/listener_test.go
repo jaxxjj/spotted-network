@@ -150,7 +150,7 @@ func (m *MockChainClient) BlockNumber(ctx context.Context) (uint64, error) {
 // OperatorTestSuite 是主测试套件
 type OperatorTestSuite struct {
 	*testsuite.WPgxTestSuite
-	eventListener *EventListener
+	eventListener *eventListener
 	operatorRepo  OperatorRepo
 	mockClient    *MockChainClient
 
@@ -183,12 +183,12 @@ func (s *OperatorTestSuite) SetupTest() {
 	s.operatorRepo = operatorRepo
 
 	// 创建 EventListener
-	eventListener, err := NewEventListener(context.Background(), &Config{
+	listener, err := NewEventListener(context.Background(), &Config{
 		MainnetClient: s.mockClient,
 		OperatorRepo:  s.operatorRepo,
 	})
 	s.Require().NoError(err, "Failed to create event listener")
-	s.eventListener = eventListener
+	s.eventListener = listener.(*eventListener)
 }
 
 // TearDownTest 在每个测试后运行
@@ -591,14 +591,14 @@ func (s *OperatorTestSuite) TestEventProcessingOrder() {
 // 4. 测试资源泄漏
 func (s *OperatorTestSuite) TestResourceLeakage() {
 	// 创建多个监听器
-	listeners := make([]*EventListener, 0)
+	listeners := make([]*eventListener, 0)
 	for i := 0; i < 10; i++ {
 		listener, err := NewEventListener(context.Background(), &Config{
 			MainnetClient: s.mockClient,
 			OperatorRepo:  s.operatorRepo,
 		})
 		s.NoError(err)
-		listeners = append(listeners, listener)
+		listeners = append(listeners, listener.(*eventListener))
 	}
 
 	// 发送一些事件

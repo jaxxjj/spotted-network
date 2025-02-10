@@ -24,7 +24,7 @@ type BlacklistRepo interface {
 }
 
 // handleResponses handles incoming task responses (backpressure pattern)
-func (tp *TaskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscription) {
+func (tp *taskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscription) {
 	const (
 		maxConcurrent  = 10
 		processTimeout = 30 * time.Second
@@ -86,7 +86,7 @@ func (tp *TaskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscr
 }
 
 // processResponse handles a single response message
-func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Message) error {
+func (tp *taskProcessor) processResponse(ctx context.Context, msg *pubsub.Message) error {
 	// Parse protobuf message
 	var pbMsg pb.TaskResponseMessage
 	if err := proto.Unmarshal(msg.Data, &pbMsg); err != nil {
@@ -168,7 +168,7 @@ func (tp *TaskProcessor) processResponse(ctx context.Context, msg *pubsub.Messag
 }
 
 // helper function to store response and weight
-func (tp *TaskProcessor) storeResponseAndWeight(response taskResponse, signingKey string, weight *big.Int) {
+func (tp *taskProcessor) storeResponseAndWeight(response taskResponse, signingKey string, weight *big.Int) {
 	// Store in local map
 	tp.taskResponseTrack.mu.Lock()
 	// Initialize maps if they don't exist
@@ -183,7 +183,7 @@ func (tp *TaskProcessor) storeResponseAndWeight(response taskResponse, signingKe
 }
 
 // verifyResponse verifies a task response signature
-func (tp *TaskProcessor) verifyResponse(response taskResponse, signingKey string) error {
+func (tp *taskProcessor) verifyResponse(response taskResponse, signingKey string) error {
 	key := utils.StringToBigInt(response.key)
 	value := utils.StringToBigInt(response.value)
 
@@ -199,7 +199,7 @@ func (tp *TaskProcessor) verifyResponse(response taskResponse, signingKey string
 	return tp.signer.VerifyTaskResponse(params, response.signature, signingKey)
 }
 
-func (tp *TaskProcessor) alreadyProcessed(taskId string, signingKey string) bool {
+func (tp *taskProcessor) alreadyProcessed(taskId string, signingKey string) bool {
 	// check if processed in memory
 	tp.taskResponseTrack.mu.RLock()
 	_, processed := tp.taskResponseTrack.responses[taskId][signingKey]
@@ -209,7 +209,7 @@ func (tp *TaskProcessor) alreadyProcessed(taskId string, signingKey string) bool
 }
 
 // incrementPeerViolation adds a violation record for the peer and returns the original error
-func (tp *TaskProcessor) incrementPeerViolation(ctx context.Context, peerID peer.ID, originalErr error) error {
+func (tp *taskProcessor) incrementPeerViolation(ctx context.Context, peerID peer.ID, originalErr error) error {
 	peerIDStr := peerID.String()
 
 	_, err := tp.blacklistRepo.IncrementViolationCount(ctx, blacklist.IncrementViolationCountParams{

@@ -40,9 +40,9 @@ type TaskProcessor interface {
 // ChainManager helps to manage chain clients
 type ChainManager interface {
 	// GetMainnetClient returns the mainnet client
-	GetMainnetClient() (*ethereum.ChainClient, error)
+	GetMainnetClient() (ethereum.ChainClient, error)
 	// GetClientByChainId returns the appropriate client for a given chain ID
-	GetClientByChainId(chainID uint32) (*ethereum.ChainClient, error)
+	GetClientByChainId(chainID uint32) (ethereum.ChainClient, error)
 }
 
 // TaskQuerier defines the interface for task database operations needed by the handler

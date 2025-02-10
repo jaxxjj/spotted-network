@@ -103,7 +103,7 @@ func (m *mockMainnetClient) Close() error {
 // OperatorTestSuite 是主测试套件
 type OperatorTestSuite struct {
 	*testsuite.WPgxTestSuite
-	updator *EpochUpdator
+	updator *epochUpdator
 
 	operatorRepo  OperatorRepo
 	mainnetClient *mockMainnetClient
@@ -142,7 +142,7 @@ func (s *OperatorTestSuite) SetupTest() {
 		TxManager:     pool, // 使用同一个连接池
 	})
 	s.Require().NoError(err)
-	s.updator = updator
+	s.updator = updator.(*epochUpdator)
 }
 
 // NewOperatorTestSuite 创建新的测试套件实例
@@ -218,7 +218,7 @@ func (s *OperatorTestSuite) TestConcurrentEpochUpdates() {
 		wg.Add(1)
 		go func(epoch uint32) {
 			defer wg.Done()
-			err := s.updator.UpdateEpochState(context.Background(), epoch)
+			err := s.updator.updateEpochState(context.Background(), epoch)
 			s.NoError(err)
 		}(uint32(i + 1))
 	}
@@ -241,7 +241,7 @@ func (s *OperatorTestSuite) TestEpochStateUpdate() {
 	s.mainnetClient.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(67), nil).Once()
 
 	// Test normal update
-	err := s.updator.UpdateEpochState(context.Background(), 1)
+	err := s.updator.updateEpochState(context.Background(), 1)
 	s.NoError(err)
 
 	// Verify state
@@ -253,7 +253,7 @@ func (s *OperatorTestSuite) TestEpochStateUpdate() {
 
 	// Test error cases
 	s.mainnetClient.On("GetMinimumWeight", mock.Anything).Return(nil, fmt.Errorf("mock error")).Once()
-	err = s.updator.UpdateEpochState(context.Background(), 2)
+	err = s.updator.updateEpochState(context.Background(), 2)
 	s.Error(err)
 
 	s.mainnetClient.AssertExpectations(s.T())
@@ -327,7 +327,7 @@ func (s *OperatorTestSuite) TestOperatorActiveStatus() {
 
 	for _, tc := range testCases {
 		s.Run(tc.name, func() {
-			active := isOperatorActive(tc.currentBlock, tc.activeEpoch, tc.exitEpoch)
+			active := IsOperatorActive(tc.currentBlock, tc.activeEpoch, tc.exitEpoch)
 			s.Equal(tc.expectActive, active)
 		})
 	}
@@ -380,7 +380,7 @@ func (s *OperatorTestSuite) TestOperatorActiveStatusEdgeCases() {
 
 	for _, tc := range testCases {
 		s.Run(tc.name, func() {
-			active := isOperatorActive(tc.currentBlock, tc.activeEpoch, tc.exitEpoch)
+			active := IsOperatorActive(tc.currentBlock, tc.activeEpoch, tc.exitEpoch)
 			s.Equal(tc.expectActive, active)
 		})
 	}
@@ -392,7 +392,7 @@ func (s *OperatorTestSuite) TestEpochStateGetters() {
 	s.mainnetClient.On("GetTotalWeight", mock.Anything).Return(big.NewInt(100), nil).Once()
 	s.mainnetClient.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(67), nil).Once()
 
-	err := s.updator.UpdateEpochState(context.Background(), 42)
+	err := s.updator.updateEpochState(context.Background(), 42)
 	s.NoError(err)
 
 	// Test getters
@@ -414,7 +414,7 @@ func (s *OperatorTestSuite) TestEpochStateConsistency() {
 	s.mainnetClient.On("GetTotalWeight", mock.Anything).Return(big.NewInt(100), nil).Once()
 	s.mainnetClient.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(67), nil).Once()
 
-	err := s.updator.UpdateEpochState(context.Background(), 42)
+	err := s.updator.updateEpochState(context.Background(), 42)
 	s.NoError(err)
 
 	// Test state consistency across all getters
@@ -439,7 +439,7 @@ func (s *OperatorTestSuite) TestEpochUpdatorStop() {
 	s.mainnetClient.On("Close").Return(nil).Once()
 
 	// Stop the updator
-	updator.Stop()
+	s.updator.Stop()
 
 	// Verify expectations
 	s.mainnetClient.AssertExpectations(s.T())

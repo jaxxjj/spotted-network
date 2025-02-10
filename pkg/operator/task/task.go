@@ -29,9 +29,9 @@ type ChainClient interface {
 }
 type ChainManager interface {
 	// GetMainnetClient returns the mainnet client
-	GetMainnetClient() (*ethereum.ChainClient, error)
+	GetMainnetClient() (ethereum.ChainClient, error)
 	// GetClientByChainId returns the appropriate client for a given chain ID
-	GetClientByChainId(chainID uint32) (*ethereum.ChainClient, error)
+	GetClientByChainId(chainID uint32) (ethereum.ChainClient, error)
 	Close() error
 }
 type OperatorSigner interface {
@@ -41,7 +41,7 @@ type OperatorSigner interface {
 }
 
 // ProcessTask processes a new task and broadcasts response
-func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) error {
+func (tp *taskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) error {
 	if task == nil {
 		return fmt.Errorf("task is nil")
 	}
@@ -154,7 +154,7 @@ func (tp *TaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) err
 }
 
 // broadcastResponse broadcasts a task response to other operators
-func (tp *TaskProcessor) broadcastResponse(response taskResponse) error {
+func (tp *taskProcessor) broadcastResponse(response taskResponse) error {
 	log.Printf("[Response] Starting to broadcast response for task %s", response.taskID)
 
 	// Create protobuf message

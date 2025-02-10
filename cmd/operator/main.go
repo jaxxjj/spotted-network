@@ -52,22 +52,22 @@ type App struct {
 
 	ctx    context.Context
 	cfg    *config.Config
-	signer *signer.LocalSigner
+	signer signer.Signer
 
-	chainManager  *ethereum.ChainManager
-	mainnetClient *ethereum.ChainClient
+	chainManager  ethereum.ChainManager
+	mainnetClient ethereum.ChainClient
 	db            *wpgx.Pool
 	redisConn     redis.UniversalClient
 	dCache        *dcache.DCache
 	metricServer  *metric.Server
 	host          host.Host
-	node          *node.Node
+	node          node.Node
 	apiServer     *api.Server
 	repos         *Repos
 
-	gater         *gater.ConnectionGater
-	taskProcessor *task.TaskProcessor
-	epochUpdator  *epoch.EpochUpdator
+	gater         gater.ConnectionGater
+	taskProcessor task.TaskProcessor
+	epochUpdator  epoch.EpochStateQuerier
 }
 
 func main() {
@@ -281,7 +281,6 @@ func (a *App) initNode() error {
 	}
 	a.node, err = node.NewNode(a.ctx, &node.Config{
 		Host:             host,
-		BlacklistRepo:    a.repos.BlacklistRepo,
 		BootstrapPeers:   bootstrapPeers,
 		RendezvousString: a.cfg.P2P.Rendezvous,
 	})
@@ -320,7 +319,22 @@ func (a *App) initTaskProcessor() error {
 		return fmt.Errorf("failed to create gossipsub: %w", err)
 	}
 
-	processor, err := task.NewTaskProcessor(&task.TaskProcessorConfig{
+	// Create response topic
+	responseTopic, err := ps.Join(task.TaskResponseTopic)
+	if err != nil {
+		log.Fatalf("[Main] Failed to join response topic: %v", err)
+	}
+	log.Printf("[Main] Joined response topic: %s", task.TaskResponseTopic)
+
+	// Subscribe to response topic
+	responseSubscription, err := responseTopic.Subscribe()
+	if err != nil {
+		log.Fatalf("[Main] Failed to subscribe to response topic: %v", err)
+	}
+	log.Printf("[Main] Subscribed to response topic")
+
+	// Initialize task processor
+	taskProcessor, err := task.NewTaskProcessor(&task.Config{
 		ChainManager:          a.chainManager,
 		Signer:                a.signer,
 		EpochStateQuerier:     a.epochUpdator,
@@ -328,12 +342,13 @@ func (a *App) initTaskProcessor() error {
 		BlacklistRepo:         a.repos.BlacklistRepo,
 		TaskRepo:              a.repos.TaskRepo,
 		OperatorRepo:          a.repos.OperatorRepo,
-		PubSub:                ps,
+		ResponseTopic:         responseTopic,
+		ResponseSubscription:  responseSubscription,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create task processor: %w", err)
 	}
-	a.taskProcessor = processor
+	a.taskProcessor = taskProcessor
 	return nil
 }
 
@@ -362,11 +377,21 @@ func (a *App) initAPI() error {
 
 func (a *App) initHealthChecker() error {
 	pingService := ping.NewPingService(a.host)
-	_, err := health.NewHealthChecker(a.ctx, a.node, pingService)
+	healthService, err := health.NewHealthChecker(a.ctx, a.node, pingService)
 	if err != nil {
 		metric.RecordError("health_checker_creation_failed")
 		return fmt.Errorf("failed to create health checker: %w", err)
 	}
+	defer healthService.Stop()
+
+	// 获取健康状态
+	status := healthService.GetStatus()
+	log.Printf("[Main] Health status: %v", status)
+
+	healthService.SetCheckInterval(30 * time.Second)
+
+	// 手动触发检查
+	healthService.TriggerCheck(a.ctx)
 	return nil
 }
 

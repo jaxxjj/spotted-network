@@ -10,7 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-func (n *Node) DisconnectPeer(targetPeer peer.ID) error {
+func (n *node) DisconnectPeer(targetPeer peer.ID) error {
 	log.Printf("[Node] Disconnecting peer %s", targetPeer.String())
 
 	// 1. disconnect all connection
@@ -24,7 +24,7 @@ func (n *Node) DisconnectPeer(targetPeer peer.ID) error {
 	return nil
 }
 
-func (n *Node) closeConnection(peer peer.ID) error {
+func (n *node) closeConnection(peer peer.ID) error {
 	if n.host.Network().Connectedness(peer) != network.Connected {
 		return nil
 	}
@@ -57,7 +57,7 @@ func (n *Node) closeConnection(peer peer.ID) error {
 }
 
 // cleanupPeerResources clean up resources
-func (n *Node) cleanupPeerResources(peer peer.ID) {
+func (n *node) cleanupPeerResources(peer peer.ID) {
 	peerstore := n.host.Network().Peerstore()
 	peerstore.ClearAddrs(peer)
 	peerstore.RemovePeer(peer)

@@ -1,6 +1,10 @@
 package signer
 
-import ethcommon "github.com/ethereum/go-ethereum/common"
+import (
+	"math/big"
+
+	ethcommon "github.com/ethereum/go-ethereum/common"
+)
 
 // Signer interface defines methods for signing messages
 type Signer interface {
@@ -12,4 +16,13 @@ type Signer interface {
 	SignTaskResponse(params TaskSignParams) ([]byte, error)
 	// VerifyTaskResponse verifies a task response signature
 	VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error
+}
+
+// TaskSignParams contains all fields needed for signing a task response
+type TaskSignParams struct {
+	User        ethcommon.Address
+	ChainID     uint32
+	BlockNumber uint64
+	Key         *big.Int
+	Value       *big.Int
 }

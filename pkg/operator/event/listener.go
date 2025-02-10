@@ -34,7 +34,11 @@ type Config struct {
 	OperatorRepo  OperatorRepo
 }
 
-type EventListener struct {
+type EventListenerService interface {
+	Stop()
+}
+
+type eventListener struct {
 	mainnetClient ChainClient
 	operatorRepo  OperatorRepo
 
@@ -42,7 +46,7 @@ type EventListener struct {
 	wg     sync.WaitGroup
 }
 
-func NewEventListener(ctx context.Context, cfg *Config) (*EventListener, error) {
+func NewEventListener(ctx context.Context, cfg *Config) (EventListenerService, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -55,7 +59,7 @@ func NewEventListener(ctx context.Context, cfg *Config) (*EventListener, error) 
 
 	ctx, cancel := context.WithCancel(ctx)
 
-	el := &EventListener{
+	el := &eventListener{
 		mainnetClient: cfg.MainnetClient,
 		operatorRepo:  cfg.OperatorRepo,
 		cancel:        cancel,
@@ -78,7 +82,7 @@ func NewEventListener(ctx context.Context, cfg *Config) (*EventListener, error) 
 }
 
 // starts listening for operator events
-func (el *EventListener) start(ctx context.Context) error {
+func (el *eventListener) start(ctx context.Context) error {
 	log.Printf("[EventListener] Starting event listener...")
 
 	filterOpts := &bind.FilterOpts{
@@ -130,7 +134,7 @@ func (el *EventListener) start(ctx context.Context) error {
 	}
 }
 
-func (el *EventListener) subscribeToEvents(
+func (el *eventListener) subscribeToEvents(
 	ctx context.Context,
 	filterOpts *bind.FilterOpts,
 	registeredChan chan<- *ethereum.OperatorRegisteredEvent,
@@ -160,7 +164,7 @@ func (el *EventListener) subscribeToEvents(
 }
 
 // handleOperatorRegistered processes a new OperatorRegistered event
-func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *ethereum.OperatorRegisteredEvent) error {
+func (el *eventListener) handleOperatorRegistered(ctx context.Context, event *ethereum.OperatorRegisteredEvent) error {
 	log.Printf("[EventListener] Processing OperatorRegistered event...")
 	blockNumber := event.BlockNumber.Uint64()
 
@@ -195,7 +199,7 @@ func (el *EventListener) handleOperatorRegistered(ctx context.Context, event *et
 }
 
 // handleOperatorDeregistered handles operator deregistration events
-func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *ethereum.OperatorDeregisteredEvent) error {
+func (el *eventListener) handleOperatorDeregistered(ctx context.Context, event *ethereum.OperatorDeregisteredEvent) error {
 	log.Printf("[EventListener] Processing OperatorDeregistered event...")
 	blockNumber := event.BlockNumber.Uint64()
 
@@ -222,7 +226,7 @@ func (el *EventListener) handleOperatorDeregistered(ctx context.Context, event *
 	return nil
 }
 
-func (el *EventListener) Stop() {
+func (el *eventListener) Stop() {
 	log.Printf("[EventListener] Stopping event listener...")
 	el.mainnetClient.Close()
 	// Cancel context

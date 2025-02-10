@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/galxe/spotted-network/pkg/repos/tasks"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -17,9 +18,9 @@ const (
 	p2pStatusCheckInterval = 30 * time.Second
 )
 
-// PubSubService defines the interface for pubsub functionality needed by TaskProcessor
-type PubSubService interface {
-	Join(topic string, opts ...pubsub.TopicOpt) (*pubsub.Topic, error)
+type TaskProcessor interface {
+	ProcessTask(ctx context.Context, task *tasks.Tasks) error
+	Stop()
 }
 
 // ResponseTopic defines the interface for response topic functionality
@@ -35,7 +36,7 @@ type ResponseTopic interface {
 }
 
 // TaskProcessorConfig contains all dependencies needed by TaskProcessor
-type TaskProcessorConfig struct {
+type Config struct {
 	Signer                OperatorSigner
 	EpochStateQuerier     EpochStateQuerier
 	ConsensusResponseRepo ConsensusResponseRepo
@@ -43,7 +44,8 @@ type TaskProcessorConfig struct {
 	TaskRepo              TaskRepo
 	OperatorRepo          OperatorRepo
 	ChainManager          ChainManager
-	PubSub                PubSubService
+	ResponseTopic         ResponseTopic
+	ResponseSubscription  *pubsub.Subscription
 }
 
 type taskResponse struct {
@@ -65,7 +67,7 @@ type TaskResponseTrack struct {
 }
 
 // TaskProcessor handles task processing and consensus
-type TaskProcessor struct {
+type taskProcessor struct {
 	signer            OperatorSigner
 	epochStateQuerier EpochStateQuerier
 	taskRepo          TaskRepo
@@ -76,14 +78,13 @@ type TaskProcessor struct {
 	responseTopic     ResponseTopic
 
 	taskResponseTrack TaskResponseTrack
-	subscription      *pubsub.Subscription
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
 // NewTaskProcessor creates a new task processor
-func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
+func NewTaskProcessor(cfg *Config) (TaskProcessor, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("[TaskProcessor] config is nil")
 	}
@@ -112,20 +113,17 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 		return nil, fmt.Errorf("[TaskProcessor] chain manager is nil")
 	}
 
-	if cfg.PubSub == nil {
-		return nil, fmt.Errorf("[TaskProcessor] pubsub is nil")
+	if cfg.ResponseTopic == nil {
+		return nil, fmt.Errorf("[TaskProcessor] response topic is nil")
 	}
 
-	// Create response topic
-	responseTopic, err := cfg.PubSub.Join(TaskResponseTopic)
-	if err != nil {
-		return nil, fmt.Errorf("[TaskProcessor] failed to join response topic: %w", err)
+	if cfg.ResponseSubscription == nil {
+		return nil, fmt.Errorf("[TaskProcessor] response subscription is nil")
 	}
-	log.Printf("[TaskProcessor] Joined response topic: %s", TaskResponseTopic)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	tp := &TaskProcessor{
+	tp := &taskProcessor{
 		signer:            cfg.Signer,
 		epochStateQuerier: cfg.EpochStateQuerier,
 		taskRepo:          cfg.TaskRepo,
@@ -133,7 +131,7 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 		blacklistRepo:     cfg.BlacklistRepo,
 		operatorRepo:      cfg.OperatorRepo,
 		chainManager:      cfg.ChainManager,
-		responseTopic:     responseTopic,
+		responseTopic:     cfg.ResponseTopic,
 		cancel:            cancel,
 		taskResponseTrack: TaskResponseTrack{
 			responses: make(map[string]map[string]taskResponse),
@@ -141,20 +139,11 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 		},
 	}
 
-	// Subscribe to response topic
-	sub, err := responseTopic.Subscribe()
-	if err != nil {
-		cancel()
-		return nil, fmt.Errorf("[TaskProcessor] failed to subscribe to response topic: %w", err)
-	}
-	tp.subscription = sub
-	log.Printf("[TaskProcessor] Subscribed to response topic")
-
 	// Start goroutines
 	tp.wg.Add(4)
 	go func() {
 		defer tp.wg.Done()
-		tp.handleResponses(ctx, sub)
+		tp.handleResponses(ctx, cfg.ResponseSubscription)
 	}()
 	go func() {
 		defer tp.wg.Done()
@@ -173,7 +162,7 @@ func NewTaskProcessor(cfg *TaskProcessorConfig) (*TaskProcessor, error) {
 }
 
 // Stop gracefully stops the task processor
-func (tp *TaskProcessor) Stop() {
+func (tp *taskProcessor) Stop() {
 	log.Printf("[TaskProcessor] Stopping task processor...")
 
 	// 1. Cancel context to stop all goroutines
@@ -181,12 +170,6 @@ func (tp *TaskProcessor) Stop() {
 
 	// 2. Wait for all goroutines to finish
 	tp.wg.Wait()
-
-	// 3. Cancel subscription
-	if tp.subscription != nil {
-		tp.subscription.Cancel()
-		tp.subscription = nil
-	}
 
 	// 4. Clean up topic
 	if tp.responseTopic != nil {

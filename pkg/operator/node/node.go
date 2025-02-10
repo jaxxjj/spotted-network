@@ -13,45 +13,47 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
 
 	"github.com/galxe/spotted-network/internal/metric"
-	"github.com/galxe/spotted-network/pkg/repos/blacklist"
+)
+
+const (
+	maxRetries        = 3
+	retryInterval     = 5 * time.Second
+	bootstrapInterval = 20 * time.Second
 )
 
 // Config contains all the dependencies needed by Node
 type Config struct {
 	Host             host.Host
-	BlacklistRepo    *blacklist.Queries
 	BootstrapPeers   []peer.AddrInfo
 	RendezvousString string
 }
 
-// Node represents an operator node in the network
-type Node struct {
+// node represents an operator node in the network
+type node struct {
 	ctx              context.Context
 	cancel           context.CancelFunc
 	host             host.Host
-	blacklistRepo    BlacklistRepo
 	dht              *dht.IpfsDHT
 	routingDiscovery *routing.RoutingDiscovery
 }
 
 // NewNode creates a new operator node with the given dependencies
-func NewNode(ctx context.Context, cfg *Config) (*Node, error) {
+func NewNode(ctx context.Context, cfg *Config) (Node, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
 	}
 	if cfg.Host == nil {
 		return nil, fmt.Errorf("host is required")
 	}
-	if cfg.BlacklistRepo == nil {
-		return nil, fmt.Errorf("blacklist repo is required")
+	if cfg.RendezvousString == "" {
+		return nil, fmt.Errorf("rendezvous string is required")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	node := &Node{
-		ctx:           ctx,
-		cancel:        cancel,
-		host:          cfg.Host,
-		blacklistRepo: cfg.BlacklistRepo,
+	node := &node{
+		ctx:    ctx,
+		cancel: cancel,
+		host:   cfg.Host,
 	}
 
 	// Initialize DHT
@@ -72,13 +74,17 @@ func NewNode(ctx context.Context, cfg *Config) (*Node, error) {
 	return node, nil
 }
 
-const (
-	maxRetries        = 3
-	retryInterval     = 5 * time.Second
-	bootstrapInterval = 20 * time.Second
-)
+func (n *node) Stop(ctx context.Context) error {
+	n.cancel()
+	if n.dht != nil {
+		if err := n.dht.Close(); err != nil {
+			log.Printf("Failed to close DHT: %v", err)
+		}
+	}
+	return n.host.Close()
+}
 
-func (n *Node) initDHT(bootstrapPeers []peer.AddrInfo) error {
+func (n *node) initDHT(bootstrapPeers []peer.AddrInfo) error {
 	log.Printf("Initializing DHT with bootstrap peers: %+v", bootstrapPeers)
 
 	var err error
@@ -106,7 +112,7 @@ func (n *Node) initDHT(bootstrapPeers []peer.AddrInfo) error {
 	return nil
 }
 
-func (n *Node) maintainBootstrapConnections(bootstrapPeers []peer.AddrInfo) {
+func (n *node) maintainBootstrapConnections(bootstrapPeers []peer.AddrInfo) {
 	ticker := time.NewTicker(bootstrapInterval)
 	defer ticker.Stop()
 
@@ -144,7 +150,7 @@ func (n *Node) maintainBootstrapConnections(bootstrapPeers []peer.AddrInfo) {
 	}
 }
 
-func (n *Node) connectWithTimeout(peer peer.AddrInfo) error {
+func (n *node) connectWithTimeout(peer peer.AddrInfo) error {
 	ctx, cancel := context.WithTimeout(n.ctx, 10*time.Second)
 	defer cancel()
 
@@ -170,7 +176,7 @@ func (n *Node) connectWithTimeout(peer peer.AddrInfo) error {
 	return fmt.Errorf("connection not established after timeout")
 }
 
-func (n *Node) startPeerDiscovery(rendezvous string) error {
+func (n *node) startPeerDiscovery(rendezvous string) error {
 	// Advertise our presence
 	ttl, err := n.routingDiscovery.Advertise(n.ctx, rendezvous)
 	if err != nil {
@@ -190,7 +196,7 @@ func (n *Node) startPeerDiscovery(rendezvous string) error {
 	return nil
 }
 
-func (n *Node) discoverPeers(rendezvous string) {
+func (n *node) discoverPeers(rendezvous string) {
 	ticker := time.NewTicker(time.Second * 10)
 	defer ticker.Stop()
 
@@ -232,7 +238,7 @@ func (n *Node) discoverPeers(rendezvous string) {
 	}
 }
 
-func (n *Node) maintainRoutingTable() {
+func (n *node) maintainRoutingTable() {
 	ticker := time.NewTicker(time.Second * 10)
 	defer ticker.Stop()
 
@@ -261,28 +267,4 @@ func (n *Node) maintainRoutingTable() {
 			}
 		}
 	}
-}
-
-// PrintPeerInfo prints the node's peer information
-func (n *Node) PrintPeerInfo() {
-	// Get node's addresses
-	addrs := n.host.Addrs()
-	addrStrings := make([]string, 0, len(addrs))
-	for _, addr := range addrs {
-		addrStrings = append(addrStrings, addr.String())
-	}
-
-	log.Printf("Node Peer Info:")
-	log.Printf("PeerID: %s", n.host.ID().String())
-	log.Printf("Addresses: \n%s", strings.Join(addrStrings, "\n"))
-}
-
-func (n *Node) Stop(ctx context.Context) error {
-	n.cancel()
-	if n.dht != nil {
-		if err := n.dht.Close(); err != nil {
-			log.Printf("Failed to close DHT: %v", err)
-		}
-	}
-	return n.host.Close()
 }

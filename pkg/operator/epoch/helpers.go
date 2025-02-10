@@ -7,7 +7,7 @@ import (
 )
 
 // DetermineOperatorStatus determines operator status based on current block number and epochs
-func isOperatorActive(currentBlock uint64, activeEpoch uint32, exitEpoch uint32) bool {
+func IsOperatorActive(currentBlock uint64, activeEpoch uint32, exitEpoch uint32) bool {
 	// Calculate epoch block numbers
 	activeEpochStartBlock := constants.GenesisBlock + uint64(activeEpoch)*constants.EpochPeriod
 	exitEpochStartBlock := constants.GenesisBlock + uint64(exitEpoch)*constants.EpochPeriod

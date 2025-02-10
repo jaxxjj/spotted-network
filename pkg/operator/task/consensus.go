@@ -22,7 +22,7 @@ type ConsensusResponseRepo interface {
 }
 
 // checkConsensus checks if consensus has been reached for a task
-func (tp *TaskProcessor) checkConsensus(ctx context.Context, response taskResponse) error {
+func (tp *taskProcessor) checkConsensus(ctx context.Context, response taskResponse) error {
 	taskID := response.taskID
 	log.Printf("[Consensus] Starting consensus check for task %s", taskID)
 
@@ -93,7 +93,7 @@ func (tp *TaskProcessor) checkConsensus(ctx context.Context, response taskRespon
 }
 
 // cleanupTask removes task data from local maps
-func (tp *TaskProcessor) cleanupTask(taskID string) {
+func (tp *taskProcessor) cleanupTask(taskID string) {
 	tp.taskResponseTrack.mu.Lock()
 	delete(tp.taskResponseTrack.responses, taskID)
 	delete(tp.taskResponseTrack.weights, taskID)
@@ -102,7 +102,7 @@ func (tp *TaskProcessor) cleanupTask(taskID string) {
 }
 
 // calculateTotalWeight sums up all weights
-func (tp *TaskProcessor) calculateTotalWeight(weights map[string]*big.Int) *big.Int {
+func (tp *taskProcessor) calculateTotalWeight(weights map[string]*big.Int) *big.Int {
 	totalWeight := new(big.Int)
 	for _, weight := range weights {
 		totalWeight.Add(totalWeight, weight)
@@ -110,7 +110,7 @@ func (tp *TaskProcessor) calculateTotalWeight(weights map[string]*big.Int) *big.
 	return totalWeight
 }
 
-func (tp *TaskProcessor) markTaskAsCompleted(ctx context.Context, taskID string) error {
+func (tp *taskProcessor) markTaskAsCompleted(ctx context.Context, taskID string) error {
 	// If we have the task locally, mark it as completed
 	_, err := tp.taskRepo.GetTaskByID(ctx, taskID)
 	if err != nil {
@@ -127,7 +127,7 @@ func (tp *TaskProcessor) markTaskAsCompleted(ctx context.Context, taskID string)
 }
 
 // collectSignaturesAndAddresses collects signatures and addresses ordered by signing keys
-func (tp *TaskProcessor) collectSignaturesAndAddresses(
+func (tp *taskProcessor) collectSignaturesAndAddresses(
 	ctx context.Context,
 	responses map[string]taskResponse,
 ) ([][]byte, []string, error) {

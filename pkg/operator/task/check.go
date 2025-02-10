@@ -27,7 +27,7 @@ type TaskRepo interface {
 }
 
 // checkTimeouts periodically checks for pending tasks and retries them
-func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
+func (tp *taskProcessor) checkTimeouts(ctx context.Context) {
 	ticker := time.NewTicker(pendingTaskCheckInterval)
 	defer ticker.Stop()
 
@@ -78,7 +78,7 @@ func (tp *TaskProcessor) checkTimeouts(ctx context.Context) {
 }
 
 // checkConfirmations periodically checks block confirmations for tasks in confirming status
-func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
+func (tp *taskProcessor) checkConfirmations(ctx context.Context) {
 	ticker := time.NewTicker(confirmationCheckInterval)
 	defer ticker.Stop()
 
@@ -153,7 +153,7 @@ func (tp *TaskProcessor) checkConfirmations(ctx context.Context) {
 }
 
 // periodicCleanup runs cleanup of all task maps periodically
-func (tp *TaskProcessor) periodicCleanup(ctx context.Context) {
+func (tp *taskProcessor) periodicCleanup(ctx context.Context) {
 	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
 
@@ -169,7 +169,7 @@ func (tp *TaskProcessor) periodicCleanup(ctx context.Context) {
 }
 
 // cleanupAllTasks removes all task data from local maps
-func (tp *TaskProcessor) cleanupAllTasks() {
+func (tp *taskProcessor) cleanupAllTasks() {
 	// Clean up responses map
 	tp.taskResponseTrack.mu.Lock()
 	tp.taskResponseTrack.responses = make(map[string]map[string]taskResponse)

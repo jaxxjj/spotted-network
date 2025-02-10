@@ -14,8 +14,24 @@ import (
 	"github.com/galxe/spotted-network/pkg/common/contracts/bindings"
 )
 
+// chainClient implements the ChainClient interface
+type chainClient struct {
+	client       *ethclient.Client
+	stateManager *bindings.StateManager
+	epochManager *bindings.EpochManager
+	registry     *bindings.ECDSAStakeRegistry
+}
+
+type Config struct {
+	ChainID             uint32
+	EpochManagerAddress common.Address
+	RegistryAddress     common.Address
+	StateManagerAddress common.Address
+	RPCEndpoint         string
+}
+
 // NewChainClient creates a new Ethereum client for a specific chain
-func NewChainClient(cfg *Config) (*ChainClient, error) {
+func NewChainClient(cfg *Config) (ChainClient, error) {
 	ethClient, err := ethclient.Dial(cfg.RPCEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("[ChainClient] failed to connect to Ethereum node: %w", err)
@@ -39,8 +55,8 @@ func NewChainClient(cfg *Config) (*ChainClient, error) {
 		return nil, fmt.Errorf("[ChainClient] failed to create registry binding: %w", err)
 	}
 
-	return &ChainClient{
-		client:         ethClient,
+	return &chainClient{
+		client:       ethClient,
 		stateManager: stateManager,
 		epochManager: epochManager,
 		registry:     registry,
@@ -48,13 +64,13 @@ func NewChainClient(cfg *Config) (*ChainClient, error) {
 }
 
 // Close implements contracts.ChainClient
-func (c *ChainClient) Close() error {
+func (c *chainClient) Close() error {
 	c.client.Close()
 	return nil
 }
 
 // State methods
-func (c *ChainClient) GetLatestState(ctx context.Context, target common.Address, key *big.Int) (*big.Int, error) {
+func (c *chainClient) GetLatestState(ctx context.Context, target common.Address, key *big.Int) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	value, err := c.stateManager.GetCurrentValue(opts, target, key)
 	if err != nil {
@@ -63,7 +79,7 @@ func (c *ChainClient) GetLatestState(ctx context.Context, target common.Address,
 	return value, nil
 }
 
-func (c *ChainClient) GetStateAtBlock(ctx context.Context, target common.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
+func (c *chainClient) GetStateAtBlock(ctx context.Context, target common.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	history, err := c.stateManager.GetHistoryAtBlock(opts, target, key, big.NewInt(int64(blockNumber)))
 	if err != nil {
@@ -72,7 +88,7 @@ func (c *ChainClient) GetStateAtBlock(ctx context.Context, target common.Address
 	return history.Value, nil
 }
 
-func (c *ChainClient) GetStateAtTimestamp(ctx context.Context, target common.Address, key *big.Int, timestamp uint64) (*big.Int, error) {
+func (c *chainClient) GetStateAtTimestamp(ctx context.Context, target common.Address, key *big.Int, timestamp uint64) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	history, err := c.stateManager.GetHistoryAfterTimestamp(opts, target, key, big.NewInt(int64(timestamp)))
 	if err != nil {
@@ -85,7 +101,7 @@ func (c *ChainClient) GetStateAtTimestamp(ctx context.Context, target common.Add
 }
 
 // Epoch methods
-func (c *ChainClient) GetCurrentEpoch(ctx context.Context) (uint32, error) {
+func (c *chainClient) GetCurrentEpoch(ctx context.Context) (uint32, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.epochManager.GetCurrentEpoch(opts)
 	if err != nil {
@@ -94,7 +110,7 @@ func (c *ChainClient) GetCurrentEpoch(ctx context.Context) (uint32, error) {
 	return epoch, nil
 }
 
-func (c *ChainClient) GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error) {
+func (c *chainClient) GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.epochManager.GetEffectiveEpochForBlock(opts, blockNumber)
 	if err != nil {
@@ -105,7 +121,7 @@ func (c *ChainClient) GetEffectiveEpochForBlock(ctx context.Context, blockNumber
 
 // Registry methods
 // GetOperatorWeight gets the stake weight for an operator
-func (c *ChainClient) GetOperatorWeight(ctx context.Context, operator common.Address) (*big.Int, error) {
+func (c *chainClient) GetOperatorWeight(ctx context.Context, operator common.Address) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.epochManager.GetCurrentEpoch(opts)
 	if err != nil {
@@ -119,7 +135,7 @@ func (c *ChainClient) GetOperatorWeight(ctx context.Context, operator common.Add
 }
 
 // GetTotalWeight gets the total stake weight
-func (c *ChainClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
+func (c *chainClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.epochManager.GetCurrentEpoch(opts)
 	if err != nil {
@@ -133,7 +149,7 @@ func (c *ChainClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
 }
 
 // gets the minimum stake required
-func (c *ChainClient) GetMinimumWeight(ctx context.Context) (*big.Int, error) {
+func (c *chainClient) GetMinimumWeight(ctx context.Context) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	stake, err := c.registry.MinimumWeight(opts)
 	if err != nil {
@@ -143,7 +159,7 @@ func (c *ChainClient) GetMinimumWeight(ctx context.Context) (*big.Int, error) {
 }
 
 // GetThresholdWeight gets the threshold weight required
-func (c *ChainClient) GetThresholdWeight(ctx context.Context) (*big.Int, error) {
+func (c *chainClient) GetThresholdWeight(ctx context.Context) (*big.Int, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	epoch, err := c.epochManager.GetCurrentEpoch(opts)
 	if err != nil {
@@ -157,7 +173,7 @@ func (c *ChainClient) GetThresholdWeight(ctx context.Context) (*big.Int, error) 
 }
 
 // IsOperatorRegistered checks if an operator is registered
-func (c *ChainClient) IsOperatorRegistered(ctx context.Context, operator common.Address) (bool, error) {
+func (c *chainClient) IsOperatorRegistered(ctx context.Context, operator common.Address) (bool, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	registered, err := c.registry.OperatorRegistered(opts, operator)
 	if err != nil {
@@ -167,7 +183,7 @@ func (c *ChainClient) IsOperatorRegistered(ctx context.Context, operator common.
 }
 
 // GetOperatorSigningKey gets the signing key for an operator at a specific epoch
-func (c *ChainClient) GetOperatorSigningKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
+func (c *chainClient) GetOperatorSigningKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	signingKey, err := c.registry.GetOperatorSigningKeyAtEpoch(opts, operator, epoch)
 	if err != nil {
@@ -176,7 +192,7 @@ func (c *ChainClient) GetOperatorSigningKey(ctx context.Context, operator common
 	return signingKey, nil
 }
 
-func (c *ChainClient) GetOperatorP2PKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
+func (c *chainClient) GetOperatorP2PKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
 	opts := &bind.CallOpts{Context: ctx}
 	p2pKey, err := c.registry.GetOperatorP2pKeyAtEpoch(opts, operator, epoch)
 	if err != nil {
@@ -186,16 +202,16 @@ func (c *ChainClient) GetOperatorP2PKey(ctx context.Context, operator common.Add
 }
 
 // BlockNumber returns the latest block number
-func (c *ChainClient) BlockNumber(ctx context.Context) (uint64, error) {
+func (c *chainClient) BlockNumber(ctx context.Context) (uint64, error) {
 	return c.client.BlockNumber(ctx)
 }
 
-func (c *ChainClient) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
-    return c.client.BlockByNumber(ctx, number)
+func (c *chainClient) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+	return c.client.BlockByNumber(ctx, number)
 }
 
 // WatchOperatorRegistered watches for operator registered events
-func (c *ChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *OperatorRegisteredEvent) (event.Subscription, error) {
+func (c *chainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *OperatorRegisteredEvent) (event.Subscription, error) {
 	// Create a subscription
 	sub := event.NewSubscription(func(quit <-chan struct{}) error {
 		ticker := time.NewTicker(time.Second)
@@ -227,8 +243,8 @@ func (c *ChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink 
 						Operator:    event.Operator,
 						BlockNumber: event.BlockNumber,
 						SigningKey:  event.SigningKey,
-						P2PKey:   event.P2pKey,
-						AVS:        event.Avs,
+						P2PKey:      event.P2pKey,
+						AVS:         event.Avs,
 					}
 					// Update last block to the event's block number
 					if event.BlockNumber.Uint64() > lastBlock {
@@ -243,7 +259,7 @@ func (c *ChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink 
 }
 
 // WatchOperatorDeregistered watches for operator deregistration events
-func (c *ChainClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *OperatorDeregisteredEvent) (event.Subscription, error) {
+func (c *chainClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *OperatorDeregisteredEvent) (event.Subscription, error) {
 	// Create a subscription
 	sub := event.NewSubscription(func(quit <-chan struct{}) error {
 		ticker := time.NewTicker(time.Second)
@@ -287,4 +303,3 @@ func (c *ChainClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sin
 
 	return sub, nil
 }
-

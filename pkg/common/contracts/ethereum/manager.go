@@ -8,31 +8,33 @@ import (
 	"github.com/galxe/spotted-network/pkg/config"
 )
 
-// NewManager creates a new chain manager from application config
-func NewManager(cfg *config.Config) (*ChainManager, error) {
-	chainConfigs := make(map[uint32]*Config)
-	for chainID, chainCfg := range cfg.Chains {
-		chainConfigs[chainID] = &Config{
-			ChainID:            chainID,
-			RPCEndpoint:        chainCfg.RPC,
-			StateManagerAddress: common.HexToAddress(chainCfg.Contracts.StateManager),
-			EpochManagerAddress: common.HexToAddress(chainCfg.Contracts.EpochManager),
-			RegistryAddress:    common.HexToAddress(chainCfg.Contracts.Registry),
-		}
-	}
-	
-	return NewChainManager(chainConfigs)
+const (
+	MainnetChainID = uint32(31337) // Ethereum mainnet chain ID
+)
+
+type chainManager struct {
+	chains map[uint32]ChainClient
+	mu     sync.RWMutex
 }
 
-// NewChainManager creates a new chain client manager
-func NewChainManager(configs map[uint32]*Config) (*ChainManager, error) {
-	m := &ChainManager{
-		chains: make(map[uint32]*ChainClient),
+// NewManager creates a new chain manager from application config
+func NewManager(cfg *config.Config) (ChainManager, error) {
+	// Create new chainManager instance
+	m := &chainManager{
+		chains: make(map[uint32]ChainClient),
 		mu:     sync.RWMutex{},
 	}
 
 	// Initialize clients for each chain
-	for chainID, config := range configs {
+	for chainID, chainCfg := range cfg.Chains {
+		config := &Config{
+			ChainID:             chainID,
+			RPCEndpoint:         chainCfg.RPC,
+			StateManagerAddress: common.HexToAddress(chainCfg.Contracts.StateManager),
+			EpochManagerAddress: common.HexToAddress(chainCfg.Contracts.EpochManager),
+			RegistryAddress:     common.HexToAddress(chainCfg.Contracts.Registry),
+		}
+
 		chain, err := NewChainClient(config)
 		if err != nil {
 			m.Close()
@@ -44,8 +46,8 @@ func NewChainManager(configs map[uint32]*Config) (*ChainManager, error) {
 	return m, nil
 }
 
-// GetChain returns the chain instance for a given chain ID
-func (m *ChainManager) GetClientByChainId(chainID uint32) (*ChainClient, error) {
+// GetClientByChainId returns the chain instance for a given chain ID
+func (m *chainManager) GetClientByChainId(chainID uint32) (ChainClient, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -56,13 +58,13 @@ func (m *ChainManager) GetClientByChainId(chainID uint32) (*ChainClient, error) 
 	return chain, nil
 }
 
-// GetMainnetChain returns the mainnet chain instance
-func (m *ChainManager) GetMainnetClient() (*ChainClient, error) {
+// GetMainnetClient returns the mainnet chain instance
+func (m *chainManager) GetMainnetClient() (ChainClient, error) {
 	return m.GetClientByChainId(MainnetChainID)
 }
 
 // AddChain adds a new chain
-func (m *ChainManager) AddChain(config *Config) error {
+func (m *chainManager) AddChain(config *Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -80,7 +82,7 @@ func (m *ChainManager) AddChain(config *Config) error {
 }
 
 // RemoveChain removes a chain
-func (m *ChainManager) RemoveChain(chainID uint32) error {
+func (m *chainManager) RemoveChain(chainID uint32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -98,7 +100,7 @@ func (m *ChainManager) RemoveChain(chainID uint32) error {
 }
 
 // Close closes all chains
-func (m *ChainManager) Close() error {
+func (m *chainManager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -116,7 +118,7 @@ func (m *ChainManager) Close() error {
 }
 
 // ListChains returns all available chain IDs
-func (m *ChainManager) ListChains() []uint32 {
+func (m *chainManager) ListChains() []uint32 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -125,4 +127,4 @@ func (m *ChainManager) ListChains() []uint32 {
 		chainIDs = append(chainIDs, chainID)
 	}
 	return chainIDs
-} 
+}

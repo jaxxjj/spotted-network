@@ -12,26 +12,18 @@ import (
 	p2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 )
 
-// TaskSignParams contains all fields needed for signing a task response
-type TaskSignParams struct {
-	User        ethcommon.Address
-	ChainID     uint32
-	BlockNumber uint64
-	Key         *big.Int
-	Value       *big.Int
-}
 type Config struct {
 	SigningKeyPath string
 	Password       string
 }
 
 // LocalSigner implements Signer interface using a local keystore file
-type LocalSigner struct {
+type localSigner struct {
 	signingKey *ecdsa.PrivateKey // Used for signing task responses
 }
 
 // NewLocalSigner creates a new local signer
-func NewLocalSigner(cfg *Config) (*LocalSigner, error) {
+func NewLocalSigner(cfg *Config) (Signer, error) {
 	// Load signing key
 	signingKeyJson, err := os.ReadFile(cfg.SigningKeyPath)
 	if err != nil {
@@ -42,18 +34,18 @@ func NewLocalSigner(cfg *Config) (*LocalSigner, error) {
 		return nil, fmt.Errorf("failed to decrypt signing key: %w", err)
 	}
 
-	return &LocalSigner{
+	return &localSigner{
 		signingKey: signingKey.PrivateKey,
 	}, nil
 }
 
 // GetSigningAddress returns the address derived from signing key
-func (s *LocalSigner) GetSigningAddress() ethcommon.Address {
+func (s *localSigner) GetSigningAddress() ethcommon.Address {
 	return ethcrypto.PubkeyToAddress(s.signingKey.PublicKey)
 }
 
 // SignTaskResponse signs a task response with all required fields
-func (s *LocalSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
+func (s *localSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
 	// Pack parameters into bytes
 	msg := []byte{}
 	msg = append(msg, params.User.Bytes()...)
@@ -70,7 +62,7 @@ func (s *LocalSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
 }
 
 // VerifyTaskResponse verifies a task response signature
-func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error {
+func (s *localSigner) VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error {
 	// Pack parameters into bytes in the same order as SignTaskResponse
 	msg := []byte{}
 	msg = append(msg, params.User.Bytes()...)
@@ -95,6 +87,14 @@ func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte
 	}
 
 	return nil
+}
+
+// Sign implements the Signer interface
+func (s *localSigner) Sign(message []byte) ([]byte, error) {
+	// Hash the message
+	hash := ethcrypto.Keccak256(message)
+	// Sign the hash
+	return ethcrypto.Sign(hash, s.signingKey)
 }
 
 func Base64ToPrivKey(encodedKey string) (p2pcrypto.PrivKey, error) {
