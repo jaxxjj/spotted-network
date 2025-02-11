@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 
 	"github.com/coocood/freecache"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
@@ -19,13 +20,16 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/consensus_responses"
 	"github.com/galxe/spotted-network/pkg/repos/operators"
 	"github.com/galxe/spotted-network/pkg/repos/tasks"
+	protob "github.com/galxe/spotted-network/proto"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	pb "github.com/libp2p/go-libp2p-pubsub/pb"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx/testsuite"
+	"google.golang.org/protobuf/proto"
 )
 
 type mockEpochStateQuerier struct {
@@ -83,8 +87,8 @@ func NewMockChainClient() *mockChainClient {
 	mc.On("GetMinimumWeight", mock.Anything).Return(big.NewInt(10), nil).Maybe()
 	mc.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(500), nil).Maybe()
 	mc.On("IsOperatorRegistered", mock.Anything, mock.Anything).Return(true, nil).Maybe()
-	mc.On("GetOperatorSigningKey", mock.Anything, mock.Anything, mock.Anything).Return(common.HexToAddress("0x1"), nil).Maybe()
-	mc.On("GetOperatorP2PKey", mock.Anything, mock.Anything, mock.Anything).Return(common.HexToAddress("0x2"), nil).Maybe()
+	mc.On("GetOperatorSigningKey", mock.Anything, mock.Anything, mock.Anything).Return(ethcommon.HexToAddress("0x1"), nil).Maybe()
+	mc.On("GetOperatorP2PKey", mock.Anything, mock.Anything, mock.Anything).Return(ethcommon.HexToAddress("0x2"), nil).Maybe()
 	mc.On("WatchOperatorRegistered", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	mc.On("WatchOperatorDeregistered", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	mc.On("Close").Return(nil).Maybe()
@@ -97,7 +101,7 @@ func (m *mockChainClient) BlockNumber(ctx context.Context) (uint64, error) {
 	return args.Get(0).(uint64), args.Error(1)
 }
 
-func (m *mockChainClient) GetStateAtBlock(ctx context.Context, target common.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
+func (m *mockChainClient) GetStateAtBlock(ctx context.Context, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
 	args := m.Called(ctx, target, key, blockNumber)
 	if v := args.Get(0); v != nil {
 		return v.(*big.Int), args.Error(1)
@@ -105,7 +109,7 @@ func (m *mockChainClient) GetStateAtBlock(ctx context.Context, target common.Add
 	return nil, args.Error(1)
 }
 
-func (m *mockChainClient) GetLatestState(ctx context.Context, target common.Address, key *big.Int) (*big.Int, error) {
+func (m *mockChainClient) GetLatestState(ctx context.Context, target ethcommon.Address, key *big.Int) (*big.Int, error) {
 	args := m.Called(ctx, target, key)
 	if v := args.Get(0); v != nil {
 		return v.(*big.Int), args.Error(1)
@@ -113,7 +117,7 @@ func (m *mockChainClient) GetLatestState(ctx context.Context, target common.Addr
 	return nil, args.Error(1)
 }
 
-func (m *mockChainClient) GetStateAtTimestamp(ctx context.Context, target common.Address, key *big.Int, timestamp uint64) (*big.Int, error) {
+func (m *mockChainClient) GetStateAtTimestamp(ctx context.Context, target ethcommon.Address, key *big.Int, timestamp uint64) (*big.Int, error) {
 	args := m.Called(ctx, target, key, timestamp)
 	if v := args.Get(0); v != nil {
 		return v.(*big.Int), args.Error(1)
@@ -131,7 +135,7 @@ func (m *mockChainClient) GetEffectiveEpochForBlock(ctx context.Context, blockNu
 	return args.Get(0).(uint32), args.Error(1)
 }
 
-func (m *mockChainClient) GetOperatorWeight(ctx context.Context, operator common.Address) (*big.Int, error) {
+func (m *mockChainClient) GetOperatorWeight(ctx context.Context, operator ethcommon.Address) (*big.Int, error) {
 	args := m.Called(ctx, operator)
 	if v := args.Get(0); v != nil {
 		return v.(*big.Int), args.Error(1)
@@ -163,19 +167,19 @@ func (m *mockChainClient) GetThresholdWeight(ctx context.Context) (*big.Int, err
 	return nil, args.Error(1)
 }
 
-func (m *mockChainClient) IsOperatorRegistered(ctx context.Context, operator common.Address) (bool, error) {
+func (m *mockChainClient) IsOperatorRegistered(ctx context.Context, operator ethcommon.Address) (bool, error) {
 	args := m.Called(ctx, operator)
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *mockChainClient) GetOperatorSigningKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
+func (m *mockChainClient) GetOperatorSigningKey(ctx context.Context, operator ethcommon.Address, epoch uint32) (ethcommon.Address, error) {
 	args := m.Called(ctx, operator, epoch)
-	return args.Get(0).(common.Address), args.Error(1)
+	return args.Get(0).(ethcommon.Address), args.Error(1)
 }
 
-func (m *mockChainClient) GetOperatorP2PKey(ctx context.Context, operator common.Address, epoch uint32) (common.Address, error) {
+func (m *mockChainClient) GetOperatorP2PKey(ctx context.Context, operator ethcommon.Address, epoch uint32) (ethcommon.Address, error) {
 	args := m.Called(ctx, operator, epoch)
-	return args.Get(0).(common.Address), args.Error(1)
+	return args.Get(0).(ethcommon.Address), args.Error(1)
 }
 
 func (m *mockChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error) {
@@ -296,18 +300,26 @@ func (m *mockTopic) String() string {
 }
 
 type operatorTableSerde struct {
-	operatorStatesQuerier *operators.Queries
+	operatorStatesQuerier OperatorRepo
 }
 
 func (o operatorTableSerde) Load(data []byte) error {
-	if err := o.operatorStatesQuerier.Load(context.Background(), data); err != nil {
+	querier, ok := o.operatorStatesQuerier.(*operators.Queries)
+	if !ok {
+		return fmt.Errorf("operatorStatesQuerier is not of type *operators.Queries")
+	}
+	if err := querier.Load(context.Background(), data); err != nil {
 		return fmt.Errorf("failed to load operator states data: %w", err)
 	}
 	return nil
 }
 
 func (o operatorTableSerde) Dump() ([]byte, error) {
-	return o.operatorStatesQuerier.Dump(context.Background(), func(m *operators.Operators) {
+	querier, ok := o.operatorStatesQuerier.(*operators.Queries)
+	if !ok {
+		return nil, fmt.Errorf("operatorStatesQuerier is not of type *operators.Queries")
+	}
+	return querier.Dump(context.Background(), func(m *operators.Operators) {
 		m.CreatedAt = time.Unix(0, 0).UTC()
 		m.UpdatedAt = time.Unix(0, 0).UTC()
 	})
@@ -493,6 +505,216 @@ func newOperatorTestSuite() *OperatorTestSuite {
 	}
 
 	return s
+}
+
+func (s *OperatorTestSuite) TestProcessorInitialization() {
+	tests := []struct {
+		name        string
+		setupConfig func() *Config
+		wantErr     bool
+		errMsg      string
+	}{
+		{
+			name: "nil_config",
+			setupConfig: func() *Config {
+				return nil
+			},
+			wantErr: true,
+			errMsg:  "[TaskProcessor] config is nil",
+		},
+		{
+			name: "nil_signer",
+			setupConfig: func() *Config {
+				cfg := &Config{
+					EpochStateQuerier:     s.mockStateQuery,
+					ConsensusResponseRepo: s.consensusResponseRepo,
+					BlacklistRepo:         s.blacklistRepo,
+					TaskRepo:              s.taskRepo,
+					OperatorRepo:          s.operatorRepo,
+					ChainManager:          s.mockChainMgr,
+					ResponseTopic:         s.mockTopic,
+				}
+				return cfg
+			},
+			wantErr: true,
+			errMsg:  "[TaskProcessor] signer is nil",
+		},
+		{
+			name: "nil_epoch_state_querier",
+			setupConfig: func() *Config {
+				cfg := &Config{
+					Signer:                s.signer,
+					ConsensusResponseRepo: s.consensusResponseRepo,
+					BlacklistRepo:         s.blacklistRepo,
+					TaskRepo:              s.taskRepo,
+					OperatorRepo:          s.operatorRepo,
+					ChainManager:          s.mockChainMgr,
+					ResponseTopic:         s.mockTopic,
+				}
+				return cfg
+			},
+			wantErr: true,
+			errMsg:  "[TaskProcessor] epoch state querier is nil",
+		},
+		{
+			name: "nil_task_repo",
+			setupConfig: func() *Config {
+				cfg := &Config{
+					Signer:                s.signer,
+					EpochStateQuerier:     s.mockStateQuery,
+					ConsensusResponseRepo: s.consensusResponseRepo,
+					BlacklistRepo:         s.blacklistRepo,
+					OperatorRepo:          s.operatorRepo,
+					ChainManager:          s.mockChainMgr,
+					ResponseTopic:         s.mockTopic,
+				}
+				return cfg
+			},
+			wantErr: true,
+			errMsg:  "[TaskProcessor] task repo is nil",
+		},
+		{
+			name: "nil_operator_repo",
+			setupConfig: func() *Config {
+				cfg := &Config{
+					Signer:                s.signer,
+					EpochStateQuerier:     s.mockStateQuery,
+					ConsensusResponseRepo: s.consensusResponseRepo,
+					BlacklistRepo:         s.blacklistRepo,
+					TaskRepo:              s.taskRepo,
+					ChainManager:          s.mockChainMgr,
+					ResponseTopic:         s.mockTopic,
+				}
+				return cfg
+			},
+			wantErr: true,
+			errMsg:  "[TaskProcessor] operator repo is nil",
+		},
+		{
+			name: "nil_consensus_response_repo",
+			setupConfig: func() *Config {
+				cfg := &Config{
+					Signer:            s.signer,
+					EpochStateQuerier: s.mockStateQuery,
+					BlacklistRepo:     s.blacklistRepo,
+					TaskRepo:          s.taskRepo,
+					OperatorRepo:      s.operatorRepo,
+					ChainManager:      s.mockChainMgr,
+					ResponseTopic:     s.mockTopic,
+				}
+				return cfg
+			},
+			wantErr: true,
+			errMsg:  "[TaskProcessor] consensus response repo is nil",
+		},
+		{
+			name: "nil_chain_manager",
+			setupConfig: func() *Config {
+				cfg := &Config{
+					Signer:                s.signer,
+					EpochStateQuerier:     s.mockStateQuery,
+					ConsensusResponseRepo: s.consensusResponseRepo,
+					BlacklistRepo:         s.blacklistRepo,
+					TaskRepo:              s.taskRepo,
+					OperatorRepo:          s.operatorRepo,
+					ResponseTopic:         s.mockTopic,
+				}
+				return cfg
+			},
+			wantErr: true,
+			errMsg:  "[TaskProcessor] chain manager is nil",
+		},
+		{
+			name: "nil_response_topic",
+			setupConfig: func() *Config {
+				cfg := &Config{
+					Signer:                s.signer,
+					EpochStateQuerier:     s.mockStateQuery,
+					ConsensusResponseRepo: s.consensusResponseRepo,
+					BlacklistRepo:         s.blacklistRepo,
+					TaskRepo:              s.taskRepo,
+					OperatorRepo:          s.operatorRepo,
+					ChainManager:          s.mockChainMgr,
+				}
+				return cfg
+			},
+			wantErr: true,
+			errMsg:  "[TaskProcessor] response topic is nil",
+		},
+		{
+			name: "successful_initialization",
+			setupConfig: func() *Config {
+				return &Config{
+					Signer:                s.signer,
+					EpochStateQuerier:     s.mockStateQuery,
+					ConsensusResponseRepo: s.consensusResponseRepo,
+					BlacklistRepo:         s.blacklistRepo,
+					TaskRepo:              s.taskRepo,
+					OperatorRepo:          s.operatorRepo,
+					ChainManager:          s.mockChainMgr,
+					ResponseTopic:         s.mockTopic,
+				}
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			cfg := tt.setupConfig()
+			processor, err := NewTaskProcessor(cfg)
+
+			if tt.wantErr {
+				s.Error(err)
+				s.Contains(err.Error(), tt.errMsg)
+				s.Nil(processor)
+			} else {
+				s.NoError(err)
+				s.NotNil(processor)
+			}
+		})
+	}
+}
+
+func (s *OperatorTestSuite) TestProcessorStop() {
+	// Create a new processor with all dependencies
+	processor, err := NewTaskProcessor(&Config{
+		Signer:                s.signer,
+		EpochStateQuerier:     s.mockStateQuery,
+		ConsensusResponseRepo: s.consensusResponseRepo,
+		BlacklistRepo:         s.blacklistRepo,
+		TaskRepo:              s.taskRepo,
+		OperatorRepo:          s.operatorRepo,
+		ChainManager:          s.mockChainMgr,
+		ResponseTopic:         s.mockTopic,
+	})
+	s.NoError(err)
+	s.NotNil(processor)
+
+	// Start the processor
+	ctx := context.Background()
+	err = processor.Start(ctx, s.mockSubscription)
+	s.NoError(err)
+
+	// Add some test data to memory maps
+	tp := processor.(*taskProcessor)
+	tp.taskResponseTrack.mu.Lock()
+	tp.taskResponseTrack.responses["test-task"] = make(map[string]taskResponse)
+	tp.taskResponseTrack.weights["test-task"] = make(map[string]*big.Int)
+	tp.taskResponseTrack.mu.Unlock()
+
+	// Stop the processor
+	err = processor.Stop()
+	s.NoError(err)
+
+	// Verify cleanup
+	tp.taskResponseTrack.mu.RLock()
+	s.Empty(tp.taskResponseTrack.responses)
+	s.Empty(tp.taskResponseTrack.weights)
+	tp.taskResponseTrack.mu.RUnlock()
+
+	// Verify topic is cleaned up
+	s.Nil(tp.responseTopic)
 }
 
 // TestTaskChecking tests the task checking functionality
@@ -787,7 +1009,7 @@ func (s *OperatorTestSuite) TestConsensus() {
 
 			// Load initial operator states
 			operatorSerde := operatorTableSerde{
-				operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+				operatorStatesQuerier: s.operatorRepo,
 			}
 			s.LoadState("TestOperatorSuite/TestConsensus/initial_operators.json", operatorSerde)
 
@@ -826,4 +1048,229 @@ func (s *OperatorTestSuite) TestConsensus() {
 			}
 		})
 	}
+}
+
+// TestResponseHandling tests the response handling functionality
+func (s *OperatorTestSuite) TestResponseHandling() {
+	// Set up test data
+	taskID := "ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6"
+	operatorAddr := "0x9F0D8BAC11C5693a290527f09434b86651c66Bf2"
+	signingKey := "0x2222222222222222222222222222222222222222"
+
+	// Create task response
+	response := taskResponse{
+		taskID:        taskID,
+		epoch:         1,
+		chainID:       1,
+		targetAddress: "0x1234567890123456789012345678901234567890",
+		key:           "1000000000000000000",
+		value:         "1000000000000000000",
+		blockNumber:   100,
+	}
+
+	// Create sign params
+	keyBigInt, ok := new(big.Int).SetString(response.key, 10)
+	s.True(ok, "Failed to convert key to big.Int")
+	valueBigInt, ok := new(big.Int).SetString(response.value, 10)
+	s.True(ok, "Failed to convert value to big.Int")
+
+	params := signer.TaskSignParams{
+		User:        ethcommon.HexToAddress(response.targetAddress),
+		ChainID:     response.chainID,
+		BlockNumber: response.blockNumber,
+		Key:         keyBigInt,
+		Value:       valueBigInt,
+	}
+
+	// Sign response
+	signature, err := s.signer.SignTaskResponse(params)
+	s.NoError(err)
+	response.signature = signature
+
+	// Test storing response
+	s.processor.storeResponseAndWeight(response, signingKey, big.NewInt(100))
+
+	// Verify response is stored
+	s.processor.taskResponseTrack.mu.RLock()
+	storedResponse, exists := s.processor.taskResponseTrack.responses[taskID][signingKey]
+	s.processor.taskResponseTrack.mu.RUnlock()
+	s.True(exists)
+	s.Equal(response, storedResponse)
+
+	// Test duplicate response handling
+	s.processor.storeResponseAndWeight(response, signingKey, big.NewInt(100))
+	s.True(s.processor.alreadyProcessed(taskID, signingKey))
+
+	// Test response verification with operator address
+	err = s.signer.VerifyTaskResponse(params, signature, operatorAddr)
+	s.NoError(err)
+
+	// Clean up
+	s.processor.cleanupTask(taskID)
+}
+
+// TestResponseValidation tests the response validation and blacklist functionality
+func (s *OperatorTestSuite) TestResponseValidation() {
+	// Set up test data
+	taskID := "test-validation-task"
+	signingKey := "0x2222222222222222222222222222222222222222"
+	peerID := peer.ID("12D3KooWB21ALruLNKbH5vLjDjiG1mM9XVnCJMGdsdo2LKvoqneD")
+
+	// Load initial states from JSON files
+	s.LoadState("TestOperatorSuite/TestResponseValidation/initial_operators.json", &operatorTableSerde{s.operatorRepo})
+	s.LoadState("TestOperatorSuite/TestResponseValidation/initial_tasks.json", &taskTableSerde{s.taskRepo.(*tasks.Queries)})
+	s.LoadState("TestOperatorSuite/TestResponseValidation/initial_blacklist.json", &blacklistTableSerde{s.blacklistRepo.(*blacklist.Queries)})
+
+	// Create mock response
+	response := taskResponse{
+		taskID:        taskID,
+		signature:     []byte("invalid-signature"),
+		epoch:         1,
+		chainID:       1,
+		targetAddress: "0x1234567890123456789012345678901234567890",
+		key:           "1000000000000000000",
+		value:         "1000000000000000000",
+		blockNumber:   100,
+	}
+
+	// Test response from inactive operator
+	err := s.processor.incrementPeerViolation(context.Background(), peerID, fmt.Errorf("operator not active"))
+	s.Error(err)
+
+	// Verify blacklist record was created
+	isBlocked, err := s.blacklistRepo.(*blacklist.Queries).IsBlocked(context.Background(), peerID.String())
+	s.NoError(err)
+	s.NotNil(isBlocked)
+	s.False(*isBlocked) // Should be false since violation count is only 1
+
+	// Add two more violations to exceed threshold
+	err = s.processor.incrementPeerViolation(context.Background(), peerID, fmt.Errorf("operator not active"))
+	s.Error(err)
+	err = s.processor.incrementPeerViolation(context.Background(), peerID, fmt.Errorf("operator not active"))
+	s.Error(err)
+
+	// Verify peer is now blocked
+	isBlocked, err = s.blacklistRepo.(*blacklist.Queries).IsBlocked(context.Background(), peerID.String())
+	s.NoError(err)
+	s.NotNil(isBlocked)
+	s.True(*isBlocked) // Should be true since violation count is now 3
+
+	// Test invalid signature
+	err = s.processor.verifyResponse(response, signingKey)
+	s.Error(err)
+
+	// Test wrong epoch
+	response.epoch = 2 // Different from current epoch (1)
+	pbMsg := &protob.TaskResponseMessage{
+		TaskId:        response.taskID,
+		Signature:     response.signature,
+		Epoch:         response.epoch,
+		ChainId:       response.chainID,
+		TargetAddress: response.targetAddress,
+		Key:           response.key,
+		Value:         response.value,
+		BlockNumber:   response.blockNumber,
+	}
+	data, err := proto.Marshal(pbMsg)
+	s.NoError(err)
+
+	err = s.processor.processResponse(context.Background(), &pubsub.Message{
+		Message: &pb.Message{
+			Data: data,
+		},
+		ID:            "test-id",
+		ReceivedFrom:  peerID,
+		ValidatorData: data,
+		Local:         false,
+	})
+	s.NoError(err) // Should be no error since different epoch just gets skipped
+
+	// Clean up
+	s.processor.cleanupTask(taskID)
+}
+
+// TestResponseConcurrency tests concurrent response handling
+func (s *OperatorTestSuite) TestResponseConcurrency() {
+	// Set up test data
+	taskID := "test-concurrent-task"
+	numOperators := 10
+
+	type testOperator struct {
+		addr       string
+		signingKey string
+		p2pKey     string
+	}
+	operators := make([]testOperator, numOperators)
+
+	// Load initial operator states
+	operatorSerde := operatorTableSerde{
+		operatorStatesQuerier: s.operatorRepo,
+	}
+	s.LoadState("TestOperatorSuite/TestResponseConcurrency/initial_operators.json", operatorSerde)
+
+	// Load initial task state
+	taskSerde := taskTableSerde{
+		taskQuerier: s.taskRepo.(*tasks.Queries),
+	}
+	s.LoadState("TestOperatorSuite/TestResponseConcurrency/initial_tasks.json", taskSerde)
+
+	// Initialize operators array with values from loaded state
+	for i := 0; i < numOperators; i++ {
+		operators[i].addr = fmt.Sprintf("0x%040x", i+1)
+		operators[i].signingKey = fmt.Sprintf("0x%040x", i+100)
+		operators[i].p2pKey = fmt.Sprintf("0x%040x", i+200)
+	}
+
+	// Create a wait group for concurrent operations
+	var wg sync.WaitGroup
+	wg.Add(numOperators)
+
+	// Concurrently store responses from multiple operators
+	for i := 0; i < numOperators; i++ {
+		go func(idx int) {
+			defer wg.Done()
+
+			response := taskResponse{
+				taskID:        taskID,
+				signature:     []byte(fmt.Sprintf("signature-%d", idx)),
+				epoch:         1,
+				chainID:       1,
+				targetAddress: "0x1234567890123456789012345678901234567890",
+				key:           "1000000000000000000",
+				value:         "1000000000000000000",
+				blockNumber:   100,
+			}
+
+			s.processor.storeResponseAndWeight(response, operators[idx].signingKey, big.NewInt(100))
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
+
+	// Verify all responses were stored correctly
+	s.processor.taskResponseTrack.mu.RLock()
+	responses := s.processor.taskResponseTrack.responses[taskID]
+	weights := s.processor.taskResponseTrack.weights[taskID]
+	s.processor.taskResponseTrack.mu.RUnlock()
+
+	// Verify response count
+	s.Equal(numOperators, len(responses))
+	s.Equal(numOperators, len(weights))
+
+	// Verify each operator's response and weight
+	for i := 0; i < numOperators; i++ {
+		signingKey := operators[i].signingKey
+		response, exists := responses[signingKey]
+		s.True(exists)
+		s.Equal(taskID, response.taskID)
+		s.Equal([]byte(fmt.Sprintf("signature-%d", i)), response.signature)
+
+		weight, exists := weights[signingKey]
+		s.True(exists)
+		s.Equal(big.NewInt(100), weight)
+	}
+
+	// Clean up
+	s.processor.cleanupTask(taskID)
 }

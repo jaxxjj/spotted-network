@@ -99,9 +99,6 @@ CREATE TABLE IF NOT EXISTS blacklist (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ NULL CHECK (expires_at > created_at),
 
-    CONSTRAINT valid_peer_id CHECK (
-        peer_id ~ '^12D3KooW[1-9A-HJ-NP-Za-km-z]{44,48}$'
-    ),
     CONSTRAINT valid_violation_count CHECK (violation_count >= 0)
 );
 
