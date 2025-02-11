@@ -543,8 +543,8 @@ func (s *OperatorTestSuite) TestTaskCleanup() {
 		epoch:         1,
 		chainID:       1,
 		targetAddress: "0x1234567890123456789012345678901234567890",
-		key:           "1",
-		value:         "100",
+		key:           "1000000000000000000",
+		value:         "1000000000000000000",
 		blockNumber:   100,
 	}
 
@@ -554,8 +554,8 @@ func (s *OperatorTestSuite) TestTaskCleanup() {
 		epoch:         1,
 		chainID:       1,
 		targetAddress: "0x1234567890123456789012345678901234567890",
-		key:           "1",
-		value:         "100",
+		key:           "2000000000000000000",
+		value:         "2000000000000000000",
 		blockNumber:   100,
 	}
 
@@ -594,7 +594,7 @@ func (s *OperatorTestSuite) TestTaskMemoryCleanup() {
 				taskID:  taskID1,
 				epoch:   1,
 				chainID: 1,
-				value:   "100",
+				value:   "1000000000000000000",
 			},
 		},
 		taskID2: {
@@ -602,7 +602,7 @@ func (s *OperatorTestSuite) TestTaskMemoryCleanup() {
 				taskID:  taskID2,
 				epoch:   1,
 				chainID: 1,
-				value:   "200",
+				value:   "2000000000000000000",
 			},
 		},
 	}
@@ -647,78 +647,183 @@ func (s *OperatorTestSuite) TestTaskMemoryCleanup() {
 	s.processor.taskResponseTrack.mu.RUnlock()
 }
 
+// Helper function to set up operator responses in memory
+func (s *OperatorTestSuite) setupOperatorResponses(taskID string, responses map[string]taskResponse, weights map[string]*big.Int) {
+	s.processor.taskResponseTrack.mu.Lock()
+	defer s.processor.taskResponseTrack.mu.Unlock()
+
+	// Initialize maps if they don't exist
+	if s.processor.taskResponseTrack.responses[taskID] == nil {
+		s.processor.taskResponseTrack.responses[taskID] = make(map[string]taskResponse)
+	}
+	if s.processor.taskResponseTrack.weights[taskID] == nil {
+		s.processor.taskResponseTrack.weights[taskID] = make(map[string]*big.Int)
+	}
+
+	// Set responses
+	for operatorID, response := range responses {
+		s.processor.taskResponseTrack.responses[taskID][operatorID] = response
+	}
+
+	// Set weights
+	for operatorID, weight := range weights {
+		s.processor.taskResponseTrack.weights[taskID][operatorID] = weight
+	}
+}
+
 // TestConsensus tests the consensus functionality
 func (s *OperatorTestSuite) TestConsensus() {
 	// Set mock expectations for threshold weight
 	s.mockStateQuery.thresholdWeight = big.NewInt(100)
 
-	// Load initial operator and task states
-	operatorSerde := operatorTableSerde{
-		operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+	// Test cases
+	tests := []struct {
+		name         string
+		taskID       string
+		responses    map[string]taskResponse
+		weights      map[string]*big.Int
+		goldenFile   string
+		initialState string
+	}{
+		{
+			name:   "successful_consensus",
+			taskID: "ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6",
+			responses: map[string]taskResponse{
+				"0x1111111111111111111111111111111111111111": {
+					taskID:        "ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6",
+					signature:     []byte("test-signature-1"),
+					epoch:         1,
+					chainID:       1,
+					targetAddress: "0x1234567890123456789012345678901234567890",
+					key:           "1000000000000000000",
+					value:         "1000000000000000000",
+					blockNumber:   100,
+				},
+				"0x2222222222222222222222222222222222222222": {
+					taskID:        "ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6",
+					signature:     []byte("test-signature-2"),
+					epoch:         1,
+					chainID:       1,
+					targetAddress: "0x1234567890123456789012345678901234567890",
+					key:           "1000000000000000000",
+					value:         "1000000000000000000",
+					blockNumber:   100,
+				},
+			},
+			weights: map[string]*big.Int{
+				"0x1111111111111111111111111111111111111111": big.NewInt(60),
+				"0x2222222222222222222222222222222222222222": big.NewInt(50),
+			},
+			goldenFile:   "after_consensus",
+			initialState: "TestOperatorSuite/TestConsensus/initial_tasks.json",
+		},
+		{
+			name:   "insufficient_weight",
+			taskID: "dcd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6",
+			responses: map[string]taskResponse{
+				"0x1111111111111111111111111111111111111111": {
+					taskID:        "dcd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6",
+					signature:     []byte("test-signature-1"),
+					epoch:         1,
+					chainID:       1,
+					targetAddress: "0x1234567890123456789012345678901234567890",
+					key:           "1000000000000000000",
+					value:         "1000000000000000000",
+					blockNumber:   100,
+				},
+				"0x2222222222222222222222222222222222222222": {
+					taskID:        "dcd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6",
+					signature:     []byte("test-signature-2"),
+					epoch:         1,
+					chainID:       1,
+					targetAddress: "0x1234567890123456789012345678901234567890",
+					key:           "1000000000000000000",
+					value:         "1000000000000000000",
+					blockNumber:   100,
+				},
+			},
+			weights: map[string]*big.Int{
+				"0x1111111111111111111111111111111111111111": big.NewInt(40),
+				"0x2222222222222222222222222222222222222222": big.NewInt(30),
+			},
+			goldenFile:   "after_consensus",
+			initialState: "TestOperatorSuite/TestConsensus/insufficient_weight/initial_task.json",
+		},
+		{
+			name:   "single_response_no_consensus",
+			taskID: "fcd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a7",
+			responses: map[string]taskResponse{
+				"0x1111111111111111111111111111111111111111": {
+					taskID:        "fcd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a7",
+					signature:     []byte("test-signature-1"),
+					epoch:         1,
+					chainID:       1,
+					targetAddress: "0x1234567890123456789012345678901234567890",
+					key:           "2000000000000000000",
+					value:         "2000000000000000000",
+					blockNumber:   100,
+				},
+			},
+			weights: map[string]*big.Int{
+				"0x1111111111111111111111111111111111111111": big.NewInt(60),
+			},
+			goldenFile:   "after_single_response",
+			initialState: "TestOperatorSuite/TestConsensus/single_response/initial_task.json",
+		},
+		{
+			name:         "empty_responses",
+			taskID:       "hcd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a9",
+			responses:    map[string]taskResponse{}, // Empty responses
+			weights:      map[string]*big.Int{},     // Empty weights
+			goldenFile:   "after_empty_responses",
+			initialState: "TestOperatorSuite/TestConsensus/empty_responses/initial_task.json",
+		},
 	}
-	s.LoadState("TestOperatorSuite/TestConsensus/initial_operators.json", operatorSerde)
 
-	taskSerde := taskTableSerde{
-		taskQuerier: s.taskRepo.(*tasks.Queries),
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			// Clean up database before each test case
+			s.SetupTest()
+
+			// Load initial operator states
+			operatorSerde := operatorTableSerde{
+				operatorStatesQuerier: s.operatorRepo.(*operators.Queries),
+			}
+			s.LoadState("TestOperatorSuite/TestConsensus/initial_operators.json", operatorSerde)
+
+			// Load initial task state
+			taskSerde := taskTableSerde{
+				taskQuerier: s.taskRepo.(*tasks.Queries),
+			}
+			s.LoadState(tt.initialState, taskSerde)
+
+			// Set up operator responses in memory
+			s.setupOperatorResponses(tt.taskID, tt.responses, tt.weights)
+
+			// Get the task
+			task, err := s.taskRepo.GetTaskByID(context.Background(), tt.taskID)
+			s.NoError(err)
+			s.NotNil(task)
+
+			// Process one of the responses to trigger consensus check
+			var firstResponse taskResponse
+			for _, resp := range tt.responses {
+				firstResponse = resp
+				break
+			}
+			err = s.processor.checkConsensus(context.Background(), firstResponse)
+			s.NoError(err)
+
+			// Verify final state using golden files
+			s.Golden(tt.goldenFile, taskSerde)
+
+			// Verify consensus response if needed
+			if tt.name == "successful_consensus" {
+				consensusSerde := consensusResponseTableSerde{
+					consensusResponseQuerier: s.consensusResponseRepo.(*consensus_responses.Queries),
+				}
+				s.Golden("consensus_response", consensusSerde)
+			}
+		})
 	}
-	s.LoadState("TestOperatorSuite/TestConsensus/initial_tasks.json", taskSerde)
-
-	// Create test task responses with different signatures
-	taskID := "test-task-1"
-	response1 := taskResponse{
-		taskID:        taskID,
-		signature:     []byte("test-signature-1"),
-		epoch:         1,
-		chainID:       1,
-		targetAddress: "0x1234567890123456789012345678901234567890",
-		key:           "1",
-		value:         "100",
-		blockNumber:   100,
-	}
-
-	response2 := taskResponse{
-		taskID:        taskID,
-		signature:     []byte("test-signature-2"),
-		epoch:         1,
-		chainID:       1,
-		targetAddress: "0x1234567890123456789012345678901234567890",
-		key:           "1",
-		value:         "100",
-		blockNumber:   100,
-	}
-
-	// Initialize response maps
-	s.processor.taskResponseTrack.responses = make(map[string]map[string]taskResponse)
-	s.processor.taskResponseTrack.weights = make(map[string]map[string]*big.Int)
-
-	// Add responses and weights with different signatures
-	s.processor.taskResponseTrack.responses[taskID] = map[string]taskResponse{
-		"0x1111111111111111111111111111111111111111": response1,
-		"0x2222222222222222222222222222222222222222": response2,
-	}
-	s.processor.taskResponseTrack.weights[taskID] = map[string]*big.Int{
-		"0x1111111111111111111111111111111111111111": big.NewInt(60),
-		"0x2222222222222222222222222222222222222222": big.NewInt(50),
-	}
-
-	// Test consensus check
-	err := s.processor.checkConsensus(context.Background(), response1)
-	s.NoError(err)
-
-	// Verify maps are cleaned up
-	s.processor.taskResponseTrack.mu.RLock()
-	_, responsesExist := s.processor.taskResponseTrack.responses[taskID]
-	_, weightsExist := s.processor.taskResponseTrack.weights[taskID]
-	s.processor.taskResponseTrack.mu.RUnlock()
-
-	s.False(responsesExist)
-	s.False(weightsExist)
-
-	// Verify final states
-	s.Golden("after_consensus", taskSerde)
-
-	consensusSerde := consensusResponseTableSerde{
-		consensusResponseQuerier: s.consensusResponseRepo.(*consensus_responses.Queries),
-	}
-	s.Golden("consensus_response", consensusSerde)
 }

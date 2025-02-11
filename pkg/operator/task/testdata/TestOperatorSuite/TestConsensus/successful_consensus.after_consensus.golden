@@ -7,7 +7,8 @@
     "block_number": 100,
     "value": 1000000000000000000,
     "epoch": 1,
-    "status": "pending",
+    "status": "completed",
+    "required_confirmations": 0,
     "retry_count": 0,
     "created_at": "1970-01-01T00:00:00Z",
     "updated_at": "1970-01-01T00:00:00Z"
