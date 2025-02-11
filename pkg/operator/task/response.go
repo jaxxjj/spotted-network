@@ -26,8 +26,8 @@ type BlacklistRepo interface {
 // handleResponses handles incoming task responses (backpressure pattern)
 func (tp *taskProcessor) handleResponses(ctx context.Context, sub *pubsub.Subscription) {
 	const (
-		maxConcurrent  = 10
-		processTimeout = 30 * time.Second
+		maxConcurrent  = 20
+		processTimeout = 60 * time.Second
 	)
 
 	// Create semaphore for backpressure

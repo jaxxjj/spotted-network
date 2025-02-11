@@ -81,7 +81,6 @@ type SendRequestParams struct {
 	Key           string `json:"key"`
 	BlockNumber   uint64 `json:"block_number,omitempty"`
 	Timestamp     uint64 `json:"timestamp,omitempty"`
-	WaitFinality  bool   `json:"wait_finality"`
 }
 
 // send request response
