@@ -21,6 +21,7 @@ import (
 	"github.com/galxe/spotted-network/pkg/repos/operators"
 	"github.com/galxe/spotted-network/pkg/repos/tasks"
 	protob "github.com/galxe/spotted-network/proto"
+	"github.com/jackc/pgx/v5/pgtype"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pb "github.com/libp2p/go-libp2p-pubsub/pb"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -272,7 +273,7 @@ func NewMockTopic() *mockTopic {
 	mt.On("Subscribe", mock.Anything).Return(&pubsub.Subscription{}, nil).Maybe()
 	mt.On("String").Return(mt.topicName).Maybe()
 	mt.On("ListPeers").Return(mt.peers).Maybe()
-	mt.On("Publish", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	mt.On("Publish", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	return mt
 }
 
@@ -1273,4 +1274,393 @@ func (s *OperatorTestSuite) TestResponseConcurrency() {
 
 	// Clean up
 	s.processor.cleanupTask(taskID)
+}
+
+// TestProcessTask tests the ProcessTask functionality
+func (s *OperatorTestSuite) TestProcessTask() {
+	tests := []struct {
+		name        string
+		task        *tasks.Tasks
+		setupMocks  func()
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "nil_task",
+			task:        nil,
+			setupMocks:  func() {},
+			wantErr:     true,
+			errContains: "task is nil",
+		},
+		{
+			name: "zero_block_number",
+			task: &tasks.Tasks{
+				TaskID:      "test-task",
+				BlockNumber: 0,
+			},
+			setupMocks:  func() {},
+			wantErr:     true,
+			errContains: "task block number is nil",
+		},
+		{
+			name: "successful_processing",
+			task: &tasks.Tasks{
+				TaskID:        "test-task",
+				BlockNumber:   100,
+				ChainID:       1,
+				TargetAddress: "0x1234567890123456789012345678901234567890",
+				Key:           pgtype.Numeric{Int: big.NewInt(1), Exp: 0, Valid: true},
+				Value:         pgtype.Numeric{Int: big.NewInt(1), Exp: 0, Valid: true},
+				Epoch:         1,
+			},
+			setupMocks: func() {
+				// Load initial operator states
+				operatorSerde := operatorTableSerde{
+					operatorStatesQuerier: s.operatorRepo,
+				}
+				s.LoadState("TestOperatorSuite/TestProcessTask/initial_operators.json", operatorSerde)
+
+				mockChainClient := NewMockChainClient()
+				s.mockChainMgr.On("GetClientByChainId", uint32(1)).Return(mockChainClient, nil)
+				mockChainClient.On("BlockNumber", mock.Anything).Return(uint64(120), nil)
+				mockChainClient.On("GetStateAtBlock", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(big.NewInt(1), nil)
+			},
+			wantErr: false,
+		},
+		{
+			name: "state_mismatch",
+			task: &tasks.Tasks{
+				TaskID:        "test-task",
+				BlockNumber:   100,
+				ChainID:       1,
+				TargetAddress: "0x1234567890123456789012345678901234567890",
+				Key:           pgtype.Numeric{Int: big.NewInt(1000000000000000000), Exp: 0, Valid: true},
+				Value:         pgtype.Numeric{Int: big.NewInt(1000000000000000000), Exp: 0, Valid: true},
+				Epoch:         1,
+			},
+			setupMocks: func() {
+				// Load initial operator states
+				operatorSerde := operatorTableSerde{
+					operatorStatesQuerier: s.operatorRepo,
+				}
+				s.LoadState("TestOperatorSuite/TestProcessTask/initial_operators.json", operatorSerde)
+
+				mockChainClient := NewMockChainClient()
+				s.mockChainMgr.On("GetClientByChainId", uint32(1)).Return(mockChainClient, nil)
+				s.mockChainMgr.On("GetClientByChainId", uint32(1)).Return(mockChainClient, nil)
+				mockChainClient.On("BlockNumber", mock.Anything).Return(uint64(120), nil)
+				mockChainClient.On("GetStateAtBlock", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(big.NewInt(2000000000000000000), nil)
+			},
+			wantErr:     true,
+			errContains: "state value mismatch",
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			// Reset state before each test
+			s.SetupTest()
+
+			// Setup mocks
+			tt.setupMocks()
+
+			// Execute test
+			err := s.processor.ProcessTask(context.Background(), tt.task)
+
+			// Verify results
+			if tt.wantErr {
+				s.Error(err)
+				if tt.errContains != "" {
+					s.Contains(err.Error(), tt.errContains)
+				}
+			} else {
+				s.NoError(err)
+			}
+		})
+	}
+}
+
+// TestGetStateWithRetries tests normal getStateWithRetries functionality
+func (s *OperatorTestSuite) TestGetStateWithRetries() {
+	// 创建 mock chain client
+	mockChainClient := NewMockChainClient()
+
+	// 设置正常情况下的返回值
+	mockChainClient.On("BlockNumber", mock.Anything).Return(uint64(120), nil)
+	mockChainClient.On("GetStateAtBlock",
+		mock.MatchedBy(func(addr ethcommon.Address) bool {
+			return addr.Hex() == "0x1234567890123456789012345678901234567890"
+		}),
+		mock.Anything,
+		uint64(100),
+	).Return(big.NewInt(1), nil)
+
+	// 执行测试
+	state, err := getStateWithRetries(
+		context.Background(),
+		mockChainClient,
+		ethcommon.HexToAddress("0x1234567890123456789012345678901234567890"),
+		big.NewInt(1),
+		uint64(100),
+	)
+
+	// 验证结果
+	s.NoError(err)
+	s.NotNil(state)
+	s.Equal(big.NewInt(1), state)
+}
+
+// TestGetStateWithRetriesError tests error scenarios for getStateWithRetries
+func (s *OperatorTestSuite) TestGetStateWithRetriesError() {
+	tests := []struct {
+		name        string
+		blockNumber uint64
+		setupMocks  func(*mockChainClient)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "future_block",
+			blockNumber: 200,
+			setupMocks: func(m *mockChainClient) {
+				m.On("BlockNumber", mock.Anything).Return(uint64(100), nil)
+			},
+			wantErr:     true,
+			errContains: "block number 200 is in the future",
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			mockChainClient := NewMockChainClient()
+			tt.setupMocks(mockChainClient)
+
+			state, err := getStateWithRetries(
+				context.Background(),
+				mockChainClient,
+				ethcommon.HexToAddress("0x1234567890123456789012345678901234567890"),
+				big.NewInt(1),
+				tt.blockNumber,
+			)
+
+			if tt.wantErr {
+				s.Error(err)
+				s.Contains(err.Error(), tt.errContains)
+				s.Nil(state)
+			} else {
+				s.NoError(err)
+				s.NotNil(state)
+			}
+		})
+	}
+}
+
+// TestBroadcastResponse tests normal message sending scenarios
+func (s *OperatorTestSuite) TestBroadcastResponse() {
+	tests := []struct {
+		name     string
+		response taskResponse
+	}{
+		{
+			name: "normal_message",
+			response: taskResponse{
+				taskID:        "test-task-1",
+				signature:     []byte("test-signature"),
+				epoch:         1,
+				chainID:       1,
+				targetAddress: "0x1234567890123456789012345678901234567890",
+				key:           "1000000000000000000",
+				value:         "1000000000000000000",
+				blockNumber:   100,
+			},
+		},
+		{
+			name: "message_with_large_values",
+			response: taskResponse{
+				taskID:        "test-task-2",
+				signature:     []byte("test-signature-2"),
+				epoch:         1,
+				chainID:       1,
+				targetAddress: "0x1234567890123456789012345678901234567890",
+				key:           "100000000000000000000000000000",
+				value:         "100000000000000000000000000000",
+				blockNumber:   200,
+			},
+		},
+		{
+			name: "message_with_zero_values",
+			response: taskResponse{
+				taskID:        "test-task-3",
+				signature:     []byte("test-signature-3"),
+				epoch:         1,
+				chainID:       1,
+				targetAddress: "0x1234567890123456789012345678901234567890",
+				key:           "0",
+				value:         "0",
+				blockNumber:   300,
+			},
+		},
+	}
+
+	// Setup mock topic
+	s.mockTopic.On("Publish", mock.Anything, mock.Anything).Return(nil)
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			// Execute test
+			err := s.processor.broadcastResponse(tt.response)
+			s.NoError(err)
+		})
+	}
+}
+
+// TestCleanupMethods tests cleanup related methods
+func (s *OperatorTestSuite) TestCleanupMethods() {
+	s.Run("cleanup_single_task", func() {
+		// Setup test data
+		s.processor.taskResponseTrack.mu.Lock()
+		s.processor.taskResponseTrack.responses = map[string]map[string]taskResponse{
+			"task1": {
+				"operator1": taskResponse{taskID: "task1"},
+			},
+			"task2": {
+				"operator1": taskResponse{taskID: "task2"},
+			},
+		}
+		s.processor.taskResponseTrack.weights = map[string]map[string]*big.Int{
+			"task1": {
+				"operator1": big.NewInt(100),
+			},
+			"task2": {
+				"operator1": big.NewInt(200),
+			},
+		}
+		s.processor.taskResponseTrack.mu.Unlock()
+
+		// Test cleanup single task
+		s.processor.cleanupTask("task1")
+
+		// Verify task1 is removed but task2 remains
+		s.processor.taskResponseTrack.mu.RLock()
+		_, hasTask1Responses := s.processor.taskResponseTrack.responses["task1"]
+		_, hasTask1Weights := s.processor.taskResponseTrack.weights["task1"]
+		hasTask2 := s.processor.taskResponseTrack.responses["task2"] != nil
+		s.processor.taskResponseTrack.mu.RUnlock()
+
+		s.False(hasTask1Responses)
+		s.False(hasTask1Weights)
+		s.True(hasTask2)
+	})
+
+	s.Run("cleanup_all_tasks", func() {
+		// Setup test data
+		s.processor.taskResponseTrack.mu.Lock()
+		s.processor.taskResponseTrack.responses = map[string]map[string]taskResponse{
+			"task1": {
+				"operator1": taskResponse{taskID: "task1"},
+			},
+			"task2": {
+				"operator1": taskResponse{taskID: "task2"},
+			},
+		}
+		s.processor.taskResponseTrack.weights = map[string]map[string]*big.Int{
+			"task1": {
+				"operator1": big.NewInt(100),
+			},
+			"task2": {
+				"operator1": big.NewInt(200),
+			},
+		}
+		s.processor.taskResponseTrack.mu.Unlock()
+
+		// Test cleanup all tasks
+		s.processor.cleanupAllTasks()
+
+		// Verify all tasks are removed
+		s.processor.taskResponseTrack.mu.RLock()
+		responsesLen := len(s.processor.taskResponseTrack.responses)
+		weightsLen := len(s.processor.taskResponseTrack.weights)
+		s.processor.taskResponseTrack.mu.RUnlock()
+
+		s.Equal(0, responsesLen)
+		s.Equal(0, weightsLen)
+	})
+}
+
+// TestAlreadyProcessed tests the alreadyProcessed method
+func (s *OperatorTestSuite) TestAlreadyProcessed() {
+	tests := []struct {
+		name       string
+		setupMocks func()
+		taskID     string
+		signingKey string
+		want       bool
+	}{
+		{
+			name: "task_already_processed",
+			setupMocks: func() {
+				s.processor.taskResponseTrack.mu.Lock()
+				s.processor.taskResponseTrack.responses = map[string]map[string]taskResponse{
+					"task1": {
+						"operator1": taskResponse{taskID: "task1"},
+					},
+				}
+				s.processor.taskResponseTrack.mu.Unlock()
+			},
+			taskID:     "task1",
+			signingKey: "operator1",
+			want:       true,
+		},
+		{
+			name: "task_not_processed",
+			setupMocks: func() {
+				s.processor.taskResponseTrack.mu.Lock()
+				s.processor.taskResponseTrack.responses = map[string]map[string]taskResponse{
+					"task1": {
+						"operator1": taskResponse{taskID: "task1"},
+					},
+				}
+				s.processor.taskResponseTrack.mu.Unlock()
+			},
+			taskID:     "task2",
+			signingKey: "operator1",
+			want:       false,
+		},
+		{
+			name: "different_operator",
+			setupMocks: func() {
+				s.processor.taskResponseTrack.mu.Lock()
+				s.processor.taskResponseTrack.responses = map[string]map[string]taskResponse{
+					"task1": {
+						"operator1": taskResponse{taskID: "task1"},
+					},
+				}
+				s.processor.taskResponseTrack.mu.Unlock()
+			},
+			taskID:     "task1",
+			signingKey: "operator2",
+			want:       false,
+		},
+		{
+			name: "nil_responses_map",
+			setupMocks: func() {
+				s.processor.taskResponseTrack.mu.Lock()
+				s.processor.taskResponseTrack.responses = nil
+				s.processor.taskResponseTrack.mu.Unlock()
+			},
+			taskID:     "task1",
+			signingKey: "operator1",
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.SetupTest()
+			tt.setupMocks()
+
+			got := s.processor.alreadyProcessed(tt.taskID, tt.signingKey)
+			s.Equal(tt.want, got)
+		})
+	}
 }

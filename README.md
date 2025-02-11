@@ -155,3 +155,15 @@ Generated P2P key for operator3:
   Public key (base64): CAESIF3JBdtww8Mc5nToRLTsuX/LMyAGFqkhR/HCJSArpnpq
   P2PKey: 0x67aa23adde2459a1620be2ea28982310597521b0
   PeerId: 12D3KooWG8TsS8YsbnfArhnQznH6Rmumt6fwE9J66ZN8tF7n9GVf
+
+```solidity
+    address public constant OPERATOR_1 = address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342);
+    address public constant OPERATOR_2 = address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B);
+    address public constant OPERATOR_3 = address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5);
+    address public constant SIGNING_KEY_1 = address(0x9F0D8BAC11C5693a290527f09434b86651c66Bf2);
+    address public constant SIGNING_KEY_2 = address(0xeBBAce05Db3D717A5BA82EAB8AdE712dFb151b13);
+    address public constant SIGNING_KEY_3 = address(0x083739b681B85cc2c9e394471486321D6446b25b);
+    address public constant P2P_KEY_1 = address(0x310C8425b620980DCFcf756e46572bb6ac80Eb07);
+    address public constant P2P_KEY_2 = address(0x01078ffBf1De436d6f429f5Ce6Be8Fd9D6E16165);
+    address public constant P2P_KEY_3 = address(0x67aa23adde2459a1620BE2Ea28982310597521b0);
+```
