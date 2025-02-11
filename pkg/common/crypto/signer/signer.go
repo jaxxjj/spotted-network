@@ -2,9 +2,11 @@ package signer
 
 import (
 	"crypto/ecdsa"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	ethcommon "github.com/ethereum/go-ethereum/common"
@@ -13,7 +15,9 @@ import (
 )
 
 type Config struct {
+	// SigningKeyPath and SigningKey are mutually exclusive
 	SigningKeyPath string
+	SigningKey     string // hex string of private key without 0x prefix
 	Password       string
 }
 
@@ -24,18 +28,43 @@ type localSigner struct {
 
 // NewLocalSigner creates a new local signer
 func NewLocalSigner(cfg *Config) (Signer, error) {
-	// Load signing key
-	signingKeyJson, err := os.ReadFile(cfg.SigningKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read signing key file: %w", err)
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
 	}
-	signingKey, err := keystore.DecryptKey(signingKeyJson, cfg.Password)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt signing key: %w", err)
+
+	// Validate config - exactly one signing key option must be provided XOR
+	if (cfg.SigningKeyPath == "") == (cfg.SigningKey == "") || (cfg.SigningKeyPath != "" && cfg.SigningKey != "") {
+		return nil, fmt.Errorf("exactly one of SigningKeyPath or SigningKey must be provided")
+	}
+
+	var privateKey *ecdsa.PrivateKey
+
+	if cfg.SigningKeyPath != "" {
+		// Load from keystore file
+		signingKeyJson, err := os.ReadFile(cfg.SigningKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read signing key file: %w", err)
+		}
+		key, err := keystore.DecryptKey(signingKeyJson, cfg.Password)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt signing key: %w", err)
+		}
+		privateKey = key.PrivateKey
+	} else {
+		// Load from hex string
+		privateKeyStr := strings.TrimPrefix(cfg.SigningKey, "0x")
+		privateKeyBytes, err := hex.DecodeString(privateKeyStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode private key hex string: %w", err)
+		}
+		privateKey, err = ethcrypto.ToECDSA(privateKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert private key bytes to ECDSA: %w", err)
+		}
 	}
 
 	return &localSigner{
-		signingKey: signingKey.PrivateKey,
+		signingKey: privateKey,
 	}, nil
 }
 
@@ -97,6 +126,7 @@ func (s *localSigner) Sign(message []byte) ([]byte, error) {
 	return ethcrypto.Sign(hash, s.signingKey)
 }
 
+// Base64ToPrivKey converts a base64 encoded private key to libp2p private key
 func Base64ToPrivKey(encodedKey string) (p2pcrypto.PrivKey, error) {
 	privKeyBytes, err := p2pcrypto.ConfigDecodeKey(encodedKey)
 	if err != nil {

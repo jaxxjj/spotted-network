@@ -9,7 +9,15 @@ POSTGRES_PORT=5435
 POSTGRES_DBNAME=spotted
 POSTGRES_SSLMODE=disable
 
-.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean generate-bindings clean-bindings
+BINARY_NAME=spotted
+VERSION=$(shell git describe --tags --always --dirty)
+GIT_COMMIT=$(shell git rev-parse HEAD)
+BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
+LDFLAGS=-ldflags "-X github.com/galxe/spotted-network/pkg/version.Version=${VERSION} \
+                  -X github.com/galxe/spotted-network/pkg/version.GitCommit=${GIT_COMMIT} \
+                  -X github.com/galxe/spotted-network/pkg/version.BuildTime=${BUILD_TIME}"
+
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean generate-bindings clean-bindings test test-signer test-signer-verbose test-signer-coverage clean-coverage
 
 # Start monitoring infrastructure
 start-prometheus:
@@ -94,13 +102,13 @@ get-consensus-response-operator3:
 build:
 	@echo "Building registry and operator..."
 	@go build -o registry ./cmd/registry
-	@go build -o operator ./cmd/operator
+	@go build ${LDFLAGS} -o bin/${BINARY_NAME} cmd/operator/main.go
 	@echo "Build complete"
 
 # Clean built binaries
 clean:
 	@echo "Cleaning up..."
-	@rm -f registry operator
+	@rm -f registry bin/${BINARY_NAME}
 	@echo "Clean complete"
 
 # docker clean
@@ -117,45 +125,6 @@ stop:
 restart: stop start-all
 	@echo "All services restarted"
 
-# Run tests
-test-registry: 
-	export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
-	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
-	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
-	export POSTGRES_HOST=$(POSTGRES_HOST) && \
-	export POSTGRES_PORT=$(POSTGRES_PORT) && \
-	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
-	go test ./pkg/registry -v  
-
-
-test-operator: 
-	export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
-	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
-	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
-	export POSTGRES_HOST=$(POSTGRES_HOST) && \
-	export POSTGRES_PORT=$(POSTGRES_PORT) && \
-	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
-	go test ./pkg/operator -v  
-
-registry-cov:
-	export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
-	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
-	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
-	export POSTGRES_HOST=$(POSTGRES_HOST) && \
-	export POSTGRES_PORT=$(POSTGRES_PORT) && \
-	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
-	go test -cover ./pkg/registry
-
-# Run tests with coverage
-codecov:
-	@echo "Running tests with coverage..."
-	@export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
-	export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
-	export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
-	export POSTGRES_HOST=$(POSTGRES_HOST) && \
-	export POSTGRES_PORT=$(POSTGRES_PORT) && \
-	export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
-	go test $(TEST_DIRS) -coverprofile=coverage.txt -covermode=atomic -p 1
 
 # Run linter (with automatic installation if needed)
 lint: 
@@ -262,3 +231,48 @@ test-%:
 # Coverage test targets with package name parameter
 testcov-%:
 	$(call test_cmd,$(subst -cov,,$*),-cover)
+
+.PHONY: install
+install: build
+	cp bin/${BINARY_NAME} ~/bin/${BINARY_NAME}
+
+.PHONY: release
+release:
+	# Build for different platforms
+	GOOS=darwin GOARCH=amd64 go build ${LDFLAGS} -o bin/${BINARY_NAME}-darwin-amd64 cmd/operator/main.go
+	GOOS=darwin GOARCH=arm64 go build ${LDFLAGS} -o bin/${BINARY_NAME}-darwin-arm64 cmd/operator/main.go
+	GOOS=linux GOARCH=amd64 go build ${LDFLAGS} -o bin/${BINARY_NAME}-linux-amd64 cmd/operator/main.go
+	GOOS=linux GOARCH=arm64 go build ${LDFLAGS} -o bin/${BINARY_NAME}-linux-arm64 cmd/operator/main.go
+	
+	# Create checksums
+	cd bin && sha256sum ${BINARY_NAME}-* > checksums.txt
+
+# Run all tests
+test:
+	@echo "Running all tests..."
+	@go test -race ./...
+
+# Run signer tests
+test-signer:
+	@echo "Running signer tests..."
+	@go test -race ./pkg/common/crypto/signer
+
+# Run signer tests with coverage
+test-signer-cov:
+	@echo "Running signer tests with coverage..."
+	@go test -race -cover ./pkg/common/crypto/signer
+
+# Run all tests with coverage
+test-cov:
+	@echo "Running all tests with coverage..."
+	@( \
+		export POSTGRES_USERNAME=$(POSTGRES_USERNAME) && \
+		export POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) && \
+		export POSTGRES_APPNAME=$(POSTGRES_APPNAME) && \
+		export POSTGRES_HOST=$(POSTGRES_HOST) && \
+		export POSTGRES_PORT=$(POSTGRES_PORT) && \
+		export POSTGRES_DBNAME=$(POSTGRES_DBNAME) && \
+		export POSTGRES_SSLMODE=$(POSTGRES_SSLMODE) && \
+		go test -p 1 -coverprofile=coverage.out ./... && \
+		go tool cover -func=coverage.out \
+	)

@@ -167,3 +167,97 @@ Generated P2P key for operator3:
     address public constant P2P_KEY_2 = address(0x01078ffBf1De436d6f429f5Ce6Be8Fd9D6E16165);
     address public constant P2P_KEY_3 = address(0x67aa23adde2459a1620BE2Ea28982310597521b0);
 ```
+
+# Spotted Network CLI
+
+A command-line interface for interacting with the Spotted Network.
+
+## Quick Installation
+
+Install the CLI using the following command:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/galxe/spotted-network/master/scripts/install.sh | sh -s
+```
+
+The binary will be installed inside the `~/bin` directory.
+
+To add the binary to your path, run:
+
+```bash
+export PATH=$PATH:~/bin
+```
+
+## Custom Installation Location
+
+To install the CLI in a custom location, use:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/galxe/spotted-network/master/scripts/install.sh | sh -s -- -b <custom_location>
+```
+
+## Usage
+
+### Basic Commands
+
+```bash
+# Show version information
+spotted --version
+
+# Run with config file
+spotted --config /path/to/config.yaml
+
+# Enable debug mode
+spotted --config /path/to/config.yaml --debug
+```
+
+### Configuration
+
+Create a configuration file (e.g., `config.yaml`) with the following structure:
+
+```yaml
+operator:
+  signing_key: /path/to/signing.key
+  p2p_key: /path/to/p2p.key
+  
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  database: spotted
+
+chain:
+  mainnet_rpc: https://mainnet.infura.io/v3/your-project-id
+  testnet_rpc: https://goerli.infura.io/v3/your-project-id
+```
+
+## Building from Source
+
+1. Clone the repository:
+```bash
+git clone https://github.com/galxe/spotted-network.git
+cd spotted-network
+```
+
+2. Build the binary:
+```bash
+make build
+```
+
+3. Install locally:
+```bash
+make install
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
