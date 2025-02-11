@@ -80,15 +80,10 @@ func (tp *taskProcessor) checkConsensus(ctx context.Context, response taskRespon
 		return fmt.Errorf("failed to create consensus response: %w", err)
 	}
 
-	log.Printf("[Consensus] Successfully stored consensus response for task %s", taskID)
-
 	if err := tp.markTaskAsCompleted(ctx, taskID); err != nil {
 		return fmt.Errorf("failed to mark task as completed: %w", err)
 	}
-
-	// Clean up local maps
-	tp.cleanupTask(taskID)
-	log.Printf("[Consensus] Cleaned up local maps for task %s", taskID)
+	log.Printf("[Consensus] Successfully stored consensus response for task %s", taskID)
 	return nil
 }
 

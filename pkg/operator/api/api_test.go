@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/coocood/freecache"
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/event"
 	"github.com/galxe/spotted-network/pkg/common/contracts/ethereum"
 	"github.com/galxe/spotted-network/pkg/common/crypto/signer"
 	"github.com/galxe/spotted-network/pkg/operator/task"
@@ -51,7 +53,6 @@ func (m *mockTaskProcessor) ProcessTask(ctx context.Context, task *tasks.Tasks) 
 	return args.Error(0)
 }
 
-// mockChainClient mocks the chain client
 type mockChainClient struct {
 	mock.Mock
 	currentBlock uint64
@@ -59,16 +60,48 @@ type mockChainClient struct {
 	chainID      uint32
 }
 
-func NewMockChainClient() *mockChainClient {
+func NewMockChainClient(chainID uint32) *mockChainClient {
 	mc := &mockChainClient{
 		currentBlock: 100,
 		stateData:    make(map[string]*big.Int),
-		chainID:      1,
+		chainID:      chainID,
 	}
-	// Set default behaviors
+
+	// 为不同链设置不同的默认行为
+	switch chainID {
+	case 31337: // Mainnet
+		mc.currentBlock = 1000
+		mc.stateData["default"] = big.NewInt(100)
+	case 11155111: // Sepolia
+		mc.currentBlock = 2000
+		mc.stateData["default"] = big.NewInt(200)
+	case 5: // Goerli
+		mc.currentBlock = 3000
+		mc.stateData["default"] = big.NewInt(300)
+	case 80001: // Mumbai
+		mc.currentBlock = 4000
+		mc.stateData["default"] = big.NewInt(400)
+	default:
+		mc.currentBlock = 100
+		mc.stateData["default"] = big.NewInt(1)
+	}
+
+	// 设置通用的mock行为
 	mc.On("BlockNumber", mock.Anything).Return(mc.currentBlock, nil).Maybe()
-	mc.On("GetStateAtBlock", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(big.NewInt(1), nil).Maybe()
-	mc.On("BlockByNumber", mock.Anything, mock.Anything).Return(&types.Block{}, nil).Maybe()
+	mc.On("GetStateAtBlock", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mc.stateData["default"], nil).Maybe()
+	mc.On("GetCurrentEpoch", mock.Anything).Return(uint32(1), nil).Maybe()
+	mc.On("GetEffectiveEpochForBlock", mock.Anything, mock.Anything).Return(uint32(1), nil).Maybe()
+	mc.On("GetOperatorWeight", mock.Anything, mock.Anything).Return(big.NewInt(100), nil).Maybe()
+	mc.On("GetTotalWeight", mock.Anything).Return(big.NewInt(1000), nil).Maybe()
+	mc.On("GetMinimumWeight", mock.Anything).Return(big.NewInt(10), nil).Maybe()
+	mc.On("GetThresholdWeight", mock.Anything).Return(big.NewInt(500), nil).Maybe()
+	mc.On("IsOperatorRegistered", mock.Anything, mock.Anything).Return(true, nil).Maybe()
+	mc.On("GetOperatorSigningKey", mock.Anything, mock.Anything, mock.Anything).Return(ethcommon.HexToAddress("0x1"), nil).Maybe()
+	mc.On("GetOperatorP2PKey", mock.Anything, mock.Anything, mock.Anything).Return(ethcommon.HexToAddress("0x2"), nil).Maybe()
+	mc.On("WatchOperatorRegistered", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	mc.On("WatchOperatorDeregistered", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	mc.On("Close").Return(nil).Maybe()
+
 	return mc
 }
 
@@ -77,7 +110,7 @@ func (m *mockChainClient) BlockNumber(ctx context.Context) (uint64, error) {
 	return args.Get(0).(uint64), args.Error(1)
 }
 
-func (m *mockChainClient) GetStateAtBlock(ctx context.Context, target common.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
+func (m *mockChainClient) GetStateAtBlock(ctx context.Context, target ethcommon.Address, key *big.Int, blockNumber uint64) (*big.Int, error) {
 	args := m.Called(ctx, target, key, blockNumber)
 	if v := args.Get(0); v != nil {
 		return v.(*big.Int), args.Error(1)
@@ -85,10 +118,91 @@ func (m *mockChainClient) GetStateAtBlock(ctx context.Context, target common.Add
 	return nil, args.Error(1)
 }
 
-func (m *mockChainClient) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
-	args := m.Called(ctx, number)
+func (m *mockChainClient) GetLatestState(ctx context.Context, target ethcommon.Address, key *big.Int) (*big.Int, error) {
+	args := m.Called(ctx, target, key)
 	if v := args.Get(0); v != nil {
-		return v.(*types.Block), args.Error(1)
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetStateAtTimestamp(ctx context.Context, target ethcommon.Address, key *big.Int, timestamp uint64) (*big.Int, error) {
+	args := m.Called(ctx, target, key, timestamp)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetCurrentEpoch(ctx context.Context) (uint32, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(uint32), args.Error(1)
+}
+
+func (m *mockChainClient) GetEffectiveEpochForBlock(ctx context.Context, blockNumber uint64) (uint32, error) {
+	args := m.Called(ctx, blockNumber)
+	return args.Get(0).(uint32), args.Error(1)
+}
+
+func (m *mockChainClient) GetOperatorWeight(ctx context.Context, operator ethcommon.Address) (*big.Int, error) {
+	args := m.Called(ctx, operator)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetTotalWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetMinimumWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) GetThresholdWeight(ctx context.Context) (*big.Int, error) {
+	args := m.Called(ctx)
+	if v := args.Get(0); v != nil {
+		return v.(*big.Int), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) IsOperatorRegistered(ctx context.Context, operator ethcommon.Address) (bool, error) {
+	args := m.Called(ctx, operator)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockChainClient) GetOperatorSigningKey(ctx context.Context, operator ethcommon.Address, epoch uint32) (ethcommon.Address, error) {
+	args := m.Called(ctx, operator, epoch)
+	return args.Get(0).(ethcommon.Address), args.Error(1)
+}
+
+func (m *mockChainClient) GetOperatorP2PKey(ctx context.Context, operator ethcommon.Address, epoch uint32) (ethcommon.Address, error) {
+	args := m.Called(ctx, operator, epoch)
+	return args.Get(0).(ethcommon.Address), args.Error(1)
+}
+
+func (m *mockChainClient) WatchOperatorRegistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorRegisteredEvent) (event.Subscription, error) {
+	args := m.Called(filterOpts, sink)
+	if sub := args.Get(0); sub != nil {
+		return sub.(event.Subscription), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
+func (m *mockChainClient) WatchOperatorDeregistered(filterOpts *bind.FilterOpts, sink chan<- *ethereum.OperatorDeregisteredEvent) (event.Subscription, error) {
+	args := m.Called(filterOpts, sink)
+	if sub := args.Get(0); sub != nil {
+		return sub.(event.Subscription), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -98,41 +212,67 @@ func (m *mockChainClient) Close() error {
 	return args.Error(0)
 }
 
-// mockChainManager mocks the chain manager
+func (m *mockChainClient) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+	args := m.Called(ctx, number)
+	if block := args.Get(0); block != nil {
+		return block.(*types.Block), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 type mockChainManager struct {
 	mock.Mock
 	clients       map[uint32]*mockChainClient
 	mainnetClient *mockChainClient
+	networkState  string
 }
 
 func NewMockChainManager() *mockChainManager {
-	mm := &mockChainManager{
-		clients:       make(map[uint32]*mockChainClient),
-		mainnetClient: NewMockChainClient(),
+	m := &mockChainManager{
+		clients:      make(map[uint32]*mockChainClient),
+		networkState: "healthy",
 	}
-	// Add default client for chain ID 1
-	mm.clients[1] = NewMockChainClient()
 
-	// Set default behaviors
-	mm.On("GetMainnetClient").Return(mm.mainnetClient, nil).Maybe()
-	mm.On("GetClientByChainId", mock.Anything).Return(mm.clients[1], nil).Maybe()
-	mm.On("Close").Return(nil).Maybe()
+	// 为每个支持的链创建独立的client
+	supportedChains := []uint32{31337, 11155111, 5, 80001}
+	for _, chainID := range supportedChains {
+		m.clients[chainID] = NewMockChainClient(chainID)
+	}
 
-	return mm
+	// 设置mainnet client (31337)
+	m.mainnetClient = m.clients[31337]
+
+	// 更新mock行为
+	m.On("GetMainnetClient").Return(m.mainnetClient, nil).Maybe()
+
+	// 使用mock.MatchedBy来匹配不同的chainID
+	m.On("GetClientByChainId", mock.AnythingOfType("uint32")).Return(
+		m.clients[31337], nil).Maybe() // 默认返回mainnet client
+
+	// 为每个支持的链添加特定的mock
+	for chainID, client := range m.clients {
+		m.On("GetClientByChainId", chainID).Return(client, nil).Maybe()
+	}
+
+	// 添加未知chainID的处理
+	m.On("GetClientByChainId", uint32(999)).Return(nil, fmt.Errorf("chain not found")).Maybe()
+
+	m.On("Close").Return(nil).Maybe()
+	return m
 }
 
 func (m *mockChainManager) GetMainnetClient() (ethereum.ChainClient, error) {
 	args := m.Called()
-	if v := args.Get(0); v != nil {
-		return v.(ethereum.ChainClient), args.Error(1)
+	if client := args.Get(0); client != nil {
+		return client.(ethereum.ChainClient), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
 
 func (m *mockChainManager) GetClientByChainId(chainId uint32) (ethereum.ChainClient, error) {
 	args := m.Called(chainId)
-	if v := args.Get(0); v != nil {
-		return v.(ethereum.ChainClient), args.Error(1)
+	if client := args.Get(0); client != nil {
+		return client.(ethereum.ChainClient), args.Error(1)
 	}
 	return nil, args.Error(1)
 }
@@ -225,7 +365,7 @@ func (s *APITestSuite) SetupTest() {
 
 	// Initialize chain manager and client
 	s.chainManager = NewMockChainManager()
-	s.chainClient = NewMockChainClient()
+	s.chainClient = NewMockChainClient(31337)
 
 	// Initialize mock task processor
 	s.taskProcessor = new(mockTaskProcessor)
@@ -234,7 +374,7 @@ func (s *APITestSuite) SetupTest() {
 	s.taskProcessor.On("Stop").Return(nil).Maybe()
 
 	// Load config from file
-	cfg, err := config.LoadConfig("../../../config/operator.yaml")
+	cfg, err := config.LoadConfig("../../../config/operator.test.yaml")
 	s.Require().NoError(err)
 
 	// Initialize API handler
@@ -258,6 +398,10 @@ func (s *APITestSuite) SetupTest() {
 
 	// Create test HTTP server
 	s.server = httptest.NewServer(router)
+
+	// 为所有支持的 chainID 添加 mock
+	s.chainManager.On("GetClientByChainId", uint32(31337)).Return(s.chainClient, nil).Maybe()
+	s.chainManager.On("GetClientByChainId", uint32(999)).Return(nil, fmt.Errorf("chain not found")).Maybe()
 }
 
 // TearDownTest runs after each test
@@ -340,9 +484,9 @@ func (s *APITestSuite) TestSendRequest() {
 		{
 			name:         "successful new task",
 			initialState: "TestAPISuite/TestSendRequest/new_task.json",
-			goldenFile:   "TestAPISuite/TestSendRequest/new_task.golden",
+			goldenFile:   "new_task",
 			request: SendRequestParams{
-				ChainID:       1,
+				ChainID:       31337,
 				TargetAddress: "0x1234567890123456789012345678901234567890",
 				Key:           "1000000000000000000",
 				BlockNumber:   100,
@@ -355,9 +499,9 @@ func (s *APITestSuite) TestSendRequest() {
 		{
 			name:         "existing task",
 			initialState: "TestAPISuite/TestSendRequest/existing_task.json",
-			goldenFile:   "TestAPISuite/TestSendRequest/existing_task.golden",
+			goldenFile:   "existing_task",
 			request: SendRequestParams{
-				ChainID:       1,
+				ChainID:       31337,
 				TargetAddress: "0x1234567890123456789012345678901234567890",
 				Key:           "1000000000000000000",
 				BlockNumber:   100,
@@ -377,7 +521,7 @@ func (s *APITestSuite) TestSendRequest() {
 				BlockNumber:   100,
 			},
 			expectedCode:  http.StatusBadRequest,
-			errorContains: "chain not found",
+			errorContains: "unsupported chain ID 999. supported chains: [31337]",
 			setupMocks: func() {
 				s.chainManager.On("GetClientByChainId", uint32(999)).Return(nil, fmt.Errorf("chain not found")).Once()
 			},
@@ -386,7 +530,7 @@ func (s *APITestSuite) TestSendRequest() {
 			name:         "invalid target address",
 			initialState: "TestAPISuite/TestSendRequest/new_task.json",
 			request: SendRequestParams{
-				ChainID:       1,
+				ChainID:       31337,
 				TargetAddress: "invalid-address",
 				Key:           "1000000000000000000",
 				BlockNumber:   100,
@@ -398,20 +542,20 @@ func (s *APITestSuite) TestSendRequest() {
 			name:         "invalid key format",
 			initialState: "TestAPISuite/TestSendRequest/new_task.json",
 			request: SendRequestParams{
-				ChainID:       1,
+				ChainID:       31337,
 				TargetAddress: "0x1234567890123456789012345678901234567890",
 				Key:           "invalid-key",
 				BlockNumber:   100,
 			},
 			expectedCode:  http.StatusBadRequest,
-			errorContains: "invalid key format",
+			errorContains: "invalid key: must be valid uint256",
 		},
 		{
 			name:         "block number with confirmations",
 			initialState: "TestAPISuite/TestSendRequest/new_task.json",
-			goldenFile:   "TestAPISuite/TestSendRequest/confirming_task.golden",
+			goldenFile:   "confirming_task",
 			request: SendRequestParams{
-				ChainID:       1,
+				ChainID:       31337,
 				TargetAddress: "0x1234567890123456789012345678901234567890",
 				Key:           "1000000000000000000",
 				BlockNumber:   90,
@@ -425,9 +569,7 @@ func (s *APITestSuite) TestSendRequest() {
 
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			// Reset mock expectations
-			s.chainManager.ExpectedCalls = nil
-			s.chainClient.ExpectedCalls = nil
+			s.SetupTest()
 
 			// Setup mock behaviors
 			if tt.setupMocks != nil {

@@ -2,9 +2,7 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -83,23 +81,8 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Log raw config for debugging
-	log.Printf("Raw config data: %s", string(data))
-
-	// Log environment variables
-	log.Printf("Environment variables:")
-	for _, env := range os.Environ() {
-		if strings.HasPrefix(env, "DATABASE_URL=") ||
-			strings.HasPrefix(env, "REGISTRY_ADDRESS=") ||
-			strings.HasPrefix(env, "EPOCH_MANAGER_ADDRESS=") ||
-			strings.HasPrefix(env, "STATE_MANAGER_ADDRESS=") {
-			log.Printf("%s", env)
-		}
-	}
-
 	// Expand environment variables in the config
 	expandedData := os.ExpandEnv(string(data))
-	log.Printf("Config after env var expansion: %s", expandedData)
 
 	if err := yaml.Unmarshal([]byte(expandedData), &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
@@ -109,9 +92,6 @@ func LoadConfig(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
-
-	// Log final config for debugging
-	log.Printf("Final loaded config: %+v", cfg)
 
 	return &cfg, nil
 }
