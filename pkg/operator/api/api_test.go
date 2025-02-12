@@ -214,10 +214,10 @@ func (m *mockChainClient) Close() error {
 
 func (m *mockChainClient) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
 	args := m.Called(ctx, number)
-	if block := args.Get(0); block != nil {
-		return block.(*types.Block), args.Error(1)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
 	}
-	return nil, args.Error(1)
+	return args.Get(0).(*types.Block), args.Error(1)
 }
 
 type mockChainManager struct {
@@ -245,11 +245,7 @@ func NewMockChainManager() *mockChainManager {
 	// 更新mock行为
 	m.On("GetMainnetClient").Return(m.mainnetClient, nil).Maybe()
 
-	// 使用mock.MatchedBy来匹配不同的chainID
-	m.On("GetClientByChainId", mock.AnythingOfType("uint32")).Return(
-		m.clients[31337], nil).Maybe() // 默认返回mainnet client
-
-	// 为每个支持的链添加特定的mock
+	// 为每个支持的链设置mock行为
 	for chainID, client := range m.clients {
 		m.On("GetClientByChainId", chainID).Return(client, nil).Maybe()
 	}
@@ -301,7 +297,6 @@ type APITestSuite struct {
 	FreeCache     *freecache.Cache
 	DCache        *dcache.DCache
 	chainManager  *mockChainManager
-	chainClient   *mockChainClient
 }
 
 type taskTableSerde struct {
@@ -365,7 +360,6 @@ func (s *APITestSuite) SetupTest() {
 
 	// Initialize chain manager and client
 	s.chainManager = NewMockChainManager()
-	s.chainClient = NewMockChainClient(31337)
 
 	// Initialize mock task processor
 	s.taskProcessor = new(mockTaskProcessor)
@@ -399,9 +393,6 @@ func (s *APITestSuite) SetupTest() {
 	// Create test HTTP server
 	s.server = httptest.NewServer(router)
 
-	// 为所有支持的 chainID 添加 mock
-	s.chainManager.On("GetClientByChainId", uint32(31337)).Return(s.chainClient, nil).Maybe()
-	s.chainManager.On("GetClientByChainId", uint32(999)).Return(nil, fmt.Errorf("chain not found")).Maybe()
 }
 
 // TearDownTest runs after each test
@@ -492,9 +483,6 @@ func (s *APITestSuite) TestSendRequest() {
 				BlockNumber:   100,
 			},
 			expectedCode: http.StatusOK,
-			setupMocks: func() {
-				s.chainClient.On("BlockNumber", mock.Anything).Return(uint64(100), nil).Once()
-			},
 		},
 		{
 			name:         "existing task",
@@ -507,9 +495,6 @@ func (s *APITestSuite) TestSendRequest() {
 				BlockNumber:   100,
 			},
 			expectedCode: http.StatusOK,
-			setupMocks: func() {
-				s.chainClient.On("BlockNumber", mock.Anything).Return(uint64(100), nil).Once()
-			},
 		},
 		{
 			name:         "invalid chain id",
@@ -521,10 +506,7 @@ func (s *APITestSuite) TestSendRequest() {
 				BlockNumber:   100,
 			},
 			expectedCode:  http.StatusBadRequest,
-			errorContains: "unsupported chain ID 999. supported chains: [31337]",
-			setupMocks: func() {
-				s.chainManager.On("GetClientByChainId", uint32(999)).Return(nil, fmt.Errorf("chain not found")).Once()
-			},
+			errorContains: "unsupported chain ID 999",
 		},
 		{
 			name:         "invalid target address",
@@ -561,8 +543,58 @@ func (s *APITestSuite) TestSendRequest() {
 				BlockNumber:   90,
 			},
 			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "successful new task on sepolia",
+			initialState: "TestAPISuite/TestSendRequest/new_task.json",
+			goldenFile:   "new_task_sepolia",
+			request: SendRequestParams{
+				ChainID:       11155111,
+				TargetAddress: "0x1234567890123456789012345678901234567890",
+				Key:           "1000000000000000000",
+				BlockNumber:   100,
+			},
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "block confirmations on mumbai",
+			initialState: "TestAPISuite/TestSendRequest/new_task.json",
+			goldenFile:   "confirming_task_mumbai",
+			request: SendRequestParams{
+				ChainID:       80001,
+				TargetAddress: "0x1234567890123456789012345678901234567890",
+				Key:           "1000000000000000000",
+				BlockNumber:   3998,
+			},
+			expectedCode: http.StatusOK,
+		},
+		{
+			name:         "timestamp based request on mumbai",
+			initialState: "TestAPISuite/TestSendRequest/new_task.json",
+			goldenFile:   "timestamp_task_mumbai",
+			request: SendRequestParams{
+				ChainID:       80001,
+				TargetAddress: "0x1234567890123456789012345678901234567890",
+				Key:           "1000000000000000000",
+				Timestamp:     uint64(1704067200), // 2024-01-01 00:00:00 UTC
+			},
+			expectedCode: http.StatusOK,
 			setupMocks: func() {
-				s.chainClient.On("BlockNumber", mock.Anything).Return(uint64(100), nil).Once()
+				// Get the Mumbai client
+				mumbaiClient := s.chainManager.clients[80001]
+
+				mumbaiClient.On("BlockNumber", mock.Anything).Return(uint64(4000), nil).Times(3)
+
+				// Mock BlockByNumber to handle any block number query
+				mumbaiClient.On("BlockByNumber", mock.Anything, mock.AnythingOfType("*big.Int")).Return(
+					types.NewBlock(
+						&types.Header{
+							Number: big.NewInt(4000),
+							Time:   uint64(1704067200), // 2024-01-01 00:00:00 UTC
+						},
+						nil, nil, nil,
+					), nil,
+				)
 			},
 		},
 	}
@@ -603,7 +635,36 @@ func (s *APITestSuite) TestSendRequest() {
 
 			// Verify mock expectations
 			s.chainManager.AssertExpectations(s.T())
-			s.chainClient.AssertExpectations(s.T())
 		})
 	}
+}
+
+func (s *APITestSuite) TestGenerateTaskID() {
+	// Test case 1: Verify same inputs generate same task ID
+	params1 := &SendRequestParams{
+		ChainID:       80001,
+		TargetAddress: "0x1234567890123456789012345678901234567890",
+		Key:           "1000000000000000000",
+		BlockNumber:   3800,
+	}
+	value1 := "400"
+
+	taskID1 := s.handler.generateTaskID(params1, value1)
+	taskID2 := s.handler.generateTaskID(params1, value1)
+	s.Equal(taskID1, taskID2, "Same inputs should generate same task ID")
+
+	// Test case 2: Verify different inputs generate different task IDs
+	params2 := &SendRequestParams{
+		ChainID:       80001,
+		TargetAddress: "0x1234567890123456789012345678901234567890",
+		Key:           "2000000000000000000", // Different key
+		BlockNumber:   3800,
+	}
+	value2 := "500" // Different value
+
+	taskID3 := s.handler.generateTaskID(params2, value2)
+	s.NotEqual(taskID1, taskID3, "Different inputs should generate different task IDs")
+
+	// Test case 3: Verify task ID format
+	s.Regexp("^[0-9a-f]{64}$", taskID1, "Task ID should be 64 hex characters")
 }
