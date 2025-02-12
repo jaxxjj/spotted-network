@@ -16,7 +16,7 @@ type Server struct {
 
 func NewServer(handler *Handler, port int) *Server {
 	r := chi.NewRouter()
-	
+
 	// Register routes
 	handler.RegisterRoutes(r)
 
@@ -38,4 +38,4 @@ func (s *Server) Start() error {
 
 func (s *Server) Stop(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
-} 
+}

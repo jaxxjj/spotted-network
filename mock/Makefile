@@ -1,6 +1,6 @@
 RPC_URL := http://localhost:8545
 
-.PHONY: deploy-all deploy-registry deploy-epoch-manager emit-register-event emit-deregister-event deploy-mock-state-manager
+.PHONY: deploy-all deploy-registry deploy-epoch-manager emit-register-event emit-deregister-event deploy-mock-state-manager generate-keys
 
 deploy-all: deploy-registry deploy-epoch-manager emit-register-event deploy-mock-state-manager
 
@@ -18,3 +18,4 @@ emit-deregister-event:
 
 deploy-mock-state-manager: 
 	forge script script/DeployMockStateManager.s.sol:DeployMockStateManager --rpc-url $(RPC_URL) --broadcast
+

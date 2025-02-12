@@ -2,18 +2,17 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
-	"strings"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	"gopkg.in/yaml.v3"
 )
 
 // Config represents the main configuration structure
 type Config struct {
-	Chains     map[uint32]*ChainConfig  `yaml:"chains"`
-	Database   DatabaseConfig           `yaml:"database"`
+	Chains     map[uint32]*ChainConfig `yaml:"chains"`
+	Database   DatabaseConfig          `yaml:"database"`
 	P2P        P2PConfig               `yaml:"p2p"`
 	HTTP       HTTPConfig              `yaml:"http"`
 	Logging    LoggingConfig           `yaml:"logging"`
@@ -23,10 +22,10 @@ type Config struct {
 
 // ChainConfig represents configuration for a specific chain
 type ChainConfig struct {
-	RPC                  string          `yaml:"rpc"`
-	Contracts           ContractsConfig  `yaml:"contracts"`
-	RequiredConfirmations uint16         `yaml:"required_confirmations"`
-	AverageBlockTime     float64         `yaml:"average_block_time"`
+	RPC                   string          `yaml:"rpc"`
+	Contracts             ContractsConfig `yaml:"contracts"`
+	RequiredConfirmations uint16          `yaml:"required_confirmations"`
+	AverageBlockTime      float64         `yaml:"average_block_time"`
 }
 
 // ContractsConfig holds addresses for deployed contracts
@@ -46,9 +45,10 @@ type DatabaseConfig struct {
 
 // P2PConfig represents P2P network configuration
 type P2PConfig struct {
-	Port            int      `yaml:"port"`
-	BootstrapNodes []string `yaml:"bootstrap_nodes"`
 	ExternalIP     string   `yaml:"external_ip"`
+	Port           int      `yaml:"port"`
+	BootstrapPeers []string `yaml:"bootstrap_peers"`
+	Rendezvous     string   `yaml:"rendezvous"`
 }
 
 // HTTPConfig represents HTTP server configuration
@@ -65,7 +65,7 @@ type LoggingConfig struct {
 
 // MetricConfig represents metrics server configuration
 type MetricConfig struct {
-	Port int    `yaml:"port"`
+	Port int `yaml:"port"`
 }
 
 var (
@@ -75,29 +75,14 @@ var (
 // LoadConfig loads configuration from the specified file path
 func LoadConfig(path string) (*Config, error) {
 	var cfg Config
-	
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Log raw config for debugging
-	log.Printf("Raw config data: %s", string(data))
-
-	// Log environment variables
-	log.Printf("Environment variables:")
-	for _, env := range os.Environ() {
-		if strings.HasPrefix(env, "DATABASE_URL=") ||
-		   strings.HasPrefix(env, "REGISTRY_ADDRESS=") ||
-		   strings.HasPrefix(env, "EPOCH_MANAGER_ADDRESS=") ||
-		   strings.HasPrefix(env, "STATE_MANAGER_ADDRESS=") {
-			log.Printf("%s", env)
-		}
-	}
-
 	// Expand environment variables in the config
 	expandedData := os.ExpandEnv(string(data))
-	log.Printf("Config after env var expansion: %s", expandedData)
 
 	if err := yaml.Unmarshal([]byte(expandedData), &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
@@ -107,9 +92,6 @@ func LoadConfig(path string) (*Config, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
-
-	// Log final config for debugging
-	log.Printf("Final loaded config: %+v", cfg)
 
 	return &cfg, nil
 }
@@ -141,6 +123,24 @@ func (c *Config) validate() error {
 		}
 	}
 
+	// Validate P2P configuration
+	if c.P2P.Port < 0 {
+		return fmt.Errorf("p2p port must be non-negative")
+	}
+	if c.P2P.ExternalIP == "" {
+		return fmt.Errorf("p2p external IP is required")
+	}
+	if c.P2P.Rendezvous == "" {
+		return fmt.Errorf("p2p rendezvous string is required")
+	}
+
+	// Validate bootstrap peers if provided
+	if len(c.P2P.BootstrapPeers) > 0 {
+		if _, err := c.P2P.GetBootstrapPeers(); err != nil {
+			return fmt.Errorf("invalid bootstrap peers: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -155,7 +155,7 @@ func DefaultConfig() *Config {
 					StateManager: "",
 				},
 				RequiredConfirmations: 12,
-				AverageBlockTime: 12.5,
+				AverageBlockTime:      12.5,
 			},
 		},
 		Database: DatabaseConfig{
@@ -166,8 +166,9 @@ func DefaultConfig() *Config {
 		},
 		P2P: P2PConfig{
 			Port:           0, // Random port
-			BootstrapNodes: []string{},
 			ExternalIP:     "0.0.0.0",
+			Rendezvous:     "spotted-network",
+			BootstrapPeers: []string{}, // Empty by default
 		},
 		HTTP: HTTPConfig{
 			Port: 8001,
@@ -189,4 +190,25 @@ func GetConfig() *Config {
 		panic("config not loaded")
 	}
 	return config
-} 
+}
+
+// GetBootstrapPeers returns a list of valid bootstrap peer AddrInfo
+func (c *P2PConfig) GetBootstrapPeers() ([]peer.AddrInfo, error) {
+	var peers []peer.AddrInfo
+
+	for _, addr := range c.BootstrapPeers {
+		// Skip empty addresses
+		if addr == "" {
+			continue
+		}
+
+		// Parse the multiaddr
+		pi, err := peer.AddrInfoFromString(addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid bootstrap peer address %s: %w", addr, err)
+		}
+		peers = append(peers, *pi)
+	}
+
+	return peers, nil
+}

@@ -110,43 +110,17 @@ curl -X GET "http://localhost:8001/api/v1/task/YOUR_TASK_ID/final"
 
 ### Ports
 
-- Registry Node: 
-  - P2P: 9000
-  - HTTP: 8000
 - Operator 1:
   - P2P: 10000
-  - HTTP: 8001
+  - HTTP: 8000
 - Operator 2:
   - P2P: 10001
-  - HTTP: 8002
+  - HTTP: 8001
 - Operator 3:
   - P2P: 10002
-  - HTTP: 8003
-
-### Databases
-
-- Registry: Port 5432
-- Operator 1: Port 5433
-- Operator 2: Port 5434
-- Operator 3: Port 5435
+  - HTTP: 8002
 
 ## Development
-
-### Project Structure
-
-```
-.
-├── cmd/
-│   ├── registry/        # Registry node entry point
-│   └── operator/        # Operator node entry point
-├── pkg/
-│   ├── common/          # Shared utilities and types
-│   ├── operator/        # Operator node implementation
-│   └── registry/        # Registry node implementation
-├── mock/               # Mock contracts for testing
-├── keys/               # Test operator keys
-└── docker-compose.yml  # Network deployment configuration
-```
 
 ### Key Features
 
@@ -162,3 +136,128 @@ curl -X GET "http://localhost:8001/api/v1/task/YOUR_TASK_ID/final"
 - When getting final task results, replace the task ID in the curl command with the actual task ID from the create-task response
 - The network uses PostgreSQL for persistence, with separate databases for each node
 - Mock contracts are used for testing and simulate the actual network contracts
+
+
+Generated P2P key for operator1:
+  Private key (base64): CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys=
+  Public key (base64): CAESIL3bARtK0oHIyUx/KlsEWEcrCWmfu2eHoC8b0obwZ0Mr
+  P2PKey: 0x310c8425b620980dcfcf756e46572bb6ac80eb07
+  PeerId: 12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p
+
+Generated P2P key for operator2:
+  Private key (base64): CAESQHGMebvS8Wf6IZZh40yacCPzXhRlKqJCGfPySZyCFid6EdbnbwgelZkcZbllzWAZFfrdV/dcf2poB1OySA2mV0I=
+  Public key (base64): CAESIBHW528IHpWZHGW5Zc1gGRX63Vf3XH9qaAdTskgNpldC
+  P2PKey: 0x01078ffbf1de436d6f429f5ce6be8fd9d6e16165
+  PeerId: 12D3KooWB21ALruLNKbH5vLjDjiG1mM9XVnCJMGdsdo2LKvoqneD
+
+Generated P2P key for operator3:
+  Private key (base64): CAESQM5ltPHuttHq7/HHHHymN5A/XSDKt5EPOwGWor2H3k0PXckF23DDwxzmdOhEtOy5f8szIAYWqSFH8cIlICumemo=
+  Public key (base64): CAESIF3JBdtww8Mc5nToRLTsuX/LMyAGFqkhR/HCJSArpnpq
+  P2PKey: 0x67aa23adde2459a1620be2ea28982310597521b0
+  PeerId: 12D3KooWG8TsS8YsbnfArhnQznH6Rmumt6fwE9J66ZN8tF7n9GVf
+
+```solidity
+    address public constant OPERATOR_1 = address(0xCf593639B34CaE0ea3217dA27014ab5FbBAc8342);
+    address public constant OPERATOR_2 = address(0xCCE3B4EC7681B4EcF5fD5b50e562A88a33E5137B);
+    address public constant OPERATOR_3 = address(0xFE6B5379E861C79dB03eb3a01F3F1892FC4141D5);
+    address public constant SIGNING_KEY_1 = address(0x9F0D8BAC11C5693a290527f09434b86651c66Bf2);
+    address public constant SIGNING_KEY_2 = address(0xeBBAce05Db3D717A5BA82EAB8AdE712dFb151b13);
+    address public constant SIGNING_KEY_3 = address(0x083739b681B85cc2c9e394471486321D6446b25b);
+    address public constant P2P_KEY_1 = address(0x310C8425b620980DCFcf756e46572bb6ac80Eb07);
+    address public constant P2P_KEY_2 = address(0x01078ffBf1De436d6f429f5Ce6Be8Fd9D6E16165);
+    address public constant P2P_KEY_3 = address(0x67aa23adde2459a1620BE2Ea28982310597521b0);
+```
+
+# Spotted Network CLI
+
+A command-line interface for interacting with the Spotted Network.
+
+## Quick Installation
+
+Install the CLI using the following command:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/galxe/spotted-network/master/scripts/install.sh | sh -s
+```
+
+The binary will be installed inside the `~/bin` directory.
+
+To add the binary to your path, run:
+
+```bash
+export PATH=$PATH:~/bin
+```
+
+## Custom Installation Location
+
+To install the CLI in a custom location, use:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/galxe/spotted-network/master/scripts/install.sh | sh -s -- -b <custom_location>
+```
+
+## Usage
+
+### Basic Commands
+
+```bash
+# Show version information
+spotted --version
+
+# Run with config file
+spotted --config /path/to/config.yaml
+
+# Enable debug mode
+spotted --config /path/to/config.yaml --debug
+```
+
+### Configuration
+
+Create a configuration file (e.g., `config.yaml`) with the following structure:
+
+```yaml
+operator:
+  signing_key: /path/to/signing.key
+  p2p_key: /path/to/p2p.key
+  
+database:
+  host: localhost
+  port: 5432
+  user: postgres
+  password: postgres
+  database: spotted
+
+chain:
+  mainnet_rpc: https://mainnet.infura.io/v3/your-project-id
+  testnet_rpc: https://goerli.infura.io/v3/your-project-id
+```
+
+## Building from Source
+
+1. Clone the repository:
+```bash
+git clone https://github.com/galxe/spotted-network.git
+cd spotted-network
+```
+
+2. Build the binary:
+```bash
+make build
+```
+
+3. Install locally:
+```bash
+make install
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

@@ -1,0 +1,122 @@
+[
+  {
+    "address": "0x0000000000000000000000000000000000000001",
+    "signing_key": "0x0000000000000000000000000000000000000064",
+    "p2p_key": "0x00000000000000000000000000000000000000c8",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x0000000000000000000000000000000000000002",
+    "signing_key": "0x0000000000000000000000000000000000000065",
+    "p2p_key": "0x00000000000000000000000000000000000000c9",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x0000000000000000000000000000000000000003",
+    "signing_key": "0x0000000000000000000000000000000000000066",
+    "p2p_key": "0x00000000000000000000000000000000000000ca",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x0000000000000000000000000000000000000004",
+    "signing_key": "0x0000000000000000000000000000000000000067",
+    "p2p_key": "0x00000000000000000000000000000000000000cb",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x0000000000000000000000000000000000000005",
+    "signing_key": "0x0000000000000000000000000000000000000068",
+    "p2p_key": "0x00000000000000000000000000000000000000cc",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x0000000000000000000000000000000000000006",
+    "signing_key": "0x0000000000000000000000000000000000000069",
+    "p2p_key": "0x00000000000000000000000000000000000000cd",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x0000000000000000000000000000000000000007",
+    "signing_key": "0x000000000000000000000000000000000000006a",
+    "p2p_key": "0x00000000000000000000000000000000000000ce",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x0000000000000000000000000000000000000008",
+    "signing_key": "0x000000000000000000000000000000000000006b",
+    "p2p_key": "0x00000000000000000000000000000000000000cf",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x0000000000000000000000000000000000000009",
+    "signing_key": "0x000000000000000000000000000000000000006c",
+    "p2p_key": "0x00000000000000000000000000000000000000d0",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  },
+  {
+    "address": "0x000000000000000000000000000000000000000a",
+    "signing_key": "0x000000000000000000000000000000000000006d",
+    "p2p_key": "0x00000000000000000000000000000000000000d1",
+    "registered_at_block_number": 1,
+    "active_epoch": 1,
+    "exit_epoch": 4294967295,
+    "is_active": true,
+    "weight": 100,
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  }
+] 

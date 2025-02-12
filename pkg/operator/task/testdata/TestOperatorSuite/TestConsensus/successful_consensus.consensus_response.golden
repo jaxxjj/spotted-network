@@ -1,0 +1,21 @@
+[
+  {
+    "task_id": "ecd4bb90ee55a19b8bf10e5a44b07d1dcceafb9f82f180be7aaa881e5953f5a6",
+    "epoch": 1,
+    "chain_id": 1,
+    "target_address": "0x1234567890123456789012345678901234567890",
+    "block_number": 100,
+    "key": 1000000000000000000,
+    "value": 1000000000000000000,
+    "aggregated_signatures": [
+      "dGVzdC1zaWduYXR1cmUtMQ==",
+      "dGVzdC1zaWduYXR1cmUtMg=="
+    ],
+    "operator_addresses": [
+      "0x1111111111111111111111111111111111111111",
+      "0x2222222222222222222222222222222222222222"
+    ],
+    "created_at": "1970-01-01T00:00:00Z",
+    "updated_at": "1970-01-01T00:00:00Z"
+  }
+]

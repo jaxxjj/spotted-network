@@ -1,0 +1,60 @@
+# Test specific configuration
+chains:
+  31337: # Mainnet
+    rpc: "http://localhost:8545"
+    contracts:
+      registry: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+      epochManager: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+      stateManager: "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+    required_confirmations: 1
+    average_block_time: 2.0
+  
+  11155111: # Sepolia
+    rpc: "http://localhost:8546" 
+    contracts:
+      registry: "0x1111111111111111111111111111111111111111"
+      epochManager: "0x2222222222222222222222222222222222222222"
+      stateManager: "0x3333333333333333333333333333333333333333"
+    required_confirmations: 2
+    average_block_time: 12.0
+
+  5: # Goerli
+    rpc: "http://localhost:8547"
+    contracts:
+      registry: "0x4444444444444444444444444444444444444444" 
+      epochManager: "0x5555555555555555555555555555555555555555"
+      stateManager: "0x6666666666666666666666666666666666666666"
+    required_confirmations: 3
+    average_block_time: 15.0
+
+  80001: # Mumbai
+    rpc: "http://localhost:8548"
+    contracts:
+      registry: "0x7777777777777777777777777777777777777777"
+      epochManager: "0x8888888888888888888888888888888888888888" 
+      stateManager: "0x9999999999999999999999999999999999999999"
+    required_confirmations: 5
+    average_block_time: 2.0
+
+p2p:
+  port: 10000
+  external_ip: "0.0.0.0"
+  rendezvous: "spotted-test-network" 
+  bootstrap_peers: []
+
+http:
+  port: 8080
+  host: "0.0.0.0"
+
+logging:
+  level: "debug"
+  format: "json"
+
+database:
+  url: "postgres://spotted:spotted@localhost:5432/operator_test?sslmode=disable"
+  max_open_conns: 10
+  max_idle_conns: 5
+  conn_max_lifetime: "1h"
+
+metric:
+  port: 4014

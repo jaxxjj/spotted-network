@@ -1,34 +1,28 @@
 #!/bin/bash
 
-# default values for environment variables
+echo "Starting operator with signing key: $SIGNING_KEY_PATH"
+echo "Using P2P key from environment variable"
 
-echo "Starting operator with operator key: $OPERATOR_KEY_PATH"
-echo "Using signing key: $SIGNING_KEY_PATH"
-echo "Using config file: $CONFIG_PATH"
-
-# Check if REGISTRY_PEER_ID is set
-if [ -z "$REGISTRY_PEER_ID" ]; then
-    echo "REGISTRY_PEER_ID environment variable is not set"
+# Check if signing key file exists
+if [ ! -f "$SIGNING_KEY_PATH" ]; then
+    echo "Signing key file not found at: $SIGNING_KEY_PATH"
     exit 1
 fi
-echo "Using registry peer ID: $REGISTRY_PEER_ID"
 
-echo "Waiting for registry to be ready..."
+# Check if P2P key is provided
+if [ -z "$P2P_KEY_64" ]; then
+    echo "P2P_KEY_64 environment variable is required"
+    exit 1
+fi
 
-# Wait for registry P2P endpoint to be ready
-while ! nc -z registry 9000; do
-    echo "Waiting for registry P2P endpoint..."
-    sleep 1
-done
-echo "Registry P2P endpoint is ready"
+# Check if password is needed for ECDSA signing key
+if [[ "$SIGNING_KEY_PATH" == *".key.json" ]] && [ -z "$KEYSTORE_PASSWORD" ]; then
+    echo "KEYSTORE_PASSWORD environment variable is required for ECDSA signing key"
+    exit 1
+fi
 
-# Get registry IP for P2P connection
-REGISTRY_IP=$(getent hosts registry | awk '{ print $1 }')
-echo "Registry IP: $REGISTRY_IP"
-
-# Start the operator node
+# Start the operator node with all required flags
 exec ./operator \
-  -operator-key "$OPERATOR_KEY_PATH" \
-  -signing-key "$SIGNING_KEY_PATH" \
-  -password "$KEYSTORE_PASSWORD" \
-  -registry "/ip4/$REGISTRY_IP/tcp/9000/p2p/$REGISTRY_PEER_ID"
+    -signing-key "$SIGNING_KEY_PATH" \
+    -p2p-key-64 "$P2P_KEY_64" \
+    -password "$KEYSTORE_PASSWORD"

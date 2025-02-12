@@ -1,30 +1,29 @@
 package api
 
 import (
-	"github.com/go-chi/chi/v5"
-)
+	"time"
 
-const (
-	RateLimit = 10
-	RateLimitBurst = 15
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 func (h *Handler) RegisterRoutes(r chi.Router) {
-	
-	rateLimiter := NewRateLimiter(RateLimit, RateLimitBurst)
-	
-	// apply rate limit middleware
-	r.Use(rateLimiter.RateLimit)
-	
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(middleware.ThrottleBacklog(50, 100, time.Second))
+
+	// 或者使用更严格的限流
+	// r.Use(middleware.ThrottleAll(100, time.Second))
+
 	// Task related endpoints
 	r.Route("/api/v1", func(r chi.Router) {
 		// Task operations
-		r.Post("/tasks", h.SendRequest)                      // Create new task
-		
+		r.Post("/tasks", h.SendRequest) // Create new task
+
 		// Consensus queries
 		r.Route("/consensus", func(r chi.Router) {
-			r.Get("/", h.GetConsensusResponseByRequest)      // Query by parameters
+			r.Get("/", h.GetConsensusResponseByRequest)          // Query by parameters
 			r.Get("/tasks/{taskID}", h.GetTaskConsensusByTaskID) // Query by task ID
 		})
 	})
-} 
+}

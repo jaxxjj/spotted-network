@@ -2,125 +2,79 @@ package signer
 
 import (
 	"crypto/ecdsa"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"os"
-	"sort"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	ethcommon "github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
+	ethcrypto "github.com/ethereum/go-ethereum/crypto"
+	p2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 )
 
-// TaskSignParams contains all fields needed for signing a task response
-type TaskSignParams struct {
-	User        ethcommon.Address
-	ChainID     uint32
-	BlockNumber uint64
-	Key         *big.Int
-	Value       *big.Int
-}
-
-// Signer interface defines methods for signing messages
-type Signer interface {
-	// Sign signs the message with the private key
-	Sign(message []byte) ([]byte, error)
-	// GetOperatorAddress returns the operator's address (from operator key)
-	GetOperatorAddress() ethcommon.Address
-	// GetSigningAddress returns the address derived from signing key
-	GetSigningAddress() ethcommon.Address
-	// SignTaskResponse signs a task response
-	SignTaskResponse(params TaskSignParams) ([]byte, error)
-	// VerifyTaskResponse verifies a task response signature
-	VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error
-	// AggregateSignatures combines multiple signatures into one
-	AggregateSignatures(sigs map[string][]byte) []byte
+type Config struct {
+	// SigningKeyPath and SigningKey are mutually exclusive
+	SigningKeyPath string
+	SigningKey     string // hex string of private key without 0x prefix
+	Password       string
 }
 
 // LocalSigner implements Signer interface using a local keystore file
-type LocalSigner struct {
-	operatorKey *ecdsa.PrivateKey  // Used for operator registration and join
-	signingKey  *ecdsa.PrivateKey  // Used for signing task responses
-	address     ethcommon.Address  // Operator's address (from operatorKey)
+type localSigner struct {
+	signingKey *ecdsa.PrivateKey // Used for signing task responses
 }
 
 // NewLocalSigner creates a new local signer
-func NewLocalSigner(operatorKeyPath string, signingKeyPath string, password string) (*LocalSigner, error) {
-	// Load operator key
-	operatorKeyJson, err := os.ReadFile(operatorKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read operator key file: %w", err)
-	}
-	operatorKey, err := keystore.DecryptKey(operatorKeyJson, password)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt operator key: %w", err)
+func NewLocalSigner(cfg *Config) (Signer, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is nil")
 	}
 
-	// Load signing key
-	signingKeyJson, err := os.ReadFile(signingKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read signing key file: %w", err)
-	}
-	signingKey, err := keystore.DecryptKey(signingKeyJson, password)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt signing key: %w", err)
+	// Validate config - exactly one signing key option must be provided XOR
+	if (cfg.SigningKeyPath == "") == (cfg.SigningKey == "") || (cfg.SigningKeyPath != "" && cfg.SigningKey != "") {
+		return nil, fmt.Errorf("exactly one of SigningKeyPath or SigningKey must be provided")
 	}
 
-	// Create signer with both keys
-	return &LocalSigner{
-		operatorKey: operatorKey.PrivateKey,
-		signingKey:  signingKey.PrivateKey,
-		address:     crypto.PubkeyToAddress(operatorKey.PrivateKey.PublicKey),
+	var privateKey *ecdsa.PrivateKey
+
+	if cfg.SigningKeyPath != "" {
+		// Load from keystore file
+		signingKeyJson, err := os.ReadFile(cfg.SigningKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read signing key file: %w", err)
+		}
+		key, err := keystore.DecryptKey(signingKeyJson, cfg.Password)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decrypt signing key: %w", err)
+		}
+		privateKey = key.PrivateKey
+	} else {
+		// Load from hex string
+		privateKeyStr := strings.TrimPrefix(cfg.SigningKey, "0x")
+		privateKeyBytes, err := hex.DecodeString(privateKeyStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode private key hex string: %w", err)
+		}
+		privateKey, err = ethcrypto.ToECDSA(privateKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert private key bytes to ECDSA: %w", err)
+		}
+	}
+
+	return &localSigner{
+		signingKey: privateKey,
 	}, nil
 }
 
-// GetOperatorAddress returns the operator's address (from operator key)
-func (s *LocalSigner) GetOperatorAddress() ethcommon.Address {
-	return s.address
-}
-
 // GetSigningAddress returns the address derived from signing key
-func (s *LocalSigner) GetSigningAddress() ethcommon.Address {
-	return crypto.PubkeyToAddress(s.signingKey.PublicKey)
-}
-
-// GetSigningPublicKey implements Signer interface
-func (s *LocalSigner) GetSigningPublicKey() *ecdsa.PublicKey {
-	return &s.signingKey.PublicKey
-}
-
-// Sign implements Signer interface
-func (s *LocalSigner) Sign(message []byte) ([]byte, error) {
-	// Hash the message
-	hash := crypto.Keccak256Hash(message)
-	
-	// Sign the hash
-	signature, err := crypto.Sign(hash.Bytes(), s.operatorKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign message: %v", err)
-	}
-
-	return signature, nil
-}
-
-// VerifySignature verifies if the signature was signed by the given address
-func VerifySignature(address ethcommon.Address, message []byte, signature []byte) bool {
-	// Hash the message
-	hash := crypto.Keccak256Hash(message)
-
-	// Get public key from signature
-	pubkey, err := crypto.SigToPub(hash.Bytes(), signature)
-	if err != nil {
-		return false
-	}
-
-	// Verify address matches
-	recoveredAddr := crypto.PubkeyToAddress(*pubkey)
-	return address == recoveredAddr
+func (s *localSigner) GetSigningAddress() ethcommon.Address {
+	return ethcrypto.PubkeyToAddress(s.signingKey.PublicKey)
 }
 
 // SignTaskResponse signs a task response with all required fields
-func (s *LocalSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
+func (s *localSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
 	// Pack parameters into bytes
 	msg := []byte{}
 	msg = append(msg, params.User.Bytes()...)
@@ -130,14 +84,14 @@ func (s *LocalSigner) SignTaskResponse(params TaskSignParams) ([]byte, error) {
 	msg = append(msg, ethcommon.LeftPadBytes(params.Value.Bytes(), 32)...)
 
 	// Hash the message
-	hash := crypto.Keccak256(msg)
+	hash := ethcrypto.Keccak256(msg)
 
 	// Sign the hash
-	return crypto.Sign(hash, s.signingKey)
+	return ethcrypto.Sign(hash, s.signingKey)
 }
 
 // VerifyTaskResponse verifies a task response signature
-func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error {
+func (s *localSigner) VerifyTaskResponse(params TaskSignParams, signature []byte, signerAddr string) error {
 	// Pack parameters into bytes in the same order as SignTaskResponse
 	msg := []byte{}
 	msg = append(msg, params.User.Bytes()...)
@@ -147,16 +101,16 @@ func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte
 	msg = append(msg, ethcommon.LeftPadBytes(params.Value.Bytes(), 32)...)
 
 	// Hash the message
-	hash := crypto.Keccak256(msg)
+	hash := ethcrypto.Keccak256(msg)
 
 	// Recover public key
-	pubKey, err := crypto.SigToPub(hash, signature)
+	pubKey, err := ethcrypto.SigToPub(hash, signature)
 	if err != nil {
 		return fmt.Errorf("failed to recover public key: %w", err)
 	}
 
 	// Convert public key to address
-	recoveredAddr := crypto.PubkeyToAddress(*pubKey)
+	recoveredAddr := ethcrypto.PubkeyToAddress(*pubKey)
 	if recoveredAddr.Hex() != signerAddr {
 		return fmt.Errorf("invalid signature: recovered address %s does not match signer %s", recoveredAddr.Hex(), signerAddr)
 	}
@@ -164,28 +118,25 @@ func (s *LocalSigner) VerifyTaskResponse(params TaskSignParams, signature []byte
 	return nil
 }
 
-// AggregateSignatures combines multiple ECDSA signatures by concatenation
-// The signatures are sorted by signer address to ensure deterministic ordering
-func (s *LocalSigner) AggregateSignatures(sigs map[string][]byte) []byte {
-	// Convert map to sorted slice to ensure deterministic ordering
-	type sigPair struct {
-		address string
-		sig     []byte
+// Sign implements the Signer interface
+func (s *localSigner) Sign(message []byte) ([]byte, error) {
+	// Hash the message
+	hash := ethcrypto.Keccak256(message)
+	// Sign the hash
+	return ethcrypto.Sign(hash, s.signingKey)
+}
+
+// Base64ToPrivKey converts a base64 encoded private key to libp2p private key
+func Base64ToPrivKey(encodedKey string) (p2pcrypto.PrivKey, error) {
+	privKeyBytes, err := p2pcrypto.ConfigDecodeKey(encodedKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode base64 key: %v", err)
 	}
-	pairs := make([]sigPair, 0, len(sigs))
-	for addr, sig := range sigs {
-		pairs = append(pairs, sigPair{addr, sig})
+
+	privKey, err := p2pcrypto.UnmarshalPrivateKey(privKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal private key: %v", err)
 	}
-	
-	// Sort by address
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].address < pairs[j].address
-	})
-	
-	// Concatenate all signatures
-	var aggregated []byte
-	for _, pair := range pairs {
-		aggregated = append(aggregated, pair.sig...)
-	}
-	return aggregated
+
+	return privKey, nil
 }
