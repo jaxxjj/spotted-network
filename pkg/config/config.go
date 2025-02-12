@@ -45,7 +45,6 @@ type DatabaseConfig struct {
 
 // P2PConfig represents P2P network configuration
 type P2PConfig struct {
-	ExternalIP     string   `yaml:"external_ip"`
 	Port           int      `yaml:"port"`
 	BootstrapPeers []string `yaml:"bootstrap_peers"`
 	Rendezvous     string   `yaml:"rendezvous"`
@@ -103,15 +102,18 @@ func (c *Config) validate() error {
 	}
 
 	for chainID, chainCfg := range c.Chains {
+		if chainID == 1 {
+			if chainCfg.Contracts.Registry == "" {
+				return fmt.Errorf("registry address is required for mainnet")
+			}
+			if chainCfg.Contracts.EpochManager == "" {
+				return fmt.Errorf("epoch manager address is required for mainnet")
+			}
+		}
 		if chainCfg.RPC == "" {
 			return fmt.Errorf("rpc url is required for chain %d", chainID)
 		}
-		if chainCfg.Contracts.Registry == "" {
-			return fmt.Errorf("registry address is required for chain %d", chainID)
-		}
-		if chainCfg.Contracts.EpochManager == "" {
-			return fmt.Errorf("epoch manager address is required for chain %d", chainID)
-		}
+
 		if chainCfg.Contracts.StateManager == "" {
 			return fmt.Errorf("state manager address is required for chain %d", chainID)
 		}
@@ -127,9 +129,6 @@ func (c *Config) validate() error {
 	if c.P2P.Port < 0 {
 		return fmt.Errorf("p2p port must be non-negative")
 	}
-	if c.P2P.ExternalIP == "" {
-		return fmt.Errorf("p2p external IP is required")
-	}
 	if c.P2P.Rendezvous == "" {
 		return fmt.Errorf("p2p rendezvous string is required")
 	}
@@ -142,46 +141,6 @@ func (c *Config) validate() error {
 	}
 
 	return nil
-}
-
-func DefaultConfig() *Config {
-	return &Config{
-		Chains: map[uint32]*ChainConfig{
-			1: { // Ethereum mainnet
-				RPC: "http://localhost:8545",
-				Contracts: ContractsConfig{
-					Registry:     "",
-					EpochManager: "",
-					StateManager: "",
-				},
-				RequiredConfirmations: 12,
-				AverageBlockTime:      12.5,
-			},
-		},
-		Database: DatabaseConfig{
-			URL:             "postgres://spotted:spotted@localhost:5432/operator1?sslmode=disable",
-			MaxOpenConns:    20,
-			MaxIdleConns:    5,
-			ConnMaxLifetime: 1 * time.Hour,
-		},
-		P2P: P2PConfig{
-			Port:           0, // Random port
-			ExternalIP:     "0.0.0.0",
-			Rendezvous:     "spotted-network",
-			BootstrapPeers: []string{}, // Empty by default
-		},
-		HTTP: HTTPConfig{
-			Port: 8001,
-			Host: "0.0.0.0",
-		},
-		Logging: LoggingConfig{
-			Level:  "info",
-			Format: "json",
-		},
-		Metric: MetricConfig{
-			Port: 8080,
-		},
-	}
 }
 
 // GetConfig returns the singleton config instance

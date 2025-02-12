@@ -11,21 +11,20 @@ chains:
 
 # P2P Configuration
 p2p:
-  port: ${P2P_PORT}
-  external_ip: "0.0.0.0"
-  rendezvous: ${P2P_RENDEZVOUS}
+  port: ${P2P_PORT:-10000}
+  rendezvous: "spotted-network"
   bootstrap_peers:
     - ${P2P_BOOTSTRAP_PEER_1}
   # Format for bootstrap peers: "/ip4/1.2.3.4/tcp/4001/p2p/QmPeerID123..."
 
 # HTTP Server Configuration
 http:
-  port: ${HTTP_PORT}
+  port: ${HTTP_PORT:-8080}
   host: "0.0.0.0"
 
 # Logging Configuration
 logging:
-  level: ${LOG_LEVEL}
+  level: ${LOG_LEVEL:-info}
   format: "json"
 
 # Database Configuration
