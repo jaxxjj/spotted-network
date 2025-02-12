@@ -1,6 +1,7 @@
 package node
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
@@ -33,4 +34,23 @@ func (n *node) PrintPeerInfo() {
 func (n *node) GetConnectedPeers() []peer.ID {
 	peers := n.host.Network().Peers()
 	return peers
+}
+
+// GetPeerAgentVersion 获取指定peer的AgentVersion
+func (n *node) GetPeerAgentVersion(peerID peer.ID) (string, error) {
+	// 从peerstore获取AgentVersion
+	av, err := n.host.Peerstore().Get(peerID, "AgentVersion")
+	if err != nil {
+		log.Printf("[Node] Failed to get agent version for peer %s: %v", peerID, err)
+		return "", fmt.Errorf("failed to get agent version: %w", err)
+	}
+
+	// 类型断言
+	version, ok := av.(string)
+	if !ok {
+		log.Printf("[Node] Invalid agent version type for peer %s", peerID)
+		return "", fmt.Errorf("invalid agent version type")
+	}
+
+	return version, nil
 }

@@ -13,18 +13,27 @@ import (
 
 var _ connmgr.ConnectionGater = (*connectionGater)(nil)
 
+type Node interface {
+	GetPeerAgentVersion(peerID peer.ID) (string, error)
+}
+
 type ConnectionGater interface {
 	connmgr.ConnectionGater
 	IncrementViolationCount(ctx context.Context, params ViolationParams) error
 	UnblockNode(ctx context.Context, peerID peer.ID) error
+	SetNode(node Node)
 }
 
 type Config struct {
+	Version       string
 	BlacklistRepo BlacklistRepo
 	OperatorRepo  OperatorRepo
+	Node          Node
 }
 
 type connectionGater struct {
+	node          Node
+	version       string
 	blacklistRepo BlacklistRepo
 	operatorRepo  OperatorRepo
 }
@@ -40,6 +49,8 @@ func NewConnectionGater(cfg *Config) (ConnectionGater, error) {
 		return nil, errors.New("[ConnectionGater] operator repo is nil")
 	}
 	return &connectionGater{
+		node:          cfg.Node,
+		version:       cfg.Version,
 		blacklistRepo: cfg.BlacklistRepo,
 		operatorRepo:  cfg.OperatorRepo,
 	}, nil
@@ -62,10 +73,18 @@ func (g *connectionGater) InterceptAccept(addrs network.ConnMultiaddrs) bool {
 
 // InterceptSecured tests whether a secured connection is allowed
 func (g *connectionGater) InterceptSecured(direction network.Direction, peerID peer.ID, addrs network.ConnMultiaddrs) bool {
+	if !g.checkPeerPermission(peerID) {
+		return false
+	}
+
 	return g.checkPeerPermission(peerID)
 }
 
 // InterceptUpgraded tests whether an upgraded connection is allowed
 func (g *connectionGater) InterceptUpgraded(conn network.Conn) (bool, control.DisconnectReason) {
 	return true, 0
+}
+
+func (g *connectionGater) SetNode(node Node) {
+	g.node = node
 }

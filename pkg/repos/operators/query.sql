@@ -1,23 +1,23 @@
 -- name: GetOperatorByAddress :one
--- -- cache: 30s
+-- -- cache: 10s
 -- -- timeout: 500ms
 SELECT * FROM operators
 WHERE address = $1;
 
 -- name: GetOperatorBySigningKey :one
--- -- cache: 30s
+-- -- cache: 10s
 -- -- timeout: 500ms
 SELECT * FROM operators
 WHERE signing_key = $1;
 
 -- name: GetOperatorByP2PKey :one
--- -- cache: 30s
+-- -- cache: 10s
 -- -- timeout: 500ms
 SELECT * FROM operators
 WHERE LOWER(p2p_key) = LOWER($1);
 
 -- name: IsActiveOperator :one
--- -- cache: 168h
+-- -- cache: 10s
 -- -- timeout: 500ms
 SELECT EXISTS (
     SELECT 1 FROM operators

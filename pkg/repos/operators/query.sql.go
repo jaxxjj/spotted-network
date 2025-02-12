@@ -24,7 +24,7 @@ SELECT address, signing_key, p2p_key, registered_at_block_number, active_epoch, 
 WHERE address = $1
 `
 
-// -- cache: 30s
+// -- cache: 10s
 // -- timeout: 500ms
 func (q *Queries) GetOperatorByAddress(ctx context.Context, address string) (*Operators, error) {
 	return _GetOperatorByAddress(ctx, q.AsReadOnly(), address)
@@ -39,7 +39,7 @@ func _GetOperatorByAddress(ctx context.Context, q CacheQuerierConn, address stri
 	defer cancel()
 	q.GetConn().CountIntent("operators.GetOperatorByAddress")
 	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 30000)
+		cacheDuration := time.Duration(time.Millisecond * 10000)
 		row := q.GetConn().WQueryRow(qctx, "operators.GetOperatorByAddress", getOperatorByAddress, address)
 		var i *Operators = new(Operators)
 		err := row.Scan(
@@ -78,7 +78,7 @@ SELECT address, signing_key, p2p_key, registered_at_block_number, active_epoch, 
 WHERE LOWER(p2p_key) = LOWER($1)
 `
 
-// -- cache: 30s
+// -- cache: 10s
 // -- timeout: 500ms
 func (q *Queries) GetOperatorByP2PKey(ctx context.Context, lower string) (*Operators, error) {
 	return _GetOperatorByP2PKey(ctx, q.AsReadOnly(), lower)
@@ -93,7 +93,7 @@ func _GetOperatorByP2PKey(ctx context.Context, q CacheQuerierConn, lower string)
 	defer cancel()
 	q.GetConn().CountIntent("operators.GetOperatorByP2PKey")
 	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 30000)
+		cacheDuration := time.Duration(time.Millisecond * 10000)
 		row := q.GetConn().WQueryRow(qctx, "operators.GetOperatorByP2PKey", getOperatorByP2PKey, lower)
 		var i *Operators = new(Operators)
 		err := row.Scan(
@@ -132,7 +132,7 @@ SELECT address, signing_key, p2p_key, registered_at_block_number, active_epoch, 
 WHERE signing_key = $1
 `
 
-// -- cache: 30s
+// -- cache: 10s
 // -- timeout: 500ms
 func (q *Queries) GetOperatorBySigningKey(ctx context.Context, signingKey string) (*Operators, error) {
 	return _GetOperatorBySigningKey(ctx, q.AsReadOnly(), signingKey)
@@ -147,7 +147,7 @@ func _GetOperatorBySigningKey(ctx context.Context, q CacheQuerierConn, signingKe
 	defer cancel()
 	q.GetConn().CountIntent("operators.GetOperatorBySigningKey")
 	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 30000)
+		cacheDuration := time.Duration(time.Millisecond * 10000)
 		row := q.GetConn().WQueryRow(qctx, "operators.GetOperatorBySigningKey", getOperatorBySigningKey, signingKey)
 		var i *Operators = new(Operators)
 		err := row.Scan(
@@ -189,7 +189,7 @@ SELECT EXISTS (
 ) as is_active
 `
 
-// -- cache: 168h
+// -- cache: 10s
 // -- timeout: 500ms
 func (q *Queries) IsActiveOperator(ctx context.Context, lower string) (*bool, error) {
 	return _IsActiveOperator(ctx, q.AsReadOnly(), lower)
@@ -204,7 +204,7 @@ func _IsActiveOperator(ctx context.Context, q CacheQuerierConn, lower string) (*
 	defer cancel()
 	q.GetConn().CountIntent("operators.IsActiveOperator")
 	dbRead := func() (any, time.Duration, error) {
-		cacheDuration := time.Duration(time.Millisecond * 604800000)
+		cacheDuration := time.Duration(time.Millisecond * 10000)
 		row := q.GetConn().WQueryRow(qctx, "operators.IsActiveOperator", isActiveOperator, lower)
 		var is_active *bool = new(bool)
 		err := row.Scan(is_active)

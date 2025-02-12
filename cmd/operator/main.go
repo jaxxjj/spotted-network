@@ -36,6 +36,8 @@ import (
 	"github.com/stumble/wpgx"
 )
 
+const version = "1.0.0"
+
 // Repos holds all repository instances
 type Repos struct {
 	OperatorRepo          *operators.Queries
@@ -266,6 +268,7 @@ func (a *App) initNode() error {
 		),
 		libp2p.ConnectionGater(a.gater),
 		libp2p.Identity(privKey),
+		libp2p.UserAgent(fmt.Sprintf("spotted-network/%s", version)),
 		libp2p.Security("/noise", noise.New),
 		libp2p.Muxer("/yamux/1.0.0", yamux.DefaultTransport),
 	)
@@ -284,6 +287,7 @@ func (a *App) initNode() error {
 		BootstrapPeers:   bootstrapPeers,
 		RendezvousString: a.cfg.P2P.Rendezvous,
 	})
+	a.gater.SetNode(a.node)
 	if err != nil {
 		metric.RecordError("node_creation_failed")
 		return fmt.Errorf("failed to create operator node: %w", err)

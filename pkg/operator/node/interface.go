@@ -22,4 +22,7 @@ type Node interface {
 
 	// DisconnectPeer disconnects and removes a peer
 	DisconnectPeer(targetPeer peer.ID) error
+
+	// GetPeerAgentVersion returns the agent version of a peer
+	GetPeerAgentVersion(peerID peer.ID) (string, error)
 }
