@@ -84,6 +84,11 @@ create-task-operator3:
 	@echo "Creating new task..."
 	@curl -X POST -H "Content-Type: application/json" -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' http://localhost:8002/api/v1/tasks
 
+create-task-ec2:
+	curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"chain_id":31337,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":8}' \
+  http://18.116.97.149:8000/api/v1/tasks
 # Mine 15 blocks
 mine-15:
 	@echo "Mining 15 blocks..."

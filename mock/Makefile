@@ -49,10 +49,14 @@ emit-deregister-event:
 # Test state queries
 test-state:
 	@echo "Testing getHistoryAtBlock for ALICE at block 7698667..."
-	@cast call --rpc-url $(RPC_URL) 0xe8Cbc41961125A1B0F86465Ff9a6666e39104E9e "getHistoryAtBlock(address,uint256,uint256)(uint256)" 0x0000000000000000000000000000000000001111 1 21839108
+	@cast call --rpc-url $(RPC_URL) 0xe8Cbc41961125A1B0F86465Ff9a6666e39104E9e "getHistoryAtBlock(address,uint256,uint256)(uint256)" 0x0000000000000000000000000000000000001111 1 7698667
 
 # Query genesis block
 query-genesis:
 	@echo "Querying GENESIS_BLOCK value..."
 	@cast call --rpc-url $(RPC_URL) 0x5bFB7609a51F8577D90e8576DE6e85BC7fBf08F7 "GENESIS_BLOCK()(uint64)"
 
+spotted-network % curl -v -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"chain_id":11155111,"target_address":"0x0000000000000000000000000000000000001111","key":"1","block_number":7698667}' \
+  http://64.111.64.88:8080/api/v1/tasks

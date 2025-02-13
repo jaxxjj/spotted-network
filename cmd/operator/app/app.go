@@ -291,6 +291,9 @@ func (a *App) initNode() error {
 		libp2p.ListenAddrStrings(
 			fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", a.cfg.P2P.Port),
 		),
+		libp2p.ListenAddrStrings(
+			fmt.Sprintf("/ip4/%s/tcp/%d", a.cfg.P2P.ExternalIP, a.cfg.P2P.Port),
+		),
 		libp2p.ConnectionGater(a.gater),
 		libp2p.Identity(privKey),
 		libp2p.UserAgent(fmt.Sprintf("spotted-network/%s", version)),

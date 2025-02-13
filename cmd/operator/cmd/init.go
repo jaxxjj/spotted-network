@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -41,6 +42,7 @@ type ConfigAnswers struct {
 
 	// P2P Configuration
 	P2PPort        int      `yaml:"port"`
+	P2PExternalIP  string   `yaml:"external_ip"`
 	P2PRendezvous  string   `yaml:"rendezvous"`
 	BootstrapPeers []string `yaml:"bootstrap_peers"`
 
@@ -83,6 +85,9 @@ type ConfigAnswers struct {
 
 	// New field for deployment mode
 	IsDockerMode bool `yaml:"is_docker_mode"`
+
+	// New field for auto-detect IP
+	AutoDetectIP bool `yaml:"auto_detect_ip"`
 }
 
 // 预定义支持的链和对应的配置
@@ -177,7 +182,8 @@ func getDefaultConfig() map[string]interface{} {
 		},
 		"p2p": map[string]interface{}{
 			"port":            10000,
-			"rendezvous":      "spotted-network", // 固定值
+			"external_ip":     "",
+			"rendezvous":      "spotted-network",
 			"bootstrap_peers": []string{},
 		},
 		"http": map[string]interface{}{
@@ -229,7 +235,7 @@ func setDockerDefaults(answers *ConfigAnswers) {
 	answers.DBPort = 5432
 	answers.DBUsername = "spotted"
 	answers.DBPassword = "spotted"
-	answers.DBName = "operator1"
+	answers.DBName = "spotted"
 	answers.DBMaxConns = 100
 	answers.DBMinConns = 0
 	answers.DBMaxConnLife = 6 * time.Hour
@@ -237,7 +243,7 @@ func setDockerDefaults(answers *ConfigAnswers) {
 	answers.DBIsProxy = false
 	answers.DBEnableMetrics = true
 	answers.DBEnableTracing = true
-	answers.DBAppName = "operator1"
+	answers.DBAppName = "spotted"
 
 	// Redis默认配置
 	answers.RedisHost = "redis"
@@ -392,6 +398,27 @@ func runInit(cmd *cobra.Command, args []string) error {
 					Default: "8080",
 				},
 			},
+			{
+				Name: "P2PExternalIP",
+				Prompt: &survey.Input{
+					Message: "Enter your external IP address (required):",
+					Help:    "This is your public IP address that other nodes will use to connect to you",
+				},
+				Validate: func(val interface{}) error {
+					// 验证是否为空
+					str, ok := val.(string)
+					if !ok || str == "" {
+						return fmt.Errorf("external IP is required")
+					}
+
+					// 验证IP格式
+					if net.ParseIP(str) == nil {
+						return fmt.Errorf("invalid IP address format")
+					}
+
+					return nil
+				},
+			},
 		}, &answers); err != nil {
 			return fmt.Errorf("failed to collect config: %w", err)
 		}
@@ -399,7 +426,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 		// 更新配置
 		config["p2p"] = map[string]interface{}{
 			"port":            answers.P2PPort,
-			"rendezvous":      "spotted-network", // 固定值
+			"external_ip":     answers.P2PExternalIP,
+			"rendezvous":      "spotted-network",
 			"bootstrap_peers": answers.BootstrapPeers,
 		}
 		config["http"] = map[string]interface{}{
@@ -518,10 +546,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if answers.IsDockerMode {
 		fmt.Println("\nNext steps:")
 		fmt.Println("1. Review the configuration in config/operator.yaml")
-		fmt.Println("2. Start the services:")
-		fmt.Println("   cd ~/.spotted && docker-compose up -d")
-		fmt.Println("3. Check service status:")
-		fmt.Println("   docker-compose ps")
+		fmt.Println("2. Start the operator:")
+		fmt.Println("   spotted start")
 	} else {
 		fmt.Println("\nNext steps:")
 		fmt.Println("1. Review the configuration in config/operator.yaml")
