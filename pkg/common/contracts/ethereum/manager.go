@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	MainnetChainID = uint32(31337) // Ethereum mainnet chain ID
+	MainnetChainID = uint32(11155111) // Ethereum mainnet chain ID
 )
 
 type chainManager struct {

@@ -93,21 +93,27 @@ var chainConfigs = map[uint32]struct {
 	requiredConfirmations uint16
 	averageBlockTime      float64
 }{
-	31337: { // Mainnet
-		registryAddr:          "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-		epochMgrAddr:          "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-		stateMgrAddr:          "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
-		requiredConfirmations: 12,
-		averageBlockTime:      12.5,
+	11155111: { // Sepolia mainnet
+		registryAddr:          "0xB6dE44d8F1425752CAc1103D99e59eD329F65aCF",
+		epochMgrAddr:          "0x5bFB7609a51F8577D90e8576DE6e85BC7fBf08F7",
+		stateMgrAddr:          "0xcc6Db3c0389128bad36796079aB336B3AfC1cF19",
+		requiredConfirmations: 2,
+		averageBlockTime:      12.0,
 	},
-	11155111: { // Sepolia
-		registryAddr:          "", // 非 mainnet 不需要
-		epochMgrAddr:          "", // 非 mainnet 不需要
-		stateMgrAddr:          "0x3333333333333333333333333333333333333333",
-		requiredConfirmations: 6,
-		averageBlockTime:      15.0,
+	84532: { // Base Sepolia
+		registryAddr:          "",
+		epochMgrAddr:          "",
+		stateMgrAddr:          "0xe8Cbc41961125A1B0F86465Ff9a6666e39104E9e",
+		requiredConfirmations: 2,
+		averageBlockTime:      2.0,
 	},
-	// 可以添加更多链的配置
+	421614: { // Arbitrum Sepolia
+		registryAddr:          "",
+		epochMgrAddr:          "",
+		stateMgrAddr:          "0xe3Ed30610de2914b45d848718d6837eF14361C41",
+		requiredConfirmations: 2,
+		averageBlockTime:      2.0,
+	},
 }
 
 func collectChainConfigs() (map[uint32]*config.ChainConfig, error) {
@@ -129,8 +135,8 @@ func collectChainConfigs() (map[uint32]*config.ChainConfig, error) {
 			StateManager: chainInfo.stateMgrAddr,
 		}
 
-		// 只有 mainnet 需要 registry 和 epochManager
-		if chainID == 31337 {
+		// only mainnet need registry and epochManager
+		if chainID == 11155111 {
 			contracts.Registry = chainInfo.registryAddr
 			contracts.EpochManager = chainInfo.epochMgrAddr
 		}

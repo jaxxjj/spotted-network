@@ -2,7 +2,6 @@
 pragma solidity ^0.8.12;
 
 contract MockRegistry {
-    
     event OperatorRegistered(
         address indexed _operator,
         uint256 indexed blockNumber,
@@ -22,8 +21,6 @@ contract MockRegistry {
     address public constant P2P_KEY_1 = address(0x310C8425b620980DCFcf756e46572bb6ac80Eb07);
     address public constant P2P_KEY_2 = address(0x01078ffBf1De436d6f429f5Ce6Be8Fd9D6E16165);
     address public constant P2P_KEY_3 = address(0x67aa23adde2459a1620BE2Ea28982310597521b0);
-    
-
 
     // Mock function to emit operator registered event
     function emitOperatorRegistered(address operator, address signingKey, address p2pKey, address avs) external {
@@ -50,7 +47,7 @@ contract MockRegistry {
         if (operator == OPERATOR_3) {
             return 555;
         }
-        return 0;
+        return 400;
     }
 
     function getOperatorWeightAtEpoch(address _operator, uint32 _epochNumber) external view returns (uint256) {
@@ -90,7 +87,7 @@ contract MockRegistry {
             }
         }
 
-        return 100;
+        return 600;
     }
 
     // Mock function to get total weight
@@ -120,29 +117,29 @@ contract MockRegistry {
         return 10; // Return fixed minimum weight for testing
     }
 
-    function getOperatorSigningKeyAtEpoch(
-        address _operator,
-        uint32 _referenceEpoch
-    ) public view returns (address) {
-        if(_operator == OPERATOR_1) {
+    function getOperatorSigningKeyAtEpoch(address _operator, uint32 _referenceEpoch) public view returns (address) {
+        if (_operator == OPERATOR_1) {
             return SIGNING_KEY_1;
         }
-        if(_operator == OPERATOR_2) {
+        if (_operator == OPERATOR_2) {
             return SIGNING_KEY_2;
+        }
+        if (_operator == OPERATOR_3) {
+            return SIGNING_KEY_3;
         }
         return SIGNING_KEY_3;
     }
-    function getOperatorP2pKeyAtEpoch(
-        address _operator,
-        uint32 _epochNumber
-    ) external view returns (address) {
-        if(_operator == OPERATOR_1) {
+
+    function getOperatorP2pKeyAtEpoch(address _operator, uint32 _epochNumber) external view returns (address) {
+        if (_operator == OPERATOR_1) {
             return P2P_KEY_1;
         }
-        if(_operator == OPERATOR_2) {
+        if (_operator == OPERATOR_2) {
             return P2P_KEY_2;
+        }
+        if (_operator == OPERATOR_3) {
+            return P2P_KEY_3;
         }
         return P2P_KEY_3;
     }
 }
-

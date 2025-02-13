@@ -1,6 +1,18 @@
 #!/bin/sh
 set -e
 
+cat << "EOF"
+ .oooooo..o                          .       .                   .o8  
+d8P'    `Y8                        .o8     .o8                  "888  
+Y88bo.      oo.ooooo.   .ooooo.  .o888oo .o888oo  .ooooo.   .oooo888  
+ `"Y8888o.   888' `88b d88' `88b   888     888   d88' `88b d88' `888  
+     `"Y88b  888   888 888   888   888     888   888ooo888 888   888  
+oo     .d8P  888   888 888   888   888 .   888 . 888    .o 888   888  
+8""88888P'   888bod8P' `Y8bod8P'   "888"   "888" `Y8bod8P' `Y8bod88P" 
+             888                                                      
+            o888o                                                     
+EOF
+
 # Default installation directory
 INSTALL_DIR="$HOME/bin"
 BINARY_NAME="spotted"

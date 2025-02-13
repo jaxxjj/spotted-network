@@ -43,24 +43,29 @@ func NewChainClient(cfg *Config) (ChainClient, error) {
 		return nil, fmt.Errorf("[ChainClient] failed to create state manager binding: %w", err)
 	}
 
-	epochManager, err := bindings.NewEpochManager(cfg.EpochManagerAddress, ethClient)
-	if err != nil {
-		ethClient.Close()
-		return nil, fmt.Errorf("[ChainClient] failed to create epoch manager binding: %w", err)
-	}
-
-	registry, err := bindings.NewECDSAStakeRegistry(cfg.RegistryAddress, ethClient)
-	if err != nil {
-		ethClient.Close()
-		return nil, fmt.Errorf("[ChainClient] failed to create registry binding: %w", err)
-	}
-
-	return &chainClient{
+	client := &chainClient{
 		client:       ethClient,
 		stateManager: stateManager,
-		epochManager: epochManager,
-		registry:     registry,
-	}, nil
+	}
+
+	// 只有mainnet才初始化EpochManager和Registry
+	if cfg.ChainID == MainnetChainID {
+		epochManager, err := bindings.NewEpochManager(cfg.EpochManagerAddress, ethClient)
+		if err != nil {
+			ethClient.Close()
+			return nil, fmt.Errorf("[ChainClient] failed to create epoch manager binding: %w", err)
+		}
+		client.epochManager = epochManager
+
+		registry, err := bindings.NewECDSAStakeRegistry(cfg.RegistryAddress, ethClient)
+		if err != nil {
+			ethClient.Close()
+			return nil, fmt.Errorf("[ChainClient] failed to create registry binding: %w", err)
+		}
+		client.registry = registry
+	}
+
+	return client, nil
 }
 
 // Close implements contracts.ChainClient

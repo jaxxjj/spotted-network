@@ -169,7 +169,7 @@ Generated P2P key for operator3:
 ```
 
 ```
-spotted start --signing-key-path ./keys/signing/operator1.key.json --p2p-key-64 CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys= --password testpassword
+spotted start --signing-key-path /Users/yimingchen/galxe/ready-on-repo/spotted-network/keys/signing/operator1.key.json --p2p-key-64 CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys= --password testpassword
 ```
 # Spotted Network CLI
 

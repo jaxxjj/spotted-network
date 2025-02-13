@@ -9,7 +9,6 @@ contract DeployMockStateManager is Script {
     // Test addresses
     address constant ALICE = address(0x1111);
     address constant BOB = address(0x2222);
-    address constant CHARLIE = address(0x3333);
 
     // Test keys
     uint256 constant BALANCE_KEY = 1;
@@ -24,51 +23,29 @@ contract DeployMockStateManager is Script {
         StateManager stateManager = new StateManager();
         console.log("MockStateManager deployed at:", address(stateManager));
 
-        // Set test data for ALICE
-        // Set balance history
-        stateManager.setValue(ALICE, BALANCE_KEY, 100 ether);
-        vm.roll(block.number + 1);
-        stateManager.setValue(ALICE, BALANCE_KEY, 150 ether);
-        vm.roll(block.number + 1);
-        stateManager.setValue(ALICE, BALANCE_KEY, 200 ether);
+        // Set test data for ALICE using batch operation
+        IStateManager.SetValueParams[] memory aliceParams = new IStateManager.SetValueParams[](3);
+        aliceParams[0] = IStateManager.SetValueParams({key: BALANCE_KEY, value: 200 ether});
+        aliceParams[1] = IStateManager.SetValueParams({key: STAKE_KEY, value: 75 ether});
+        aliceParams[2] = IStateManager.SetValueParams({key: REWARD_KEY, value: 5 ether});
+        stateManager.batchSetValues(ALICE, aliceParams);
 
-        // Set stake history
-        stateManager.setValue(ALICE, STAKE_KEY, 50 ether);
-        vm.roll(block.number + 1);
-        stateManager.setValue(ALICE, STAKE_KEY, 75 ether);
+        // Set test data for BOB using batch operation
+        IStateManager.SetValueParams[] memory bobParams = new IStateManager.SetValueParams[](2);
+        bobParams[0] = IStateManager.SetValueParams({key: BALANCE_KEY, value: 500 ether});
+        bobParams[1] = IStateManager.SetValueParams({key: STAKE_KEY, value: 200 ether});
+        stateManager.batchSetValues(BOB, bobParams);
 
-        // Set reward
-        stateManager.setValue(ALICE, REWARD_KEY, 5 ether);
-
-        // Set test data for BOB
-        stateManager.setValue(BOB, BALANCE_KEY, 500 ether);
-        vm.roll(block.number + 1);
-        stateManager.setValue(BOB, STAKE_KEY, 200 ether);
-
-        // Set test data for CHARLIE
-        stateManager.setValue(CHARLIE, BALANCE_KEY, 1000 ether);
-        vm.roll(block.number + 1);
-        stateManager.setValue(CHARLIE, STAKE_KEY, 400 ether);
-        vm.roll(block.number + 1);
-        stateManager.setValue(CHARLIE, REWARD_KEY, 20 ether);
-
-        // Test batch set values
-        IStateManager.SetValueParams[] memory params = new IStateManager.SetValueParams[](2);
-        params[0] = IStateManager.SetValueParams({key: BALANCE_KEY, value: 1200 ether});
-        params[1] = IStateManager.SetValueParams({key: STAKE_KEY, value: 500 ether});
-        stateManager.batchSetValues(CHARLIE, params);
 
         vm.stopBroadcast();
 
-        // Log some test data for verification
+        // Log test data for verification
         console.log("Test data set:");
         console.log("ALICE balance:", stateManager.getCurrentValue(ALICE, BALANCE_KEY));
         console.log("ALICE stake:", stateManager.getCurrentValue(ALICE, STAKE_KEY));
         console.log("ALICE reward:", stateManager.getCurrentValue(ALICE, REWARD_KEY));
         console.log("BOB balance:", stateManager.getCurrentValue(BOB, BALANCE_KEY));
         console.log("BOB stake:", stateManager.getCurrentValue(BOB, STAKE_KEY));
-        console.log("CHARLIE balance:", stateManager.getCurrentValue(CHARLIE, BALANCE_KEY));
-        console.log("CHARLIE stake:", stateManager.getCurrentValue(CHARLIE, STAKE_KEY));
-        console.log("CHARLIE reward:", stateManager.getCurrentValue(CHARLIE, REWARD_KEY));
+
     }
 }

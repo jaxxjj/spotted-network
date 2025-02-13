@@ -34,7 +34,7 @@ func init() {
 func validateStartFlags(cmd *cobra.Command, args []string) error {
 	// Check if config file exists
 	if _, err := os.Stat(cfgFile); os.IsNotExist(err) {
-		return fmt.Errorf("config file not found: %s. Run 'operator init' first", cfgFile)
+		return fmt.Errorf("config file not found: %s. Run 'spotted init' first", cfgFile)
 	}
 
 	// Validate signing key options

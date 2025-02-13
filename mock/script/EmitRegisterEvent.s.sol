@@ -27,7 +27,7 @@ contract EmitRegisterEvent is Script {
             0x083739b681B85cc2c9e394471486321D6446b25b // operator3
         ];
 
-        address[3] memory p2pKeys = [  
+        address[3] memory p2pKeys = [
             0x310C8425b620980DCFcf756e46572bb6ac80Eb07, // operator1
             0x01078ffBf1De436d6f429f5Ce6Be8Fd9D6E16165, // operator2
             0x67aa23adde2459a1620BE2Ea28982310597521b0 // operator3
