@@ -11,13 +11,13 @@ import (
 
 // Config represents the main configuration structure
 type Config struct {
-	Chains     map[uint32]*ChainConfig `yaml:"chains"`
-	Database   DatabaseConfig          `yaml:"database"`
-	P2P        P2PConfig               `yaml:"p2p"`
-	HTTP       HTTPConfig              `yaml:"http"`
-	Logging    LoggingConfig           `yaml:"logging"`
-	RegistryID string                  `yaml:"registry_id"`
-	Metric     MetricConfig            `yaml:"metric"`
+	Chains   map[uint32]*ChainConfig `yaml:"chains"`
+	Database DatabaseConfig          `yaml:"database"`
+	P2P      P2PConfig               `yaml:"p2p"`
+	HTTP     HTTPConfig              `yaml:"http"`
+	Logging  LoggingConfig           `yaml:"logging"`
+	Metric   MetricConfig            `yaml:"metric"`
+	Redis    RedisConfig             `yaml:"redis"`
 }
 
 // ChainConfig represents configuration for a specific chain
@@ -37,10 +37,20 @@ type ContractsConfig struct {
 
 // DatabaseConfig represents database connection configuration
 type DatabaseConfig struct {
-	URL             string        `yaml:"url"`
-	MaxOpenConns    int           `yaml:"max_open_conns"`
-	MaxIdleConns    int           `yaml:"max_idle_conns"`
-	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
+	AppName          string        `yaml:"app_name"`
+	Username         string        `yaml:"username"`
+	Password         string        `yaml:"password"`
+	Host             string        `yaml:"host"`
+	Port             int           `yaml:"port"`
+	DBName           string        `yaml:"dbname"`
+	MaxConns         int           `yaml:"max_conns"`
+	MinConns         int           `yaml:"min_conns"`
+	MaxConnLifetime  time.Duration `yaml:"max_conn_lifetime"`
+	MaxConnIdleTime  time.Duration `yaml:"max_conn_idle_time"`
+	IsProxy          bool          `yaml:"is_proxy"`
+	EnablePrometheus bool          `yaml:"enable_prometheus"`
+	EnableTracing    bool          `yaml:"enable_tracing"`
+	ReplicaPrefixes  []string      `yaml:"replica_prefixes"`
 }
 
 // P2PConfig represents P2P network configuration
@@ -65,6 +75,20 @@ type LoggingConfig struct {
 // MetricConfig represents metrics server configuration
 type MetricConfig struct {
 	Port int `yaml:"port"`
+}
+
+// RedisConfig represents Redis connection configuration
+type RedisConfig struct {
+	Host                string        `yaml:"host"`
+	Port                int           `yaml:"port"`
+	Password            string        `yaml:"password"`
+	IsFailover          bool          `yaml:"is_failover"`
+	IsElasticache       bool          `yaml:"is_elasticache"`
+	IsClusterMode       bool          `yaml:"is_cluster_mode"`
+	ClusterAddrs        []string      `yaml:"cluster_addrs"`
+	ClusterMaxRedirects int           `yaml:"cluster_max_redirects"`
+	ReadTimeout         time.Duration `yaml:"read_timeout"`
+	PoolSize            int           `yaml:"pool_size"`
 }
 
 var (

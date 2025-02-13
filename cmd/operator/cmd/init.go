@@ -45,7 +45,7 @@ type ConfigAnswers struct {
 	BootstrapPeers []string `yaml:"bootstrap_peers"`
 
 	// HTTP Configuration
-	HTTPPort string `yaml:"port"`
+	HTTPPort int    `yaml:"port"`
 	HTTPHost string `yaml:"host"`
 
 	// Database Configuration
@@ -80,6 +80,9 @@ type ConfigAnswers struct {
 
 	// New fields for P2P Configuration
 	IsFirstNode bool `yaml:"is_first_node"`
+
+	// New field for deployment mode
+	IsDockerMode bool `yaml:"is_docker_mode"`
 }
 
 // 预定义支持的链和对应的配置
@@ -90,16 +93,16 @@ var chainConfigs = map[uint32]struct {
 	requiredConfirmations uint16
 	averageBlockTime      float64
 }{
-	31337: {
+	31337: { // Mainnet
 		registryAddr:          "0x5FbDB2315678afecb367f032d93F642f64180aa3",
 		epochMgrAddr:          "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
 		stateMgrAddr:          "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
 		requiredConfirmations: 12,
 		averageBlockTime:      12.5,
 	},
-	11155111: {
-		registryAddr:          "0x1111111111111111111111111111111111111111",
-		epochMgrAddr:          "0x2222222222222222222222222222222222222222",
+	11155111: { // Sepolia
+		registryAddr:          "", // 非 mainnet 不需要
+		epochMgrAddr:          "", // 非 mainnet 不需要
 		stateMgrAddr:          "0x3333333333333333333333333333333333333333",
 		requiredConfirmations: 6,
 		averageBlockTime:      15.0,
@@ -122,13 +125,19 @@ func collectChainConfigs() (map[uint32]*config.ChainConfig, error) {
 			return nil, err
 		}
 
+		contracts := config.ContractsConfig{
+			StateManager: chainInfo.stateMgrAddr,
+		}
+
+		// 只有 mainnet 需要 registry 和 epochManager
+		if chainID == 31337 {
+			contracts.Registry = chainInfo.registryAddr
+			contracts.EpochManager = chainInfo.epochMgrAddr
+		}
+
 		configs[chainID] = &config.ChainConfig{
-			RPC: rpcURL,
-			Contracts: config.ContractsConfig{
-				Registry:     chainInfo.registryAddr,
-				EpochManager: chainInfo.epochMgrAddr,
-				StateManager: chainInfo.stateMgrAddr,
-			},
+			RPC:                   rpcURL,
+			Contracts:             contracts,
 			RequiredConfirmations: chainInfo.requiredConfirmations,
 			AverageBlockTime:      chainInfo.averageBlockTime,
 		}
@@ -137,150 +146,307 @@ func collectChainConfigs() (map[uint32]*config.ChainConfig, error) {
 	return configs, nil
 }
 
+// 添加新函数返回默认配置
+func getDefaultConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"chains": map[uint32]interface{}{
+			31337: map[string]interface{}{
+				"rpc": "http://localhost:8545",
+				"contracts": map[string]interface{}{
+					"registry":     "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+					"epochManager": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+					"stateManager": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
+				},
+				"required_confirmations": uint16(12),
+				"average_block_time":     12.5,
+			},
+			11155111: map[string]interface{}{
+				"rpc": "http://localhost:8545",
+				"contracts": map[string]interface{}{
+					"stateManager": "0x3333333333333333333333333333333333333333",
+				},
+				"required_confirmations": uint16(6),
+				"average_block_time":     15.0,
+			},
+		},
+		"p2p": map[string]interface{}{
+			"port":            10000,
+			"rendezvous":      "spotted-network", // 固定值
+			"bootstrap_peers": []string{},
+		},
+		"http": map[string]interface{}{
+			"port": 8080,
+			"host": "0.0.0.0",
+		},
+		"logging": map[string]interface{}{
+			"level":  "info",
+			"format": "json",
+		},
+		"database": map[string]interface{}{
+			"app_name":           "operator",
+			"username":           "spotted",
+			"password":           "spotted",
+			"host":               "localhost",
+			"port":               5432,
+			"dbname":             "spotted",
+			"max_conns":          100,
+			"min_conns":          0,
+			"max_conn_lifetime":  "6h",
+			"max_conn_idle_time": "1m",
+			"is_proxy":           false,
+			"enable_prometheus":  true,
+			"enable_tracing":     true,
+			"replica_prefixes":   []string{},
+		},
+		"redis": map[string]interface{}{
+			"host":                  "127.0.0.1",
+			"port":                  6379,
+			"password":              "",
+			"is_failover":           false,
+			"is_elasticache":        false,
+			"is_cluster_mode":       false,
+			"cluster_addrs":         []string{},
+			"cluster_max_redirects": 3,
+			"read_timeout":          "3s",
+			"pool_size":             50,
+		},
+		"metric": map[string]interface{}{
+			"port": 4014,
+		},
+	}
+}
+
+// 将函数移到文件顶部的函数定义区域
+func setDockerDefaults(answers *ConfigAnswers) {
+	// 数据库默认配置
+	answers.DBHost = "postgres"
+	answers.DBPort = 5432
+	answers.DBUsername = "spotted"
+	answers.DBPassword = "spotted"
+	answers.DBName = "operator1"
+	answers.DBMaxConns = 100
+	answers.DBMinConns = 0
+	answers.DBMaxConnLife = 6 * time.Hour
+	answers.DBMaxConnIdle = time.Minute
+	answers.DBIsProxy = false
+	answers.DBEnableMetrics = true
+	answers.DBEnableTracing = true
+	answers.DBAppName = "operator1"
+
+	// Redis默认配置
+	answers.RedisHost = "redis"
+	answers.RedisPort = 6379
+	answers.RedisPassword = ""
+	answers.RedisIsFailover = false
+	answers.RedisIsElasticache = false
+	answers.RedisIsClusterMode = false
+	answers.RedisClusterMaxRedirs = 3
+	answers.RedisReadTimeout = 3 * time.Second
+	answers.RedisPoolSize = 50
+}
+
 func runInit(cmd *cobra.Command, args []string) error {
-	// 如果没有指定配置文件路径,使用默认路径
-	if configPath == "" {
-		configPath = filepath.Join("config", "operator.yaml")
+	var answers ConfigAnswers
+	var useDefault bool
+
+	// 添加模式选择
+	modePrompt := &survey.Select{
+		Message: "Choose deployment mode:",
+		Options: []string{"Docker Mode", "Local Mode"},
+		Default: "Docker Mode",
+	}
+	var mode string
+	if err := survey.AskOne(modePrompt, &mode); err != nil {
+		return fmt.Errorf("failed to select mode: %w", err)
+	}
+	answers.IsDockerMode = mode == "Docker Mode"
+
+	// 如果是Docker模式,设置默认的database和redis配置
+	if answers.IsDockerMode {
+		setDockerDefaults(&answers)
 	}
 
-	// 检查配置文件是否已存在
-	if _, err := os.Stat(configPath); err == nil {
-		// 文件已存在,询问是否覆盖
-		var overwrite bool
-		overwritePrompt := &survey.Confirm{
-			Message: fmt.Sprintf("Config file %s already exists. Do you want to overwrite it?", configPath),
-			Default: false,
-		}
-		if err := survey.AskOne(overwritePrompt, &overwrite); err != nil {
-			return fmt.Errorf("failed to confirm overwrite: %w", err)
-		}
-		if !overwrite {
-			return fmt.Errorf("aborted: config file already exists")
-		}
-	}
-
-	answers := &ConfigAnswers{}
-
-	// 获取链配置
+	// 收集链配置 - 无论是否使用default都需要
 	chainConfigs, err := collectChainConfigs()
 	if err != nil {
-		return fmt.Errorf("failed to collect chain configurations: %w", err)
+		return err
 	}
 
-	// P2P Configuration Questions
-	p2pQuestions := []*survey.Question{
-		{
-			Name: "P2PPort",
-			Prompt: &survey.Input{
-				Message: "Enter P2P Port:",
-				Default: "10000",
-			},
-			Validate: survey.Required,
-		},
-		{
-			Name: "P2PRendezvous",
-			Prompt: &survey.Input{
-				Message: "Enter P2P Rendezvous String:",
-				Default: "spotted-network",
-			},
-		},
-		{
-			Name: "IsFirstNode",
-			Prompt: &survey.Confirm{
-				Message: "Is this the first node in the network?",
-				Default: false,
-			},
-		},
+	defaultPrompt := &survey.Confirm{
+		Message: "Use default configuration?",
+		Default: false,
+	}
+	if err := survey.AskOne(defaultPrompt, &useDefault); err != nil {
+		return fmt.Errorf("failed to confirm default config: %w", err)
 	}
 
-	// Database Configuration Questions
-	dbQuestions := []*survey.Question{
-		{
-			Name: "DBHost",
-			Prompt: &survey.Input{
-				Message: "Enter Database Host:",
-				Default: "localhost",
+	// 获取基础配置
+	config := getDefaultConfig()
+
+	// 更新chains配置
+	config["chains"] = chainConfigs
+
+	if !useDefault {
+		// 只在非Docker模式下收集数据库配置
+		if !answers.IsDockerMode {
+			if err := survey.Ask([]*survey.Question{
+				{
+					Name: "DBHost",
+					Prompt: &survey.Input{
+						Message: "Enter Database Host:",
+						Default: "localhost",
+					},
+				},
+				{
+					Name: "DBPort",
+					Prompt: &survey.Input{
+						Message: "Enter Database Port:",
+						Default: "5432",
+					},
+				},
+				{
+					Name: "DBUsername",
+					Prompt: &survey.Input{
+						Message: "Enter Database Username:",
+						Default: "postgres",
+					},
+				},
+				{
+					Name: "DBPassword",
+					Prompt: &survey.Password{
+						Message: "Enter Database Password:",
+					},
+				},
+				{
+					Name: "DBName",
+					Prompt: &survey.Input{
+						Message: "Enter Database Name:",
+						Default: "spotted",
+					},
+				},
+				{
+					Name: "DBIsProxy",
+					Prompt: &survey.Confirm{
+						Message: "Is this a proxy connection?",
+						Default: false,
+					},
+				},
+			}, &answers); err != nil {
+				return fmt.Errorf("failed to collect database config: %w", err)
+			}
+
+			// 收集Redis配置
+			if err := survey.Ask([]*survey.Question{
+				{
+					Name: "RedisHost",
+					Prompt: &survey.Input{
+						Message: "Enter Redis Host:",
+						Default: "127.0.0.1",
+					},
+				},
+				{
+					Name: "RedisPort",
+					Prompt: &survey.Input{
+						Message: "Enter Redis Port:",
+						Default: "6379",
+					},
+				},
+				{
+					Name: "RedisPassword",
+					Prompt: &survey.Password{
+						Message: "Enter Redis Password (optional):",
+					},
+				},
+				{
+					Name: "RedisIsClusterMode",
+					Prompt: &survey.Confirm{
+						Message: "Enable Redis Cluster Mode?",
+						Default: false,
+					},
+				},
+			}, &answers); err != nil {
+				return fmt.Errorf("failed to collect Redis config: %w", err)
+			}
+		}
+
+		// 继续收集其他配置(对两种模式都需要)
+		if err := survey.Ask([]*survey.Question{
+			{
+				Name: "P2PPort",
+				Prompt: &survey.Input{
+					Message: "Enter P2P Port:",
+					Default: "10000",
+				},
+				Validate: survey.Required,
 			},
-		},
-		{
-			Name: "DBPort",
-			Prompt: &survey.Input{
-				Message: "Enter Database Port:",
-				Default: "5432",
+			{
+				Name: "HTTPPort",
+				Prompt: &survey.Input{
+					Message: "Enter HTTP Port:",
+					Default: "8080",
+				},
 			},
-		},
-		{
-			Name: "DBUsername",
-			Prompt: &survey.Input{
-				Message: "Enter Database Username:",
-				Default: "postgres",
-			},
-		},
-		{
-			Name: "DBPassword",
-			Prompt: &survey.Password{
-				Message: "Enter Database Password:",
-			},
-		},
-		{
-			Name: "DBName",
-			Prompt: &survey.Input{
-				Message: "Enter Database Name:",
-				Default: "spotted",
-			},
-		},
-		{
-			Name: "DBIsProxy",
-			Prompt: &survey.Confirm{
-				Message: "Is this a proxy connection?",
-				Default: false,
-			},
-		},
+		}, &answers); err != nil {
+			return fmt.Errorf("failed to collect config: %w", err)
+		}
+
+		// 更新配置
+		config["p2p"] = map[string]interface{}{
+			"port":            answers.P2PPort,
+			"rendezvous":      "spotted-network", // 固定值
+			"bootstrap_peers": answers.BootstrapPeers,
+		}
+		config["http"] = map[string]interface{}{
+			"port": answers.HTTPPort,
+			"host": "0.0.0.0",
+		}
+		config["database"] = map[string]interface{}{
+			"username":           answers.DBUsername,
+			"password":           answers.DBPassword,
+			"host":               answers.DBHost,
+			"port":               answers.DBPort,
+			"dbname":             answers.DBName,
+			"max_conns":          100,
+			"min_conns":          0,
+			"max_conn_lifetime":  "6h",
+			"max_conn_idle_time": "1m",
+			"is_proxy":           answers.DBIsProxy,
+			"enable_prometheus":  true,
+			"enable_tracing":     true,
+			"app_name":           "operator",
+			"replica_prefixes":   []string{},
+		}
+		config["redis"] = map[string]interface{}{
+			"host":                  answers.RedisHost,
+			"port":                  answers.RedisPort,
+			"password":              answers.RedisPassword,
+			"is_failover":           false,
+			"is_elasticache":        false,
+			"is_cluster_mode":       answers.RedisIsClusterMode,
+			"cluster_addrs":         []string{},
+			"cluster_max_redirects": 3,
+			"read_timeout":          "3s",
+			"pool_size":             50,
+		}
+		config["metric"] = map[string]interface{}{
+			"port": "${METRIC_PORT:-4014}",
+		}
 	}
 
-	// Redis Configuration Questions
-	redisQuestions := []*survey.Question{
-		{
-			Name: "RedisHost",
-			Prompt: &survey.Input{
-				Message: "Enter Redis Host:",
-				Default: "127.0.0.1",
-			},
-		},
-		{
-			Name: "RedisPort",
-			Prompt: &survey.Input{
-				Message: "Enter Redis Port:",
-				Default: "6379",
-			},
-		},
-		{
-			Name: "RedisPassword",
-			Prompt: &survey.Password{
-				Message: "Enter Redis Password (optional):",
-			},
-		},
-		{
-			Name: "RedisIsClusterMode",
-			Prompt: &survey.Confirm{
-				Message: "Enable Redis Cluster Mode?",
-				Default: false,
-			},
-		},
+	// 处理bootstrap peers
+	var isFirstNode bool
+	isFirstNodePrompt := &survey.Confirm{
+		Message: "Is this the first node in the network?",
+		Default: false,
+	}
+	if err := survey.AskOne(isFirstNodePrompt, &isFirstNode); err != nil {
+		return fmt.Errorf("failed to confirm first node status: %w", err)
 	}
 
-	// Ask questions by category
-	fmt.Println("\n=== P2P Configuration ===")
-	if err := survey.Ask(p2pQuestions, answers); err != nil {
-		return fmt.Errorf("failed to get P2P configuration: %w", err)
-	}
-
-	// Handle bootstrap peers based on whether it's first node
-	if !answers.IsFirstNode {
+	if !isFirstNode {
 		bootstrapPeers := []string{}
 		continueAdding := true
 
-		// Must have at least one bootstrap peer
 		fmt.Println("\n=== Bootstrap Peers Configuration ===")
 		fmt.Println("You need at least one bootstrap peer (max 5)")
 
@@ -298,7 +464,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 			if peer != "" {
 				bootstrapPeers = append(bootstrapPeers, peer)
 
-				// If we have at least one peer and less than 5, ask if want to add more
 				if len(bootstrapPeers) < 5 {
 					addMore := false
 					addMorePrompt := &survey.Confirm{
@@ -319,83 +484,43 @@ func runInit(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("at least one bootstrap peer is required for non-first nodes")
 		}
 
-		answers.BootstrapPeers = bootstrapPeers
+		p2pConfig := config["p2p"].(map[string]interface{})
+		p2pConfig["bootstrap_peers"] = bootstrapPeers
 	}
 
-	fmt.Println("\n=== Database Configuration ===")
-	if err := survey.Ask(dbQuestions, answers); err != nil {
-		return fmt.Errorf("failed to get database configuration: %w", err)
+	// 创建配置目录
+	if configPath == "" {
+		configPath = "./config/operator.yaml"
 	}
-
-	fmt.Println("\n=== Redis Configuration ===")
-	if err := survey.Ask(redisQuestions, answers); err != nil {
-		return fmt.Errorf("failed to get redis configuration: %w", err)
-	}
-
-	// Convert answers to configuration structure
-	config := map[string]interface{}{
-		"chains": chainConfigs,
-		"p2p": map[string]interface{}{
-			"port":            answers.P2PPort,
-			"rendezvous":      answers.P2PRendezvous,
-			"bootstrap_peers": answers.BootstrapPeers,
-		},
-		"http": map[string]interface{}{
-			"port": 8080,
-			"host": "0.0.0.0",
-		},
-		"database": map[string]interface{}{
-			"username":           answers.DBUsername,
-			"password":           answers.DBPassword,
-			"host":               answers.DBHost,
-			"port":               answers.DBPort,
-			"dbname":             answers.DBName,
-			"max_conns":          100,
-			"min_conns":          0,
-			"max_conn_lifetime":  "6h",
-			"max_conn_idle_time": "1m",
-			"is_proxy":           answers.DBIsProxy,
-			"enable_prometheus":  true,
-			"enable_tracing":     true,
-			"app_name":           "operator",
-		},
-		"redis": map[string]interface{}{
-			"host":                  answers.RedisHost,
-			"port":                  answers.RedisPort,
-			"password":              answers.RedisPassword,
-			"is_cluster_mode":       answers.RedisIsClusterMode,
-			"cluster_max_redirects": 3,
-			"read_timeout":          "3s",
-			"pool_size":             50,
-		},
-		"metric": map[string]interface{}{
-			"port": 4014,
-		},
-	}
-
-	// Create config directory if it doesn't exist
 	configDir := filepath.Dir(configPath)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	// Marshal configuration to YAML
-	yamlData, err := yaml.Marshal(config)
+	// 写入配置文件
+	configData, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write configuration file
-	if err := os.WriteFile(configPath, yamlData, 0644); err != nil {
+	if err := os.WriteFile(configPath, configData, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	fmt.Printf("\nConfiguration has been saved to %s\n", configPath)
-	fmt.Println("You can now start the operator with:")
-	if configPath != "./config/operator.yaml" {
-		fmt.Printf("  operator start --config %s\n", configPath)
+	// 显示成功信息和下一步操作
+	fmt.Println("\nConfiguration initialized successfully!")
+	if answers.IsDockerMode {
+		fmt.Println("\nNext steps:")
+		fmt.Println("1. Review the configuration in config/operator.yaml")
+		fmt.Println("2. Start the services:")
+		fmt.Println("   cd ~/.spotted && docker-compose up -d")
+		fmt.Println("3. Check service status:")
+		fmt.Println("   docker-compose ps")
 	} else {
-		fmt.Println("  operator start")
+		fmt.Println("\nNext steps:")
+		fmt.Println("1. Review the configuration in config/operator.yaml")
+		fmt.Println("2. Start the operator:")
+		fmt.Println("   spotted start [flags]")
 	}
 
 	return nil

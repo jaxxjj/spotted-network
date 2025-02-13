@@ -1,337 +1,47 @@
 version: '3.8'
 
 services:
-  redis:
-    image: redis:6-alpine
-    platform: linux/arm64
-    ports:
-      - "6379:6379"
-    networks:
-      - spotted-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  postgres_test:
+  postgres:
     image: postgres:14-alpine
     platform: linux/arm64
     environment:
       POSTGRES_USER: spotted
       POSTGRES_PASSWORD: spotted
       POSTGRES_DB: spotted
-    ports:
-      - "5435:5432"
     volumes:
-      - postgres_test_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
       - ./pkg/repos/blacklist/schema.sql:/docker-entrypoint-initdb.d/01-blacklist-schema.sql
       - ./pkg/repos/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/02-consensus-responses-schema.sql
       - ./pkg/repos/operators/schema.sql:/docker-entrypoint-initdb.d/03-operators-schema.sql
       - ./pkg/repos/tasks/schema.sql:/docker-entrypoint-initdb.d/04-tasks-schema.sql
-    networks:
-      - spotted-net
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U spotted -d spotted"]
       interval: 5s
       timeout: 5s
       retries: 5
-
-  postgres_operator1:
-    image: postgres:14-alpine
-    platform: linux/arm64
-    environment:
-      POSTGRES_USER: spotted
-      POSTGRES_PASSWORD: spotted
-      POSTGRES_DB: operator1
-      POSTGRES_MULTIPLE_DATABASES: "operator1,postgres"
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_operator1_data:/var/lib/postgresql/data
-      - ./pkg/repos/blacklist/schema.sql:/docker-entrypoint-initdb.d/01-blacklist-schema.sql
-      - ./pkg/repos/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/02-consensus-responses-schema.sql
-      - ./pkg/repos/operators/schema.sql:/docker-entrypoint-initdb.d/03-operators-schema.sql
-      - ./pkg/repos/tasks/schema.sql:/docker-entrypoint-initdb.d/04-tasks-schema.sql
     networks:
-      - spotted-net
+      - spotted_network
+
+  redis:
+    image: redis:6-alpine
+    platform: linux/arm64
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U spotted -d operator1"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
-
-  postgres_operator2:
-    image: postgres:14-alpine
-    platform: linux/arm64
-    environment:
-      POSTGRES_USER: spotted
-      POSTGRES_PASSWORD: spotted
-      POSTGRES_DB: operator2
-      POSTGRES_MULTIPLE_DATABASES: "operator2,postgres"
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_operator2_data:/var/lib/postgresql/data
-      - ./pkg/repos/blacklist/schema.sql:/docker-entrypoint-initdb.d/01-blacklist-schema.sql
-      - ./pkg/repos/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/02-consensus-responses-schema.sql
-      - ./pkg/repos/operators/schema.sql:/docker-entrypoint-initdb.d/03-operators-schema.sql
-      - ./pkg/repos/tasks/schema.sql:/docker-entrypoint-initdb.d/04-tasks-schema.sql
     networks:
-      - spotted-net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U spotted -d operator2"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  postgres_operator3:
-    image: postgres:14-alpine
-    platform: linux/arm64
-    environment:
-      POSTGRES_USER: spotted
-      POSTGRES_PASSWORD: spotted
-      POSTGRES_DB: operator3
-      POSTGRES_MULTIPLE_DATABASES: "operator3,postgres"
-    ports:
-      - "5434:5432"
-    volumes:
-      - postgres_operator3_data:/var/lib/postgresql/data
-      - ./pkg/repos/blacklist/schema.sql:/docker-entrypoint-initdb.d/01-blacklist-schema.sql
-      - ./pkg/repos/consensus_responses/schema.sql:/docker-entrypoint-initdb.d/02-consensus-responses-schema.sql
-      - ./pkg/repos/operators/schema.sql:/docker-entrypoint-initdb.d/03-operators-schema.sql
-      - ./pkg/repos/tasks/schema.sql:/docker-entrypoint-initdb.d/04-tasks-schema.sql
-    networks:
-      - spotted-net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U spotted -d operator3"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  operator1:
-    profiles: ["operators"]
-    build:
-      context: .
-      dockerfile: Dockerfile.operator
-      platforms:
-        - linux/arm64
-    ports:
-      - "10000:10000"  # P2P port
-      - "8000:8000"    # HTTP port
-      - "4014:4014"    # Metrics port
-    environment:
-      # Keys
-      - P2P_KEY_64=CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys=
-      - SIGNING_KEY_PATH=/app/keys/signing/operator1.key.json
-      - KEYSTORE_PASSWORD=testpassword
-      - CONFIG_PATH=/app/config/operator.yaml
-      - LOG_LEVEL=debug
-      - P2P_PORT=10000
-      - P2P_RENDEZVOUS=spotted-network
-      - P2P_BOOTSTRAP_PEER_1=
-      - P2P_BOOTSTRAP_PEER_2=
-      - P2P_BOOTSTRAP_PEER_3=
-      - HTTP_PORT=8000
-      - CHAIN_RPC_URL=http://host.docker.internal:8545
-      # Database Configuration
-      - POSTGRES_APPNAME=operator1
-      - POSTGRES_USERNAME=spotted
-      - POSTGRES_PASSWORD=spotted
-      - POSTGRES_HOST=postgres_operator1
-      - POSTGRES_PORT=5432
-      - POSTGRES_DBNAME=operator1
-      - POSTGRES_MAXCONNS=100
-      - POSTGRES_MINCONNS=0
-      - POSTGRES_MAXCONNLIFETIME=6h
-      - POSTGRES_MAXCONNIDLETIME=1m
-      - POSTGRES_ISPROXY=false
-      - POSTGRES_ENABLEPROMETHEUS=true
-      - POSTGRES_ENABLETRACING=true
-      # Redis Configuration
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=
-      - REDIS_IS_FAILOVER=false
-      - REDIS_IS_ELASTICACHE=false
-      - REDIS_IS_CLUSTER_MODE=false
-      - REDIS_CLUSTER_MAX_REDIRECTS=3
-      - REDIS_READ_TIMEOUT=3s
-      - REDIS_POOL_SIZE=50
-      - METRIC_PORT=4014
-    volumes:
-      - ./keys/operator/operator1.key.json:/app/keys/operator/operator1.key.json
-      - ./keys/signing/operator1.key.json:/app/keys/signing/operator1.key.json
-      - ./config:/app/config
-      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
-    networks:
-      spotted-net:
-        aliases:
-          - operator1
-    depends_on:
-      postgres_operator1:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "grpcurl", "-plaintext", "localhost:8001", "operator.Operator/GetStatus"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    entrypoint: ["/bin/sh", "/app/scripts/start-operator.sh"]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  operator2:
-    profiles: ["operators"]
-    build:
-      context: .
-      dockerfile: Dockerfile.operator
-      platforms:
-        - linux/arm64
-    ports:
-      - "10001:10001"  # P2P port
-      - "8001:8001"    # HTTP port
-      - "4015:4015"    # Metrics port
-    environment:
-      # Keys
-      - P2P_KEY_64=CAESQHGMebvS8Wf6IZZh40yacCPzXhRlKqJCGfPySZyCFid6EdbnbwgelZkcZbllzWAZFfrdV/dcf2poB1OySA2mV0I=
-      - SIGNING_KEY_PATH=/app/keys/signing/operator2.key.json
-      - KEYSTORE_PASSWORD=testpassword
-      - CONFIG_PATH=/app/config/operator.yaml
-      - LOG_LEVEL=debug
-      - P2P_PORT=10001
-      - P2P_RENDEZVOUS=spotted-network
-      - P2P_BOOTSTRAP_PEER_1=/ip4/172.18.0.4/tcp/10000/p2p/12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p
-      - P2P_BOOTSTRAP_PEER_2=
-      - P2P_BOOTSTRAP_PEER_3=
-      - HTTP_PORT=8001
-      - CHAIN_RPC_URL=http://host.docker.internal:8545
-      # Database Configuration
-      - POSTGRES_APPNAME=operator2
-      - POSTGRES_USERNAME=spotted
-      - POSTGRES_PASSWORD=spotted
-      - POSTGRES_HOST=postgres_operator2
-      - POSTGRES_PORT=5432
-      - POSTGRES_DBNAME=operator2
-      - POSTGRES_MAXCONNS=100
-      - POSTGRES_MINCONNS=0
-      - POSTGRES_MAXCONNLIFETIME=6h
-      - POSTGRES_MAXCONNIDLETIME=1m
-      - POSTGRES_ISPROXY=false
-      - POSTGRES_ENABLEPROMETHEUS=true
-      - POSTGRES_ENABLETRACING=true
-      # Redis Configuration
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=
-      - REDIS_IS_FAILOVER=false
-      - REDIS_IS_ELASTICACHE=false
-      - REDIS_IS_CLUSTER_MODE=false
-      - REDIS_CLUSTER_MAX_REDIRECTS=3
-      - REDIS_READ_TIMEOUT=3s
-      - REDIS_POOL_SIZE=50
-      - METRIC_PORT=4016
-    volumes:
-      - ./keys/operator/operator2.key.json:/app/keys/operator/operator2.key.json
-      - ./keys/signing/operator2.key.json:/app/keys/signing/operator2.key.json
-      - ./config:/app/config
-      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
-    networks:
-      spotted-net:
-        aliases:
-          - operator2
-    depends_on:
-      postgres_operator2:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "grpcurl", "-plaintext", "localhost:8002", "operator.Operator/GetStatus"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    entrypoint: ["/bin/sh", "/app/scripts/start-operator.sh"]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-  operator3:
-    profiles: ["operators"]
-    build:
-      context: .
-      dockerfile: Dockerfile.operator
-      platforms:
-        - linux/arm64
-    ports:
-      - "10002:10002"  # P2P port
-      - "8002:8002"    # HTTP port
-      - "4017:4017"    # Metrics port
-    environment:
-      # Keys
-      - P2P_KEY_64=CAESQM5ltPHuttHq7/HHHHymN5A/XSDKt5EPOwGWor2H3k0PXckF23DDwxzmdOhEtOy5f8szIAYWqSFH8cIlICumemo=
-      - SIGNING_KEY_PATH=/app/keys/signing/operator3.key.json
-      - KEYSTORE_PASSWORD=testpassword
-      - CONFIG_PATH=/app/config/operator.yaml
-      - LOG_LEVEL=debug
-      - P2P_PORT=10002
-      - P2P_RENDEZVOUS=spotted-network
-      - P2P_BOOTSTRAP_PEER_1=/ip4/172.18.0.4/tcp/10000/p2p/12D3KooWNbUurxoy5Qn7hSRi5dvMdaeEFZQavacg253npoiuSJ9p
-      - P2P_BOOTSTRAP_PEER_2=
-      - P2P_BOOTSTRAP_PEER_3=
-      - HTTP_PORT=8002
-      - CHAIN_RPC_URL=http://host.docker.internal:8545
-      # Database Configuration
-      - POSTGRES_APPNAME=operator3
-      - POSTGRES_USERNAME=spotted
-      - POSTGRES_PASSWORD=spotted
-      - POSTGRES_HOST=postgres_operator3
-      - POSTGRES_PORT=5432
-      - POSTGRES_DBNAME=operator3
-      - POSTGRES_MAXCONNS=100
-      - POSTGRES_MINCONNS=0
-      - POSTGRES_MAXCONNLIFETIME=6h
-      - POSTGRES_MAXCONNIDLETIME=1m
-      - POSTGRES_ISPROXY=false
-      - POSTGRES_ENABLEPROMETHEUS=true
-      - POSTGRES_ENABLETRACING=true
-      # Redis Configuration
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=
-      - REDIS_IS_FAILOVER=false
-      - REDIS_IS_ELASTICACHE=false
-      - REDIS_IS_CLUSTER_MODE=false
-      - REDIS_CLUSTER_MAX_REDIRECTS=3
-      - REDIS_READ_TIMEOUT=3s
-      - REDIS_POOL_SIZE=50
-      - METRIC_PORT=4017
-    volumes:
-      - ./keys/operator/operator3.key.json:/app/keys/operator/operator3.key.json
-      - ./keys/signing/operator3.key.json:/app/keys/signing/operator3.key.json
-      - ./config:/app/config
-      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
-    networks:
-      spotted-net:
-        aliases:
-          - operator3
-    depends_on:
-      postgres_operator3:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "grpcurl", "-plaintext", "localhost:8003", "operator.Operator/GetStatus"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    entrypoint: ["/bin/sh", "/app/scripts/start-operator.sh"]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - spotted_network
 
   # OpenTelemetry Collector
   otel-collector:
     image: otel/opentelemetry-collector:0.118.0
-    container_name: otel-collector
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
@@ -340,13 +50,12 @@ services:
       - "4318:4318"   # OTLP HTTP receiver
       - "8888:8888"   # Prometheus metrics
     networks:
-      - spotted-net
+      - spotted_network
     restart: unless-stopped
 
   # Prometheus
   prometheus:
     image: prom/prometheus:v2.50.0
-    container_name: prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -358,22 +67,19 @@ services:
     ports:
       - "9090:9090"
     networks:
-      - spotted-net
+      - spotted_network
     restart: unless-stopped
     depends_on:
       - otel-collector
 
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+
 networks:
-  spotted-net:
+  spotted_network:
     driver: bridge
     ipam:
       config:
         - subnet: 172.18.0.0/16
-
-volumes:
-  postgres_data:
-  postgres_operator1_data:
-  postgres_operator2_data:
-  postgres_operator3_data:
-  postgres_test_data:
-  prometheus_data: 

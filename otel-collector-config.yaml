@@ -17,10 +17,7 @@ receivers:
           scrape_interval: 10s
           static_configs:
             - targets: 
-              - 'registry:4014'  # Registry metrics
-              - 'operator1:4015' # Operator1 metrics
-              - 'operator2:4016' # Operator2 metrics
-              - 'operator3:4017' # Operator3 metrics
+              - 'operator:4014' 
           metrics_path: '/metrics'
 
 processors:

@@ -159,24 +159,6 @@ generate-bindings: clean-bindings
 	
 	@echo "All contract bindings generated successfully"
 
-# Clean old bindings
-clean-bindings:
-	@echo "Cleaning old bindings..."
-	@rm -f pkg/common/contracts/bindings/*.go
-
-# Build operators
-build-operator1:
-	@echo "Building operator1..."
-	@docker compose build operator1
-
-build-operator2:
-	@echo "Building operator2..."
-	@docker compose build operator2
-
-build-operator3:
-	@echo "Building operator3..."
-	@docker compose build operator3
-
 # Build all operators
 build-operators: build-operator1 build-operator2 build-operator3
 	@echo "All operators built"

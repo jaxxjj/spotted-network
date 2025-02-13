@@ -48,9 +48,11 @@ type Repos struct {
 // App holds all the dependencies
 type App struct {
 	ctx            context.Context
-	signingKeyPath *string
-	p2pKey64       *string
-	password       *string
+	isKeyPath      bool
+	signingKeyPath string
+	signingKeyPriv string
+	p2pKey         string
+	password       string
 
 	cfg    *config.Config
 	signer signer.Signer
@@ -71,26 +73,28 @@ type App struct {
 	epochUpdator  epoch.EpochStateQuerier
 }
 
-// New creates a new App instance
+// New creates a new application instance
 func New(ctx context.Context) *App {
-	return &App{ctx: ctx}
+	return &App{
+		ctx: ctx,
+	}
 }
 
-// Run starts the application
-func (a *App) Run(signingKeyPath, p2pKey64, password string) error {
-	startTime := time.Now()
-	defer func() {
-		metric.RecordRequestDuration("main", "startup", time.Since(startTime))
-	}()
-
-	// Set parameters
-	a.signingKeyPath = &signingKeyPath
-	a.p2pKey64 = &p2pKey64
-	a.password = &password
+// Run starts the application with the provided configuration
+func (a *App) Run(isKeyPath bool, signingKey, p2pKey, password string) error {
+	// Store parameters
+	a.isKeyPath = isKeyPath
+	if isKeyPath {
+		a.signingKeyPath = signingKey
+		a.password = password
+	} else {
+		a.signingKeyPriv = signingKey
+	}
+	a.p2pKey = p2pKey
 
 	// Initialize all components
 	if err := a.initConfig(); err != nil {
-		return fmt.Errorf("failed to initialize config: %w", err)
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	if err := a.initMetrics(); err != nil {
@@ -173,15 +177,24 @@ func (a *App) initConfig() error {
 }
 
 func (a *App) initSigner() error {
-	signer, err := signer.NewLocalSigner(&signer.Config{
-		SigningKeyPath: *a.signingKeyPath,
-		Password:       *a.password,
-	})
+	var cfg *signer.Config
+	if a.isKeyPath {
+		cfg = &signer.Config{
+			SigningKeyPath: a.signingKeyPath,
+			Password:       a.password,
+		}
+	} else {
+		cfg = &signer.Config{
+			SigningKey: a.signingKeyPriv,
+		}
+	}
+
+	var err error
+	a.signer, err = signer.NewLocalSigner(cfg)
 	if err != nil {
 		metric.RecordError("signer_init_failed")
 		return fmt.Errorf("failed to initialize signer: %w", err)
 	}
-	a.signer = signer
 	return nil
 }
 
@@ -268,7 +281,7 @@ func (a *App) initGater() error {
 }
 
 func (a *App) initNode() error {
-	privKey, err := signer.Base64ToPrivKey(*a.p2pKey64)
+	privKey, err := signer.Base64ToPrivKey(a.p2pKey)
 	if err != nil {
 		metric.RecordError("p2p_key_load_failed")
 		return fmt.Errorf("failed to load P2P key: %w", err)

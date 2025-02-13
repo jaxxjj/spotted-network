@@ -168,6 +168,9 @@ Generated P2P key for operator3:
     address public constant P2P_KEY_3 = address(0x67aa23adde2459a1620BE2Ea28982310597521b0);
 ```
 
+```
+spotted start --signing-key-path ./keys/signing/operator1.key.json --p2p-key-64 CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys= --password testpassword
+```
 # Spotted Network CLI
 
 A command-line interface for interacting with the Spotted Network.
@@ -261,3 +264,4 @@ make install
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+

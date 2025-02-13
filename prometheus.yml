@@ -20,8 +20,5 @@ scrape_configs:
     scrape_interval: 10s
     static_configs:
       - targets:
-        - 'registry:4014'
-        - 'operator1:4015'
-        - 'operator2:4016'
-        - 'operator3:4017'
+        - 'operator:4014'
     metrics_path: '/metrics' 

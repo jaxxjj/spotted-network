@@ -32,7 +32,6 @@ RUN apk add --no-cache \
     postgresql-client
 
 COPY --from=builder /app/operator .
-COPY scripts/start-operator.sh .
-RUN chmod +x start-operator.sh
+
 
 ENTRYPOINT ["/bin/sh", "/app/start-operator.sh"] 

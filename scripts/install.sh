@@ -4,7 +4,8 @@ set -e
 # Default installation directory
 INSTALL_DIR="$HOME/bin"
 BINARY_NAME="spotted"
-GITHUB_REPO="galxe/spotted-network"
+GITHUB_REPO="jaxxjj/spotted-network"
+CONFIG_DIR="$HOME/.spotted"
 
 # Process flags
 while getopts "b:" opt; do
@@ -48,7 +49,43 @@ curl -L "$DOWNLOAD_URL" -o "$INSTALL_DIR/$BINARY_NAME"
 # Make binary executable
 chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
+# Create config directory
+mkdir -p "$CONFIG_DIR"
+
+# Download necessary files
+echo "Downloading configuration files..."
+FILES_TO_DOWNLOAD=(
+    "Dockerfile.operator"
+    "docker-compose.yml"
+    "otel-collector-config.yaml"
+    "prometheus.yml"
+    "pkg/repos/blacklist/schema.sql"
+    "pkg/repos/consensus_responses/schema.sql"
+    "pkg/repos/operators/schema.sql"
+    "pkg/repos/tasks/schema.sql"
+)
+
+echo "Setting up configuration in $CONFIG_DIR..."
+for file in "${FILES_TO_DOWNLOAD[@]}"; do
+    echo "Downloading $file..."
+    dir=$(dirname "$CONFIG_DIR/$file")
+    mkdir -p "$dir"
+    
+    # Download file with error handling
+    if ! curl -L "https://raw.githubusercontent.com/$GITHUB_REPO/${VERSION}/$file" -o "$CONFIG_DIR/$file"; then
+        echo "Error: Failed to download $file"
+        echo "Please check your internet connection and try again."
+        exit 1
+    fi
+    
+    # Make scripts executable
+    if [[ "$file" == *".sh" ]]; then
+        chmod +x "$CONFIG_DIR/$file"
+    fi
+done
+
 echo "Successfully installed spotted network CLI to $INSTALL_DIR/$BINARY_NAME"
+echo "Configuration files are in $CONFIG_DIR"
 
 # Check if directory is in PATH
 case ":$PATH:" in
@@ -63,5 +100,12 @@ case ":$PATH:" in
 esac
 
 echo ""
-echo "To get started, run:"
-echo "  $BINARY_NAME --help" 
+echo "Next steps:"
+echo "1. Initialize the operator:"
+echo "   $BINARY_NAME init"
+echo ""
+echo "2. Start the services:"
+echo "   cd $CONFIG_DIR && docker-compose up -d"
+echo ""
+echo "3. Check service status:"
+echo "   docker-compose ps" 

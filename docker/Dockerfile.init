@@ -1,0 +1,29 @@
+FROM ubuntu:latest
+
+# Install required tools
+RUN apt-get update && \
+    apt-get install -y \
+    curl \
+    vim \
+    wait-for-it
+
+# Create directories
+RUN mkdir -p /root/config /root/bin /app/keys/signing
+
+# Copy the Linux binary
+COPY build/spotted-linux-amd64 /root/bin/spotted
+
+# Make binary executable
+RUN chmod +x /root/bin/spotted
+
+# Add to PATH
+ENV PATH="/root/bin:${PATH}"
+
+WORKDIR /app
+
+# 添加健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# 使用wait-for-it等待依赖服务就绪
+ENTRYPOINT ["wait-for-it", "postgres:5432", "--", "wait-for-it", "redis:6379", "--", "/bin/bash"]

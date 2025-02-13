@@ -14,16 +14,17 @@ var (
 	BuildTime = "unknown"
 
 	// Global flags
-	cfgFile    string
-	signingKey string
-	p2pKey     string
-	password   string
-	debugMode  bool
+	cfgFile        string
+	signingKeyPath string
+	signingKeyPriv string
+	p2pKey         string
+	password       string
+	debugMode      bool
 )
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "operator",
+	Use:   "spotted",
 	Short: "Spotted Network Operator Node",
 	Long: `Spotted Network Operator Node is a decentralized network participant
 that helps maintain consensus and process tasks.
@@ -33,7 +34,14 @@ This application provides the following features:
 - Task processing
 - P2P networking
 - Chain monitoring
-- API endpoints`,
+- API endpoints
+
+Signing Key Options:
+1. Use keystore file:
+   --signing-key-path /path/to/keystore.json --password yourpassword
+
+2. Use private key directly:
+   --signing-key-priv 0x123...abc`,
 	Version: fmt.Sprintf("%s (Build: %s, Commit: %s)", Version, BuildTime, CommitSHA),
 }
 
@@ -49,12 +57,14 @@ func init() {
 	// Persistent flags - available to all commands
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
 		"config file (default is ./config/operator.yaml)")
-	rootCmd.PersistentFlags().StringVar(&signingKey, "signing-key", "",
-		"path to signing keystore file")
+	rootCmd.PersistentFlags().StringVar(&signingKeyPath, "signing-key-path", "",
+		"path to signing keystore file (required if --signing-key-priv is not set)")
+	rootCmd.PersistentFlags().StringVar(&signingKeyPriv, "signing-key-priv", "",
+		"ECDSA private key in hex format (required if --signing-key-path is not set)")
 	rootCmd.PersistentFlags().StringVar(&p2pKey, "p2p-key-64", "",
 		"p2p key in base64 format")
 	rootCmd.PersistentFlags().StringVar(&password, "password", "",
-		"password for keystore")
+		"password for keystore (required only when using --signing-key-path)")
 	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false,
 		"enable debug mode")
 

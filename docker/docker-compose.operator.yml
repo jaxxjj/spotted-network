@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  operator:
+    build:
+      context: .
+      dockerfile: Dockerfile.operator
+      platforms:
+        - linux/arm64
+    volumes:
+      - ./config:/app/config
+      - ./keys:/app/keys
+      - ./scripts/start-operator.sh:/app/scripts/start-operator.sh
+    ports:
+      - "8080:8080"  # HTTP port
+      - "10000:10000"  # P2P port
+      - "4014:4014"  # Metrics port
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      spotted_network:
+        aliases:
+          - operator
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  spotted_network:
+    external: true 
