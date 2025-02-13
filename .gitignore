@@ -34,3 +34,5 @@ mock/out/
 mock/cache/
 mock/broadcast/
 .env
+
+build/
