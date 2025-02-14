@@ -283,6 +283,9 @@ make install
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-	export SIGNING_KEY_PATH="/Users/yimingchen/galxe/ready-on-repo/spotted-network/keys/signing/operator1.key.json"
-	export KEYSTORE_PASSWORD="testpassword"
-	export P2P_KEY_64="CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys="
+export SIGNING_KEY_PATH="/Users/yimingchen/galxe/ready-on-repo/spotted-network/keys/signing/operator1.key.json"
+export KEYSTORE_PASSWORD="testpassword"
+export P2P_KEY_64="CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys="
+
+/home/ec2-user/spotted-network/keys/signing/operator2.key.json
+export P2P_KEY_64="CAESQHGMebvS8Wf6IZZh40yacCPzXhRlKqJCGfPySZyCFid6EdbnbwgelZkcZbllzWAZFfrdV/dcf2poB1OySA2mV0I="

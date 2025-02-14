@@ -3,6 +3,7 @@ package constants
 const (
 	GenesisBlock = 7698497
 	EpochPeriod  = 12
+	GracePeriod  = 3
 )
 
 type TaskStatus string

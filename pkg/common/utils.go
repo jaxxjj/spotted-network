@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/galxe/spotted-network/pkg/operator/constants"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -22,9 +23,9 @@ import (
 )
 
 const (
-	GenesisBlock = 0
-	EpochPeriod  = 12
-	GracePeriod  = 3
+	GenesisBlock = constants.GenesisBlock
+	EpochPeriod  = constants.EpochPeriod
+	GracePeriod  = constants.GracePeriod
 )
 
 // ChainClient defines the interface for getting blocks that the helper functions need
