@@ -20,6 +20,13 @@ var (
 	p2pKey         string
 	password       string
 	debugMode      bool
+
+	// Docker related flags
+	dockerMode  bool
+	dataDir     string
+	metricsAddr string
+	p2pPort     int
+	httpPort    int
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -36,12 +43,12 @@ This application provides the following features:
 - Chain monitoring
 - API endpoints
 
-Signing Key Options:
-1. Use keystore file:
-   --signing-key-path /path/to/keystore.json --password yourpassword
+Docker Mode Options:
+1. Run with Docker:
+   --docker-mode --data-dir /data --metrics 0.0.0.0:4014
 
-2. Use private key directly:
-   --signing-key-priv 0x123...abc`,
+2. Run with volume:
+   --docker-mode --data-dir /data --p2p-port 10000 --http-port 8080`,
 	Version: fmt.Sprintf("%s (Build: %s, Commit: %s)", Version, BuildTime, CommitSHA),
 }
 
@@ -67,6 +74,18 @@ func init() {
 		"password for keystore (required only when using --signing-key-path)")
 	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false,
 		"enable debug mode")
+
+	// Docker related flags
+	rootCmd.PersistentFlags().BoolVar(&dockerMode, "docker-mode", false,
+		"run in docker mode")
+	rootCmd.PersistentFlags().StringVar(&dataDir, "data-dir", "",
+		"data directory for storing files (required in docker mode)")
+	rootCmd.PersistentFlags().StringVar(&metricsAddr, "metrics", "",
+		"metrics listen address (e.g. 0.0.0.0:4014)")
+	rootCmd.PersistentFlags().IntVar(&p2pPort, "p2p-port", 10000,
+		"p2p listen port")
+	rootCmd.PersistentFlags().IntVar(&httpPort, "http-port", 8080,
+		"http api listen port")
 
 	// Add version template
 	rootCmd.SetVersionTemplate(`Version: {{.Version}}

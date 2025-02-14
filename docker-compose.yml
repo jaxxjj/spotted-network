@@ -72,6 +72,41 @@ services:
     depends_on:
       - otel-collector
 
+  operator:
+    image: spotted-operator:latest
+    platform: linux/arm64
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - P2P_KEY_64=${P2P_KEY_64}
+      - CONFIG_PATH=/app/config/operator.yaml
+      - SIGNING_KEY_PATH=/app/keys/signing/operator.key.json
+      - KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}
+    volumes:
+      - ~/.spotted/config:/app/config
+      - ~/.spotted/keys:/app/keys
+    ports:
+      - "4014:4014"  
+      - "8080:8080"  
+      - "10000:10000" 
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - spotted_network
+    command: >
+      start
+      --docker-mode
+      --signing-key-path /app/keys/signing/operator.key.json
+      --password "${KEYSTORE_PASSWORD}"
+      --p2p-key-64 "${P2P_KEY_64}"
+      --config /app/config/operator.yaml
+
 volumes:
   postgres_data:
   redis_data:

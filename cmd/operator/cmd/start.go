@@ -98,6 +98,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 	os.Setenv("REDIS_READ_TIMEOUT", redisCfg.ReadTimeout.String())
 	os.Setenv("REDIS_POOL_SIZE", strconv.Itoa(redisCfg.PoolSize))
 
+	os.Setenv("METRIC_PORT", strconv.Itoa(cfg.Metric.Port))
+
 	// 创建信号通道用于优雅关闭
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)

@@ -1,7 +1,3 @@
-# Binaries in root directory
-/registry
-/operator
-
 # Go specific
 *.exe
 *.exe~

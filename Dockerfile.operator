@@ -18,20 +18,36 @@ RUN go mod download
 
 # Copy the rest of the code
 COPY . .
-RUN go build -o operator ./cmd/operator
+
+# Build the binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o spotted cmd/operator/main.go
 
 FROM alpine:latest
+
 WORKDIR /app
 
 # Install required tools
 RUN apk add --no-cache \
-    wget \
     curl \
     jq \
     netcat-openbsd \
     postgresql-client
 
-COPY --from=builder /app/operator .
+# Create necessary directories
+RUN mkdir -p /app/config /app/keys/signing && \
+    chmod -R 755 /app/config /app/keys
 
+# Copy binary from builder
+COPY --from=builder /app/spotted /app/spotted
 
-ENTRYPOINT ["/bin/sh", "/app/start-operator.sh"] 
+# Set executable permissions
+RUN chmod +x /app/spotted
+
+# Expose ports
+EXPOSE 4014 8080 10000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["/app/spotted"] 

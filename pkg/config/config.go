@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"time"
 
@@ -57,7 +56,6 @@ type DatabaseConfig struct {
 // P2PConfig represents P2P network configuration
 type P2PConfig struct {
 	Port           int      `yaml:"port"`
-	ExternalIP     string   `yaml:"external_ip"`
 	BootstrapPeers []string `yaml:"bootstrap_peers"`
 	Rendezvous     string   `yaml:"rendezvous"`
 }
@@ -157,12 +155,6 @@ func (c *Config) validate() error {
 	}
 	if c.P2P.Rendezvous == "" {
 		return fmt.Errorf("p2p rendezvous string is required")
-	}
-	if c.P2P.ExternalIP == "" {
-		return fmt.Errorf("p2p.external_ip is required")
-	}
-	if net.ParseIP(c.P2P.ExternalIP) == nil {
-		return fmt.Errorf("invalid p2p.external_ip format: %s", c.P2P.ExternalIP)
 	}
 
 	// Validate bootstrap peers if provided

@@ -176,6 +176,19 @@ spotted start --signing-key-path /Users/yimingchen/galxe/ready-on-repo/spotted-n
 spotted start --signing-key-path /home/ec2-user/operator2.key.json --p2p-key-64 CAESQHGMebvS8Wf6IZZh40yacCPzXhRlKqJCGfPySZyCFid6EdbnbwgelZkcZbllzWAZFfrdV/dcf2poB1OySA2mV0I=  --password testpassword
 ```
 
+# 克隆代码
+git clone https://github.com/galxe/spotted-network.git
+cd spotted-network
+
+# 编译
+go build -o spotted cmd/operator/main.go
+
+# 移动到bin目录
+mkdir -p ~/bin
+mv spotted ~/bin/
+
+# 添加到PATH
+export PATH=$PATH:~/bin
 # Spotted Network CLI
 
 A command-line interface for interacting with the Spotted Network.
@@ -270,3 +283,6 @@ make install
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+	export SIGNING_KEY_PATH="/Users/yimingchen/galxe/ready-on-repo/spotted-network/keys/signing/operator1.key.json"
+	export KEYSTORE_PASSWORD="testpassword"
+	export P2P_KEY_64="CAESQKW/y8x4MBT09AySrCDS1HXvsFEGoXLwqvWOQUifZ90TvdsBG0rSgcjJTH8qWwRYRysJaZ+7Z4egLxvShvBnQys="

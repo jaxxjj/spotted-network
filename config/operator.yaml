@@ -1,41 +1,44 @@
 chains:
-  31337:
-    rpc: http://localhost:8545
-    contracts:
-      registry: 0x5FbDB2315678afecb367f032d93F642f64180aa3
-      epochManager: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
-      stateManager: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
-    required_confirmations: 12
-    average_block_time: 12.5
-  11155111:
-    rpc: http://localhost:8545
+  84532:
+    rpc: https://base-sepolia-rpc.publicnode.com
     contracts:
       registry: ""
       epochManager: ""
-      stateManager: 0x3333333333333333333333333333333333333333
-    required_confirmations: 6
-    average_block_time: 15
+      stateManager: 0xe8Cbc41961125A1B0F86465Ff9a6666e39104E9e
+    required_confirmations: 2
+    average_block_time: 2
+  421614:
+    rpc: https://arbitrum-sepolia.gateway.tenderly.co
+    contracts:
+      registry: ""
+      epochManager: ""
+      stateManager: 0xe3Ed30610de2914b45d848718d6837eF14361C41
+    required_confirmations: 2
+    average_block_time: 2
+  11155111:
+    rpc: wss://ethereum-sepolia-rpc.publicnode.com
+    contracts:
+      registry: 0xB6dE44d8F1425752CAc1103D99e59eD329F65aCF
+      epochManager: 0x5bFB7609a51F8577D90e8576DE6e85BC7fBf08F7
+      stateManager: 0xcc6Db3c0389128bad36796079aB336B3AfC1cF19
+    required_confirmations: 2
+    average_block_time: 12
 database:
-  app_name: operator
+  app_name: spotted
   dbname: spotted
-  enable_prometheus: true
+  enable_metrics: true
   enable_tracing: true
-  host: localhost
+  host: postgres
   is_proxy: false
-  max_conn_idle_time: 1m
-  max_conn_lifetime: 6h
+  max_conn_idle: 1m
+  max_conn_life: 6h
   max_conns: 100
   min_conns: 0
   password: spotted
   port: 5432
-  replica_prefixes: []
   username: spotted
 http:
-  host: 0.0.0.0
   port: 8080
-logging:
-  format: json
-  level: info
 metric:
   port: 4014
 p2p:
@@ -43,9 +46,8 @@ p2p:
   port: 10000
   rendezvous: spotted-network
 redis:
-  cluster_addrs: []
   cluster_max_redirects: 3
-  host: 127.0.0.1
+  host: redis
   is_cluster_mode: false
   is_elasticache: false
   is_failover: false

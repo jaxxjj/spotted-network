@@ -17,7 +17,7 @@ LDFLAGS=-ldflags "-X github.com/galxe/spotted-network/pkg/version.Version=${VERS
                   -X github.com/galxe/spotted-network/pkg/version.GitCommit=${GIT_COMMIT} \
                   -X github.com/galxe/spotted-network/pkg/version.BuildTime=${BUILD_TIME}"
 
-.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean generate-bindings clean-bindings test test-signer test-signer-verbose test-signer-coverage clean-coverage
+.PHONY: build clean run-registry run-operator stop generate-keys check-tasks create-task get-final-task start-registry get-registry-id start-operators start-monitoring test lint codecov install-lint test-infra-up test-infra-down test-infra-clean generate-bindings clean-bindings test test-signer test-signer-verbose test-signer-coverage clean-coverage build-docker
 
 # Start monitoring infrastructure
 start-prometheus:
@@ -263,3 +263,8 @@ test-cov:
 		go test -p 1 -coverprofile=coverage.out ./... && \
 		go tool cover -func=coverage.out \
 	)
+
+# Build Docker image
+build-operator:
+	docker build -f Dockerfile.operator -t spotted-operator:latest .
+
