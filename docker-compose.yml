@@ -73,7 +73,7 @@ services:
       - otel-collector
 
   operator:
-    image: spotted-operator:latest
+    image: jaxonch/spotted-operator:latest
     platform: linux/arm64
     depends_on:
       postgres:
