@@ -6,19 +6,29 @@ if [ -z "$P2P_KEY_64" ]; then
     exit 1
 fi
 
-# 交互式输入密钥文件路径
-read -p "Please enter the path to your signing key file: " SIGNING_KEY_PATH
-
-# 验证文件是否存在
-if [ ! -f "$SIGNING_KEY_PATH" ]; then
-    echo "Error: File not found: $SIGNING_KEY_PATH"
+# 检查签名方式 - 互斥检查
+if [ -n "$SIGNING_KEY_PATH" ] && [ -n "$SIGNING_KEY_PRIV" ]; then
+    echo "Error: Cannot use both SIGNING_KEY_PATH and SIGNING_KEY_PRIV"
     exit 1
 fi
 
-# 如果没有设置密码,请求输入
-if [ -z "$KEYSTORE_PASSWORD" ]; then
-    read -s -p "Please enter the keystore password: " KEYSTORE_PASSWORD
-    echo
+# 如果都没有设置,报错
+if [ -z "$SIGNING_KEY_PATH" ] && [ -z "$SIGNING_KEY_PRIV" ]; then
+    echo "Error: Either SIGNING_KEY_PATH or SIGNING_KEY_PRIV must be set"
+    exit 1
+fi
+
+# 如果使用keystore文件,检查密码和文件
+if [ -n "$SIGNING_KEY_PATH" ]; then
+    if [ -z "$KEYSTORE_PASSWORD" ]; then
+        echo "Error: KEYSTORE_PASSWORD is required when using SIGNING_KEY_PATH"
+        exit 1
+    fi
+    
+    if [ ! -f "$SIGNING_KEY_PATH" ]; then
+        echo "Error: Keystore file not found: $SIGNING_KEY_PATH"
+        exit 1
+    fi
 fi
 
 # 创建必要的目录
@@ -27,12 +37,11 @@ mkdir -p ~/.spotted/config ~/.spotted/keys/signing
 # 复制配置文件
 cp config/operator.yaml ~/.spotted/config/
 
-# 复制密钥文件
-cp "$SIGNING_KEY_PATH" ~/.spotted/keys/signing/operator.key.json
-
-# 设置环境变量
-export SIGNING_KEY_PATH="/app/keys/signing/operator.key.json"
-export KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD"
+# 如果使用keystore文件,复制到指定位置
+if [ -n "$SIGNING_KEY_PATH" ]; then
+    cp "$SIGNING_KEY_PATH" ~/.spotted/keys/signing/operator.key.json
+    export SIGNING_KEY_PATH="/app/keys/signing/operator.key.json"
+fi
 
 # 启动服务
 docker-compose up -d

@@ -70,7 +70,7 @@ func NewNode(ctx context.Context, cfg *Config) (Node, error) {
 
 	// Print peer info before returning
 	node.PrintPeerInfo()
-
+	node.startPrintPeerInfo(ctx)
 	return node, nil
 }
 

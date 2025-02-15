@@ -28,7 +28,9 @@ start-otel:
 
 start-monitoring: start-prometheus start-otel
 
-
+build:
+	go build -o spotted cmd/operator/main.go
+	
 # Generate operator keys
 generate-keys:
 	@echo "Generating operator keys..."
@@ -267,4 +269,5 @@ test-cov:
 # Build Docker image
 build-operator:
 	docker build -f Dockerfile.operator -t spotted-operator:latest .
-
+	docker tag spotted-operator:latest jaxonch/spotted-operator:latest
+	docker push jaxonch/spotted-operator:latest

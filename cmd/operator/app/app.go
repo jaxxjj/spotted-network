@@ -27,15 +27,11 @@ import (
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
-	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/redis/go-redis/v9"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx"
 )
-
-const version = "1.0.0"
 
 // Repos holds all repository instances
 type Repos struct {
@@ -295,9 +291,6 @@ func (a *App) initNode() error {
 		libp2p.NATPortMap(),
 		libp2p.ConnectionGater(a.gater),
 		libp2p.Identity(privKey),
-		libp2p.UserAgent(fmt.Sprintf("spotted-network/%s", version)),
-		libp2p.Security("/noise", noise.New),
-		libp2p.Muxer("/yamux/1.0.0", yamux.DefaultTransport),
 	)
 	if err != nil {
 		metric.RecordError("host_creation_failed")
