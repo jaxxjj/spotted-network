@@ -8,6 +8,133 @@ The Spotted Network consists of two main components:
 - API Server: RESTful service for task creation and consensus querying
 - Operator P2P Node: Decentralized network node for consensus formation
 
+## Requirements
+
+### Software Requirements
+- Docker: [Installation Guide](https://docs.docker.com/get-docker/)
+- Docker Compose: [Installation Guide](https://docs.docker.com/compose/install/)
+- Go: version 1.23.3 or higher (for building from source)
+
+### Verify Installation
+```bash
+# Check Docker
+docker --version
+
+# Check Docker Compose
+docker compose version
+
+# Check Go
+go version
+```
+
+## Installation
+
+### Binary Installation
+```bash
+# Download and install binary
+curl -sSL https://raw.githubusercontent.com/jaxxjj/spotted-network/main/scripts/install.sh | bash
+
+# Add to PATH
+export PATH=$PATH:~/bin
+
+# Initialize
+spotted init
+```
+
+### Build from Source
+```bash
+# Clone repository
+git clone https://github.com/jaxxjj/spotted-network
+cd spotted-network
+
+# Option 1: Using go build
+go build -o spotted cmd/operator/main.go
+
+# Option 2: Using make
+make build
+
+# Initialize
+./spotted init
+```
+
+## Configuration
+
+### Chain Configuration
+During initialization, you'll be prompted for:
+- RPC URLs for each supported chain (defaults available)
+- Bootstrap node configuration
+- Deployment mode selection
+
+### Deployment Modes
+1. Docker Mode
+   - Customizable setup
+   - Manual database and Redis configuration
+   - Integration with cloud services
+
+2. Docker Compose Mode
+   - Simplified setup
+   - Predefined configurations
+   - Automatic service orchestration
+
+Example configuration will be written to `config/operator.yaml`:
+
+```yaml
+chains:
+  84532:
+    rpc: https://base-sepolia-rpc.publicnode.com
+    contracts:
+      registry: ""
+      epochManager: ""
+      stateManager: 0xe8Cbc41961125A1B0F86465Ff9a6666e39104E9e
+    required_confirmations: 2
+    average_block_time: 2
+  # ... other chain configs ...
+
+database:
+  host: postgres
+  port: 5432
+  username: spotted
+  # ... other database configs ...
+
+p2p:
+  bootstrap_peers: []
+  port: 10000
+  rendezvous: spotted-network
+```
+
+## Operation
+
+### Environment Setup
+Configure required environment variables:
+
+```bash
+# Required: P2P Key (base64 encoded)
+export P2P_KEY_64="your-p2p-key-base64-encoded"
+
+# Choose ONE of the following signing methods:
+
+# Option 1: Private Key
+export SIGNING_KEY_PRIV="your-private-key"
+
+# Option 2: Keystore File
+export SIGNING_KEY_PATH="/path/to/keystore.json"
+export KEYSTORE_PASSWORD="your-keystore-password"
+```
+
+⚠️ Important: Use either Option 1 OR Option 2 for signing key configuration.
+
+### Running the Node
+
+For Docker mode:
+```bash
+./scripts/run-docker.sh
+```
+
+For Docker Compose mode:
+```bash
+./scripts/run-docker-compose.sh
+```
+
 ## Architecture
 
 ### API Server
