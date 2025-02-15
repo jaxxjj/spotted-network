@@ -64,13 +64,13 @@ func validateStartFlags(cmd *cobra.Command, args []string) error {
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
-	// 加载配置文件
+	// load config file
 	cfg, err := config.LoadConfig(cfgFile)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// 设置数据库环境变量
+	// set database environment variables
 	dbCfg := cfg.Database
 	os.Setenv("POSTGRES_APPNAME", dbCfg.AppName)
 	os.Setenv("POSTGRES_USERNAME", dbCfg.Username)
@@ -86,7 +86,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	os.Setenv("POSTGRES_ENABLEPROMETHEUS", strconv.FormatBool(dbCfg.EnablePrometheus))
 	os.Setenv("POSTGRES_ENABLETRACING", strconv.FormatBool(dbCfg.EnableTracing))
 
-	// 设置Redis环境变量
+	// set redis environment variables
 	redisCfg := cfg.Redis
 	os.Setenv("REDIS_HOST", redisCfg.Host)
 	os.Setenv("REDIS_PORT", strconv.Itoa(redisCfg.Port))
@@ -100,14 +100,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	os.Setenv("METRIC_PORT", strconv.Itoa(cfg.Metric.Port))
 
-	// 创建信号通道用于优雅关闭
+	// create signal channel for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// 创建app实例
+	// create app instance
 	application := app.New(cmd.Context())
 
-	// 在goroutine中启动应用
+	// start app in a goroutine
 	errChan := make(chan error, 1)
 	go func() {
 		var err error
@@ -117,17 +117,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 			signingKey = signingKeyPath
 		}
 		err = application.Run(
-			isKeyPath,  // isKeyPath
-			signingKey, // signingKey (either path or priv)
-			p2pKey,     // p2pKey
-			password,   // password (only used when isKeyPath is true)
+			isKeyPath,
+			signingKey,
+			p2pKey,
+			password,
 		)
 		if err != nil {
 			errChan <- fmt.Errorf("application error: %w", err)
 		}
 	}()
 
-	// 等待中断信号或错误
+	// wait for interrupt signal or error
 	select {
 	case <-sigChan:
 		fmt.Println("\nReceived interrupt signal. Shutting down...")

@@ -67,7 +67,7 @@ func NewMockChainClient(chainID uint32) *mockChainClient {
 		chainID:      chainID,
 	}
 
-	// 为不同链设置不同的默认行为
+	// set different default behaviors for different chains
 	switch chainID {
 	case 31337: // Mainnet
 		mc.currentBlock = 1000
@@ -86,7 +86,7 @@ func NewMockChainClient(chainID uint32) *mockChainClient {
 		mc.stateData["default"] = big.NewInt(1)
 	}
 
-	// 设置通用的mock行为
+	// set common mock behavior
 	mc.On("BlockNumber", mock.Anything).Return(mc.currentBlock, nil).Maybe()
 	mc.On("GetStateAtBlock", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mc.stateData["default"], nil).Maybe()
 	mc.On("GetCurrentEpoch", mock.Anything).Return(uint32(1), nil).Maybe()

@@ -111,6 +111,5 @@ func initConfig() {
 		cfgFile = defaultConfig
 	}
 
-	// Note: Actual config loading is handled by the app package
 	fmt.Printf("Using config file: %s\n", cfgFile)
 }

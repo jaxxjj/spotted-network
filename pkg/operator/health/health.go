@@ -25,19 +25,19 @@ type Node interface {
 	PrintConnectedPeers()
 }
 
-// HealthService 定义健康检查服务的接口
+// HealthService defines the interface for the health check service
 type HealthService interface {
-	// Stop 停止健康检查服务
+	// Stop stops the health check service
 	Stop()
-	// GetStatus 获取当前健康状态
+	// GetStatus gets the current health status
 	GetStatus() map[peer.ID]time.Duration
-	// TriggerCheck 手动触发一次健康检查
+	// TriggerCheck manually triggers a health check
 	TriggerCheck(ctx context.Context) error
-	// SetCheckInterval 设置健康检查间隔
+	// SetCheckInterval sets the health check interval
 	SetCheckInterval(d time.Duration)
 }
 
-// HealthChecker 实现 HealthService 接口
+// healthChecker implements the HealthService interface
 type healthChecker struct {
 	node          Node
 	pingService   PingService
@@ -47,7 +47,7 @@ type healthChecker struct {
 	peerStatus    map[peer.ID]time.Duration
 }
 
-// NewHealthChecker 创建并启动一个新的健康检查器
+// NewHealthChecker creates and starts a new health checker
 func NewHealthChecker(ctx context.Context, node Node, pingService PingService) (HealthService, error) {
 	if node == nil {
 		return nil, fmt.Errorf("node is nil")
@@ -101,8 +101,6 @@ func (hc *healthChecker) TriggerCheck(ctx context.Context) error {
 func (hc *healthChecker) SetCheckInterval(d time.Duration) {
 	hc.checkInterval = d
 }
-
-// --- 内部方法 ---
 
 func (hc *healthChecker) start(ctx context.Context) {
 	ticker := time.NewTicker(hc.checkInterval)

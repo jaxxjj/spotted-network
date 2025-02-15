@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
@@ -20,20 +19,16 @@ func (n *node) PrintConnectedPeers() {
 }
 
 func (n *node) PrintPeerInfo() {
-	// 获取所有地址
 	addrs := n.host.Addrs()
 
-	// 分类存储地址
 	var localAddrs, externalAddrs []string
 
 	for _, addr := range addrs {
-		// 解析地址
 		ip, err := manet.ToIP(addr)
 		if err != nil {
 			continue
 		}
 
-		// 判断地址类型
 		if ip.IsLoopback() || ip.IsPrivate() {
 			localAddrs = append(localAddrs, addr.String())
 		} else {
@@ -41,7 +36,6 @@ func (n *node) PrintPeerInfo() {
 		}
 	}
 
-	// 打印信息
 	log.Printf("Node Peer Info:")
 	log.Printf("PeerID: %s", n.host.ID().String())
 	log.Printf("Local Addresses:")
@@ -53,12 +47,9 @@ func (n *node) PrintPeerInfo() {
 		log.Printf("  %s", addr)
 	}
 
-	// 等待外部地址发现
 	go func() {
-		// 等待一段时间让 NAT 发现完成
 		time.Sleep(5 * time.Second)
 
-		// 重新获取地址并打印新发现的外部地址
 		newAddrs := n.host.Addrs()
 		var newExternalAddrs []string
 
@@ -86,36 +77,12 @@ func (n *node) GetConnectedPeers() []peer.ID {
 	return peers
 }
 
-// GetPeerAgentVersion 获取指定peer的AgentVersion
-func (n *node) GetPeerAgentVersion(peerID peer.ID) (string, error) {
-	// 从peerstore获取AgentVersion
-	av, err := n.host.Peerstore().Get(peerID, "AgentVersion")
-	if err != nil {
-		log.Printf("[Node] Failed to get agent version for peer %s: %v", peerID, err)
-		return "", fmt.Errorf("failed to get agent version: %w", err)
-	}
-
-	// 类型断言
-	version, ok := av.(string)
-	if !ok {
-		log.Printf("[Node] Invalid agent version type for peer %s", peerID)
-		return "", fmt.Errorf("invalid agent version type")
-	}
-
-	return version, nil
-}
-
-// 添加新的方法
 func (n *node) startPrintPeerInfo(ctx context.Context) {
-	// 创建一个30秒的定时器
 	ticker := time.NewTicker(30 * time.Second)
 
-	// 立即打印一次初始信息
 	n.PrintPeerInfo()
 
-	// 启动定时打印循环
 	go func() {
-		// 将defer移到goroutine内部,确保在goroutine结束时才停止ticker
 		defer ticker.Stop()
 
 		for {

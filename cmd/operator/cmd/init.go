@@ -20,7 +20,7 @@ The configuration will be saved to config/operator.yaml.`,
 	RunE: runInit,
 }
 
-// 添加配置文件路径的flag
+// configPath is the path to the config file
 var configPath string
 
 func init() {
@@ -28,19 +28,17 @@ func init() {
 	initCmd.Flags().StringVarP(&configPath, "config", "c", "", "config file path (default is ./config/operator.yaml)")
 }
 
-// ConfigAnswers holds all configuration answers
+// configAnswers holds all configuration answers
 type ConfigAnswers struct {
-	// 部署模式
-	DeployMode string `yaml:"deploy_mode"` // "docker" 或 "docker-compose"
+	DeployMode string `yaml:"deploy_mode"` // "docker" or "docker-compose"
 
-	// Chain配置
 	ChainConfigs map[uint32]*config.ChainConfig `yaml:"chains"`
 
-	// 节点配置
+	// node configuration
 	IsFirstNode    bool     `yaml:"is_first_node"`
 	BootstrapPeers []string `yaml:"bootstrap_peers,omitempty"`
 
-	// Docker模式下的基本连接配置
+	// basic connection configuration for docker mode
 	DBHost     string `yaml:"db_host,omitempty"`
 	DBPort     int    `yaml:"db_port,omitempty"`
 	DBUser     string `yaml:"db_user,omitempty"`
@@ -52,7 +50,7 @@ type ConfigAnswers struct {
 	RedisPassword string `yaml:"redis_password,omitempty"`
 }
 
-// 预定义支持的链和对应的配置
+// chainConfigs defines supported chains and their default configurations
 var chainConfigs = map[uint32]struct {
 	rpcURL                string
 	registryAddr          string
@@ -126,14 +124,14 @@ func collectChainConfigs() (map[uint32]*config.ChainConfig, error) {
 func runInit(cmd *cobra.Command, args []string) error {
 	answers := &ConfigAnswers{}
 
-	// 1. 收集Chain配置
+	// 1. collect chain configurations
 	chainConfigs, err := collectChainConfigs()
 	if err != nil {
 		return fmt.Errorf("failed to collect chain configs: %w", err)
 	}
 	answers.ChainConfigs = chainConfigs
 
-	// 2. First Node配置
+	// 2. first node configuration
 	isFirstNodePrompt := &survey.Confirm{
 		Message: "Is this the first node in the network?",
 		Default: false,
@@ -142,7 +140,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to confirm first node status: %w", err)
 	}
 
-	// 3. 如果不是First Node,收集Bootstrap Peers
+	// 3. if not first node, collect bootstrap peers
 	if !answers.IsFirstNode {
 		bootstrapPeers := []string{}
 		continueAdding := true
@@ -187,7 +185,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		answers.BootstrapPeers = bootstrapPeers
 	}
 
-	// 4. 选择部署模式
+	// 4. choose deployment mode
 	modePrompt := &survey.Select{
 		Message: "Choose deployment mode:",
 		Options: []string{"docker", "docker-compose"},
@@ -197,9 +195,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get deployment mode: %w", err)
 	}
 
-	// 5. 如果是docker模式,收集外部服务配置
+	// 5. if docker mode, collect external service configuration
 	if answers.DeployMode == "docker" {
-		// 数据库配置
+		// database configuration
 		dbQuestions := []*survey.Question{
 			{
 				Name: "DBHost",
@@ -240,7 +238,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to get database config: %w", err)
 		}
 
-		// Redis配置
+		// Redis configuration
 		redisQuestions := []*survey.Question{
 			{
 				Name: "RedisHost",
@@ -268,19 +266,19 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 6. 生成最终配置
+	// 6. generate final configuration
 	config := generateConfig(answers)
 
-	// 7. 创建配置目录
+	// 7. create config directory
 	configDir := "config"
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	// 8. 指定配置文件路径
+	// 8. specify config file path
 	configPath := filepath.Join(configDir, "operator.yaml")
 
-	// 9. 将配置写入文件
+	// 9. write config to file
 	data, err := yaml.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
@@ -297,12 +295,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 func generateConfig(answers *ConfigAnswers) map[string]interface{} {
 	config := make(map[string]interface{})
 
-	// 1. Chain配置(不依赖部署模式)
+	// 1. chain configurations (not dependent on deployment mode)
 	config["chains"] = answers.ChainConfigs
 
-	// 2. 根据部署模式设置数据库和Redis配置
+	// 2. set database and redis configuration based on deployment mode
 	if answers.DeployMode == "docker-compose" {
-		// docker-compose模式使用默认配置
+		// docker-compose mode uses default configuration
 		config["database"] = map[string]interface{}{
 			"host":           "postgres",
 			"port":           5432,
@@ -331,7 +329,7 @@ func generateConfig(answers *ConfigAnswers) map[string]interface{} {
 			"pool_size":             50,
 		}
 	} else {
-		// docker模式使用用户提供的配置
+		// docker mode uses user-provided configuration
 		config["database"] = map[string]interface{}{
 			"host":     answers.DBHost,
 			"port":     answers.DBPort,
@@ -347,7 +345,7 @@ func generateConfig(answers *ConfigAnswers) map[string]interface{} {
 		}
 	}
 
-	// 3. 硬编码端口配置
+	// 3. hardcoded port configuration
 	config["metric"] = map[string]interface{}{
 		"port": 4014,
 	}

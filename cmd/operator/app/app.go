@@ -33,7 +33,7 @@ import (
 	"github.com/stumble/wpgx"
 )
 
-// Repos holds all repository instances
+// repos holds all repository instances
 type Repos struct {
 	OperatorRepo          *operators.Queries
 	BlacklistRepo         *blacklist.Queries
@@ -41,7 +41,7 @@ type Repos struct {
 	ConsensusResponseRepo *consensus_responses.Queries
 }
 
-// App holds all the dependencies
+// app holds all the dependencies
 type App struct {
 	ctx            context.Context
 	isKeyPath      bool
@@ -69,16 +69,16 @@ type App struct {
 	epochUpdator  epoch.EpochStateQuerier
 }
 
-// New creates a new application instance
+// new creates a new application instance
 func New(ctx context.Context) *App {
 	return &App{
 		ctx: ctx,
 	}
 }
 
-// Run starts the application with the provided configuration
+// run starts the application with the provided configuration
 func (a *App) Run(isKeyPath bool, signingKey, p2pKey, password string) error {
-	// Store parameters
+	// store parameters
 	a.isKeyPath = isKeyPath
 	if isKeyPath {
 		a.signingKeyPath = signingKey
@@ -144,7 +144,7 @@ func (a *App) Run(isKeyPath bool, signingKey, p2pKey, password string) error {
 	select {}
 }
 
-// Shutdown gracefully stops the application
+// shutdown gracefully stops the application
 func (a *App) Shutdown() error {
 	if a.db != nil {
 		a.db.Close()
@@ -161,7 +161,7 @@ func (a *App) Shutdown() error {
 	return nil
 }
 
-// 保持所有原有的init方法，但改为小写的私有方法
+// initConfig loads application configuration
 func (a *App) initConfig() error {
 	var err error
 	a.cfg, err = config.LoadConfig("config/operator.yaml")
@@ -172,6 +172,7 @@ func (a *App) initConfig() error {
 	return nil
 }
 
+// initSigner initializes the signing service
 func (a *App) initSigner() error {
 	var cfg *signer.Config
 	if a.isKeyPath {
@@ -194,6 +195,7 @@ func (a *App) initSigner() error {
 	return nil
 }
 
+// initMetrics starts the metrics server
 func (a *App) initMetrics() error {
 	a.metricServer = metric.New(&metric.Config{
 		Port: a.cfg.Metric.Port,
@@ -207,6 +209,7 @@ func (a *App) initMetrics() error {
 	return nil
 }
 
+// initDatabase connects to postgres and redis
 func (a *App) initDatabase() error {
 	var err error
 	a.db, err = wpgxInitor.NewWPGXPool(a.ctx, "POSTGRES")
@@ -232,6 +235,7 @@ func (a *App) initDatabase() error {
 	return nil
 }
 
+// initChainManagerAndMainnetClient sets up blockchain connections
 func (a *App) initChainManagerAndMainnetClient() error {
 
 	chainManager, err := ethereum.NewManager(a.cfg)
@@ -251,6 +255,7 @@ func (a *App) initChainManagerAndMainnetClient() error {
 	return nil
 }
 
+// initEventListener creates contract event listener
 func (a *App) initEventListener() error {
 	_, err := event.NewEventListener(a.ctx, &event.Config{
 		MainnetClient: a.mainnetClient,
@@ -263,6 +268,7 @@ func (a *App) initEventListener() error {
 	return nil
 }
 
+// initGater creates p2p connection gater
 func (a *App) initGater() error {
 	gater, err := gater.NewConnectionGater(&gater.Config{
 		BlacklistRepo: a.repos.BlacklistRepo,
@@ -276,6 +282,7 @@ func (a *App) initGater() error {
 	return nil
 }
 
+// initNode sets up p2p networking
 func (a *App) initNode() error {
 	privKey, err := signer.Base64ToPrivKey(a.p2pKey)
 	if err != nil {
@@ -307,7 +314,6 @@ func (a *App) initNode() error {
 		BootstrapPeers:   bootstrapPeers,
 		RendezvousString: a.cfg.P2P.Rendezvous,
 	})
-	a.gater.SetNode(a.node)
 	if err != nil {
 		metric.RecordError("node_creation_failed")
 		return fmt.Errorf("failed to create operator node: %w", err)
@@ -316,6 +322,7 @@ func (a *App) initNode() error {
 	return nil
 }
 
+// initEpochUpdator creates epoch state manager
 func (a *App) initEpochUpdator() error {
 
 	epochUpdator, err := epoch.NewEpochUpdator(a.ctx, &epoch.Config{
@@ -331,6 +338,7 @@ func (a *App) initEpochUpdator() error {
 	return nil
 }
 
+// initTaskProcessor creates and starts task processor
 func (a *App) initTaskProcessor() error {
 	gossipOpts := []pubsub.Option{
 		pubsub.WithMessageSigning(true),
@@ -381,6 +389,7 @@ func (a *App) initTaskProcessor() error {
 	return nil
 }
 
+// initAPI starts the HTTP API server
 func (a *App) initAPI() error {
 	apiHandler, err := api.NewHandler(api.Config{
 		TaskRepo:              a.repos.TaskRepo,
@@ -404,6 +413,7 @@ func (a *App) initAPI() error {
 	return nil
 }
 
+// initHealthChecker creates health monitoring service
 func (a *App) initHealthChecker() error {
 	pingService := ping.NewPingService(a.host)
 	healthService, err := health.NewHealthChecker(a.ctx, a.node, pingService)
@@ -413,13 +423,11 @@ func (a *App) initHealthChecker() error {
 	}
 	defer healthService.Stop()
 
-	// 获取健康状态
 	status := healthService.GetStatus()
 	log.Printf("[Main] Health status: %v", status)
 
 	healthService.SetCheckInterval(30 * time.Second)
 
-	// 手动触发检查
 	healthService.TriggerCheck(a.ctx)
 	return nil
 }

@@ -58,7 +58,6 @@ func (o blacklistStatesTableSerde) Dump() ([]byte, error) {
 	})
 }
 
-// OperatorTestSuite 是主测试套件
 type OperatorTestSuite struct {
 	*testsuite.WPgxTestSuite
 	gater *connectionGater
@@ -75,19 +74,16 @@ func TestOperatorSuite(t *testing.T) {
 	suite.Run(t, newOperatorTestSuite())
 }
 
-// SetupTest 在每个测试前运行
 func (s *OperatorTestSuite) SetupTest() {
 	s.WPgxTestSuite.SetupTest()
 	s.Require().NoError(s.RedisConn.FlushAll(context.Background()).Err())
 	s.FreeCache.Clear()
 
-	// 确保数据库连接正确初始化
 	pool := s.GetPool()
 	s.Require().NotNil(pool, "Database pool should not be nil")
 	conn := pool.WConn()
 	s.Require().NotNil(conn, "Database connection should not be nil")
 
-	// 确保 operatorRepo 正确初始化
 	operatorRepo := operators.New(conn, s.DCache)
 	s.Require().NotNil(operatorRepo, "Operator repository should not be nil")
 	s.operatorRepo = operatorRepo
@@ -95,7 +91,6 @@ func (s *OperatorTestSuite) SetupTest() {
 	s.Require().NotNil(blacklistRepo, "Blacklist repository should not be nil")
 	s.blacklistRepo = blacklistRepo
 
-	// 创建 EventListener
 	gater, err := NewConnectionGater(&Config{
 		BlacklistRepo: s.blacklistRepo,
 		OperatorRepo:  s.operatorRepo,
@@ -104,9 +99,7 @@ func (s *OperatorTestSuite) SetupTest() {
 	s.gater = gater.(*connectionGater)
 }
 
-// NewOperatorTestSuite 创建新的测试套件实例
 func newOperatorTestSuite() *OperatorTestSuite {
-	// 初始化 Redis
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:        "127.0.0.1:6379",
 		ReadTimeout: 3 * time.Second,
@@ -118,10 +111,8 @@ func newOperatorTestSuite() *OperatorTestSuite {
 		panic(fmt.Errorf("redis connection failed to ping"))
 	}
 
-	// 创建 freecache 实例
 	memCache := freecache.NewCache(100 * 1024 * 1024)
 
-	// 创建 dcache
 	dCache, err := dcache.NewDCache(
 		"test", redisClient, memCache, 100*time.Millisecond, true, true)
 	if err != nil {
@@ -144,7 +135,6 @@ func newOperatorTestSuite() *OperatorTestSuite {
 }
 
 // Test cases for gater
-
 func (s *OperatorTestSuite) TestGaterInitialization() {
 	// Test successful initialization
 	gater, err := NewConnectionGater(&Config{

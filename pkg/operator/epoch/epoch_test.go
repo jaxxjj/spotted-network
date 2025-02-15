@@ -100,7 +100,6 @@ func (m *mockMainnetClient) Close() error {
 	return args.Error(0)
 }
 
-// OperatorTestSuite 是主测试套件
 type OperatorTestSuite struct {
 	*testsuite.WPgxTestSuite
 	updator *epochUpdator
@@ -118,36 +117,30 @@ func TestOperatorSuite(t *testing.T) {
 }
 
 func (s *OperatorTestSuite) SetupTest() {
-	// 1. 重置数据库状态
+
 	s.WPgxTestSuite.SetupTest()
 
-	// 2. 清理缓存
 	s.Require().NoError(s.RedisConn.FlushAll(context.Background()).Err())
 	s.FreeCache.Clear()
 
-	// 3. 使用测试套件的数据库连接
 	pool := s.GetPool()
 	s.Require().NotNil(pool)
 
-	// 4. 使用同一个连接创建 repository
 	operatorRepo := operators.New(pool.WConn(), s.DCache)
 	s.Require().NotNil(operatorRepo)
 	s.operatorRepo = operatorRepo
 
-	// 5. 创建 updator
 	s.mainnetClient = newMockMainnetClient()
 	updator, err := NewEpochUpdator(context.Background(), &Config{
 		OperatorRepo:  operatorRepo,
 		MainnetClient: s.mainnetClient,
-		TxManager:     pool, // 使用同一个连接池
+		TxManager:     pool,
 	})
 	s.Require().NoError(err)
 	s.updator = updator.(*epochUpdator)
 }
 
-// NewOperatorTestSuite 创建新的测试套件实例
 func newOperatorTestSuite() *OperatorTestSuite {
-	// 初始化 Redis
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:        "127.0.0.1:6379",
 		ReadTimeout: 3 * time.Second,
@@ -159,10 +152,8 @@ func newOperatorTestSuite() *OperatorTestSuite {
 		panic(fmt.Errorf("redis connection failed to ping"))
 	}
 
-	// 创建 freecache 实例
 	memCache := freecache.NewCache(100 * 1024 * 1024)
 
-	// 创建 dcache
 	dCache, err := dcache.NewDCache(
 		"test", redisClient, memCache, 100*time.Millisecond, true, true)
 	if err != nil {

@@ -12,9 +12,6 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(middleware.ThrottleBacklog(50, 100, time.Second))
 
-	// 或者使用更严格的限流
-	// r.Use(middleware.ThrottleAll(100, time.Second))
-
 	// Task related endpoints
 	r.Route("/api/v1", func(r chi.Router) {
 		// Task operations

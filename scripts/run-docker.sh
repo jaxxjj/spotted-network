@@ -1,24 +1,24 @@
 #!/bin/bash
 
-# 检查P2P密钥
+# check p2p key
 if [ -z "$P2P_KEY_64" ]; then
     echo "Error: P2P_KEY_64 not set"
     exit 1
 fi
 
-# 检查签名方式 - 互斥检查
+# check signing method - mutually exclusive check
 if [ -n "$SIGNING_KEY_PATH" ] && [ -n "$SIGNING_KEY_PRIV" ]; then
     echo "Error: Cannot use both SIGNING_KEY_PATH and SIGNING_KEY_PRIV"
     exit 1
 fi
 
-# 如果都没有设置,报错
+# if neither is set, report an error
 if [ -z "$SIGNING_KEY_PATH" ] && [ -z "$SIGNING_KEY_PRIV" ]; then
     echo "Error: Either SIGNING_KEY_PATH or SIGNING_KEY_PRIV must be set"
     exit 1
 fi
 
-# 如果使用keystore文件,检查密码和文件
+# if using keystore file, check password and file
 if [ -n "$SIGNING_KEY_PATH" ]; then
     if [ -z "$KEYSTORE_PASSWORD" ]; then
         echo "Error: KEYSTORE_PASSWORD is required when using SIGNING_KEY_PATH"
@@ -31,34 +31,34 @@ if [ -n "$SIGNING_KEY_PATH" ]; then
     fi
 fi
 
-# 准备docker运行命令
+# prepare docker run command
 DOCKER_CMD="docker run -d \
     --name spotted-operator \
     --network host \
     -v ~/.spotted/config:/app/config"
 
-# 创建必要的目录
+# create necessary directories
 mkdir -p ~/.spotted/config ~/.spotted/keys/signing
 
-# 复制配置文件
+# copy config file
 cp config/operator.yaml ~/.spotted/config/
 
-# 根据签名方式设置不同的参数
+# set different parameters based on signing method
 if [ -n "$SIGNING_KEY_PATH" ]; then
-    # 复制密钥文件
+    # copy key file
     cp "$SIGNING_KEY_PATH" ~/.spotted/keys/signing/operator.key.json
     
-    # 添加密钥目录挂载
+    # add key directory mount
     DOCKER_CMD+=" -v ~/.spotted/keys:/app/keys"
     
-    # 设置启动参数
+    # set startup parameters
     SIGNING_ARG="--signing-key-path /app/keys/signing/operator.key.json --password $KEYSTORE_PASSWORD"
 else
-    # 使用私钥
+    # use private key
     SIGNING_ARG="--signing-key-priv $SIGNING_KEY_PRIV"
 fi
 
-# 完成docker命令
+# complete docker command
 DOCKER_CMD+=" -p 4014:4014 \
     -p 8080:8080 \
     -p 10000:10000 \
@@ -69,7 +69,7 @@ DOCKER_CMD+=" -p 4014:4014 \
     --p2p-key-64 \"$P2P_KEY_64\" \
     --config /app/config/operator.yaml"
 
-# 执行docker命令
+# execute docker command
 eval "$DOCKER_CMD"
 
 echo "Spotted operator container started"

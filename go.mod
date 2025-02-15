@@ -4,7 +4,6 @@ go 1.23.3
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
-	github.com/Masterminds/semver/v3 v3.3.1
 	github.com/agoda-com/opentelemetry-go/otelzerolog v0.0.1
 	github.com/agoda-com/opentelemetry-logs-go v0.3.0
 	github.com/coocood/freecache v1.2.4

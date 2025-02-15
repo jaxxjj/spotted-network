@@ -405,19 +405,16 @@ func TestOperatorSuite(t *testing.T) {
 	suite.Run(t, newOperatorTestSuite())
 }
 
-// SetupTest 在每个测试前运行
 func (s *OperatorTestSuite) SetupTest() {
 	s.WPgxTestSuite.SetupTest()
 	s.Require().NoError(s.RedisConn.FlushAll(context.Background()).Err())
 	s.FreeCache.Clear()
 
-	// 确保数据库连接正确初始化
 	pool := s.GetPool()
 	s.Require().NotNil(pool, "Database pool should not be nil")
 	conn := pool.WConn()
 	s.Require().NotNil(conn, "Database connection should not be nil")
 
-	// 确保 operatorRepo 正确初始化
 	operatorRepo := operators.New(conn, s.DCache)
 	s.Require().NotNil(operatorRepo, "Operator repository should not be nil")
 	s.operatorRepo = operatorRepo
@@ -469,9 +466,7 @@ func (s *OperatorTestSuite) SetupTest() {
 	s.processor = processor.(*taskProcessor)
 }
 
-// NewOperatorTestSuite 创建新的测试套件实例
 func newOperatorTestSuite() *OperatorTestSuite {
-	// 初始化 Redis
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:        "127.0.0.1:6379",
 		ReadTimeout: 3 * time.Second,
@@ -720,34 +715,27 @@ func (s *OperatorTestSuite) TestProcessorStop() {
 
 // TestTaskChecking tests the task checking functionality
 func (s *OperatorTestSuite) TestTaskChecking() {
-	// 设置检查间隔
 	pendingTaskCheckInterval = 1 * time.Second
 	confirmationCheckInterval = 1 * time.Second
 	cleanupInterval = 1 * time.Second
 
-	// 设置mock期望,允许多次调用
 	mockChainClient := NewMockChainClient()
 	s.mockChainMgr.On("GetClientByChainId", uint32(1)).Return(mockChainClient, nil).Maybe()
 	mockChainClient.On("BlockNumber", mock.Anything).Return(uint64(120), nil).Maybe()
 
 	s.processor.Start(context.Background(), s.mockSubscription)
 
-	// Load initial task states
 	taskSerde := taskTableSerde{
 		taskQuerier: s.taskRepo.(*tasks.Queries),
 	}
 	s.LoadState("TestOperatorSuite/TestTaskChecking/initial_tasks.json", taskSerde)
 
-	// 等待足够时间让已经运行的checkTimeouts完成一次检查
 	time.Sleep(4 * time.Second)
 
-	// 验证timeout检查结果
 	s.Golden("after_timeout_check", taskSerde)
 
-	// 等待已经运行的checkConfirmations完成一次检查
 	time.Sleep(2 * time.Second)
 
-	// Verify state after confirmation check
 	s.Golden("after_confirmation_check", taskSerde)
 }
 
@@ -1382,10 +1370,8 @@ func (s *OperatorTestSuite) TestProcessTask() {
 
 // TestGetStateWithRetries tests normal getStateWithRetries functionality
 func (s *OperatorTestSuite) TestGetStateWithRetries() {
-	// 创建 mock chain client
 	mockChainClient := NewMockChainClient()
 
-	// 设置正常情况下的返回值
 	mockChainClient.On("BlockNumber", mock.Anything).Return(uint64(120), nil)
 	mockChainClient.On("GetStateAtBlock",
 		mock.MatchedBy(func(addr ethcommon.Address) bool {
@@ -1395,7 +1381,6 @@ func (s *OperatorTestSuite) TestGetStateWithRetries() {
 		uint64(100),
 	).Return(big.NewInt(1), nil)
 
-	// 执行测试
 	state, err := getStateWithRetries(
 		context.Background(),
 		mockChainClient,
@@ -1404,7 +1389,6 @@ func (s *OperatorTestSuite) TestGetStateWithRetries() {
 		uint64(100),
 	)
 
-	// 验证结果
 	s.NoError(err)
 	s.NotNil(state)
 	s.Equal(big.NewInt(1), state)
